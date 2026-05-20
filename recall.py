@@ -26,7 +26,10 @@ def create_bot(meeting_url: str, bot_name: str = "Malena - Mi Gestión Web") -> 
         "bot_name": bot_name,
         "recording_config": {
             # Audio mezclado de todos los participantes, en tiempo real
-            "audio_mixed_raw": {},
+            "audio_mixed_raw": {
+                "destination_sample_rate": 16000,
+                "destination_channels": 1,
+            },
             "realtime_endpoints": [
                 {
                     "type": "websocket",

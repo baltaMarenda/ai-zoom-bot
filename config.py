@@ -29,6 +29,7 @@ DEEPGRAM_WS_URL = (
     "&language=es-419"
     "&model=nova-2"
     "&smart_format=true"
+    "&interim_results=true"
     "&utterance_end_ms=1200"
     "&vad_events=true"
 )
