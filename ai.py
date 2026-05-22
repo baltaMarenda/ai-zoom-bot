@@ -1,44 +1,45 @@
 """
 ai.py
-Lógica de OpenAI (ask_ai) y ElevenLabs TTS (speak).
-Extraído de tu stt_test.py original, sin cambios de lógica.
 """
 import requests
+import json
 from openai import OpenAI
 from config import (
     OPENAI_API_KEY,
     ELEVENLABS_API_KEY,
     ELEVENLABS_VOICE_ID,
-    SYSTEM_PROMPT,
+    PROMPTS_BY_STAGE,   # ← cambio
 )
 
 client = OpenAI(api_key=OPENAI_API_KEY)
-
-# Memoria conversacional (igual que en tu código original)
 conversation = []
 
 
-def ask_ai(text: str) -> str:
+def ask_ai(text: str, stage: str = "intro") -> str:
     """
     Manda el transcript a OpenAI y devuelve la respuesta de Malena.
-    Usa el mismo patrón que tu stt_test.py: responses.create con instructions.
+    El system prompt cambia según el estado actual.
     """
     conversation.append({"role": "user", "content": text})
+
+    system_prompt = PROMPTS_BY_STAGE.get(stage, PROMPTS_BY_STAGE["intro"])
 
     response = client.responses.create(
         model="gpt-4.1-mini",
         input=conversation,
-        instructions=SYSTEM_PROMPT,
+        instructions=system_prompt,
     )
     reply = response.output_text
     conversation.append({"role": "assistant", "content": reply})
 
-    # Limitar memoria a últimas 20 interacciones (evita contexto infinito)
     if len(conversation) > 20:
         conversation.pop(1)
         conversation.pop(1)
 
     return reply
+
+
+
 
 
 def text_to_speech(text: str) -> bytes:
@@ -67,3 +68,27 @@ def text_to_speech(text: str) -> bytes:
 def reset_conversation():
     """Limpia la memoria conversacional (útil entre reuniones)."""
     conversation.clear()
+
+def extract_lead_info(conversation_text: str) -> dict:
+    """
+    Usa OpenAI para extraer nombre y negocio del texto de la conversación.
+    Devuelve {"nombre": "...", "negocio": "..."} o None en cada campo.
+    """
+    response = client.responses.create(
+        model="gpt-4.1-mini",
+        max_output_tokens=100,
+        instructions="""
+Sos un extractor de datos. Del texto que te paso, extraé:
+- nombre: el nombre propio de la persona (solo el nombre, sin apellido si no lo dice)
+- negocio: el tipo o rubro del negocio que mencionó
+
+Respondé SOLO con JSON válido, sin explicaciones ni markdown.
+Ejemplo: {"nombre": "Baltazar", "negocio": "carnicería"}
+Si no encontrás algún dato, usá null.
+""",
+        input=[{"role": "user", "content": conversation_text}],
+    )
+    try:
+        return json.loads(response.output_text)
+    except Exception:
+        return {"nombre": None, "negocio": None}
