@@ -1,8 +1,5 @@
 """
 recall.py
-Interacción con la API de Recall.ai:
-- Crear bot y mandarlo a una reunión
-- Enviar audio al bot (output_audio)
 """
 import base64
 import requests
@@ -10,35 +7,32 @@ from config import RECALL_API_KEY, RECALL_REGION, PUBLIC_WS_URL
 
 RECALL_BASE = f"https://{RECALL_REGION}.recall.ai/api/v1"
 
-# Bot ID activo (se setea al crear el bot)
 current_bot_id: str | None = None
+BOT_NAME = "Malena - Mi Gestión Web"
 
 
-def create_bot(meeting_url: str, bot_name: str = "Malena - Mi Gestión Web") -> dict:
-    """
-    Crea un bot de Recall.ai y lo manda a la reunión.
-    Configura el WebSocket para recibir audio en tiempo real.
-    """
+def create_bot(meeting_url: str, bot_name: str = BOT_NAME) -> dict:
     global current_bot_id
 
     payload = {
         "meeting_url": meeting_url,
         "bot_name": bot_name,
+        "variant": {
+            "zoom": "web_4_core",
+            "google_meet": "web_4_core",
+            "microsoft_teams": "web_4_core",
+        },
         "recording_config": {
-            # Audio mezclado de todos los participantes, en tiempo real
-            "audio_mixed_raw": {
-                "destination_sample_rate": 16000,
-                "destination_channels": 1,
-            },
+            # Audio separado por participante — solo llega audio humano, no el de Malena
+            "audio_separate_raw": {},
             "realtime_endpoints": [
                 {
                     "type": "websocket",
-                    "url": PUBLIC_WS_URL,          # tu FastAPI /audio
-                    "events": ["audio_mixed_raw.data"],
+                    "url": PUBLIC_WS_URL,
+                    "events": ["audio_separate_raw.data"],
                 }
             ],
         },
-        # Necesario para poder llamar a output_audio después
         "automatic_audio_output": {
             "in_call_recording": {
                 "data": {
@@ -66,10 +60,6 @@ def create_bot(meeting_url: str, bot_name: str = "Malena - Mi Gestión Web") -> 
 
 
 def bot_speak(mp3_bytes: bytes, bot_id: str | None = None) -> bool:
-    """
-    Envía audio MP3 al bot para que lo reproduzca en la reunión.
-    Reemplaza el afplay de tu código local.
-    """
     bid = bot_id or current_bot_id
     if not bid:
         print("[Recall] ERROR: no hay bot_id activo")
@@ -94,8 +84,37 @@ def bot_speak(mp3_bytes: bytes, bot_id: str | None = None) -> bool:
         return False
 
 
+def bot_stop(bot_id: str | None = None) -> bool:
+    """Interrumpe el audio actual mandando un MP3 de silencio muy corto."""
+    bid = bot_id or current_bot_id
+    if not bid:
+        return False
+
+    silence = bytes([0xFF, 0xFB, 0x90, 0x00] + [0x00] * 52)
+    b64_silence = base64.b64encode(silence).decode()
+
+    try:
+        response = requests.post(
+            f"{RECALL_BASE}/bot/{bid}/output_audio/",
+            headers={
+                "Authorization": RECALL_API_KEY,
+                "Content-Type": "application/json",
+            },
+            json={"kind": "mp3", "b64_data": b64_silence},
+            timeout=5,
+        )
+        if response.status_code == 200:
+            print("[Recall] Audio cortado ✓")
+            return True
+        else:
+            print(f"[Recall] ERROR bot_stop: {response.status_code}")
+            return False
+    except Exception as e:
+        print(f"[Recall] ERROR bot_stop: {e}")
+        return False
+
+
 def get_bot_status(bot_id: str | None = None) -> dict:
-    """Consulta el estado del bot (joining, in_call, done, etc.)."""
     bid = bot_id or current_bot_id
     response = requests.get(
         f"{RECALL_BASE}/bot/{bid}/",
@@ -107,10 +126,5 @@ def get_bot_status(bot_id: str | None = None) -> dict:
 
 
 def _silence_mp3_b64() -> str:
-    """
-    MP3 de silencio mínimo en base64.
-    Requerido para activar automatic_audio_output al crear el bot.
-    """
-    # Header MP3 válido (frame de silencio)
     silence = bytes([0xFF, 0xFB, 0x90, 0x00] + [0x00] * 413)
     return base64.b64encode(silence).decode()
