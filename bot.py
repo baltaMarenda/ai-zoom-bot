@@ -1,5 +1,8 @@
 """
 bot.py
+Pipeline principal de Malena.
+Audio: en vez de llamar bot_speak(), envía MP3 via WebSocket a la webpage del agente.
+Navegación: envía comandos navigate via WebSocket a la webpage del agente.
 """
 import asyncio
 import base64
@@ -8,14 +11,33 @@ import struct
 import websockets
 import traceback
 
-from config import DEEPGRAM_API_KEY, DEEPGRAM_WS_URL
-from recall import bot_speak, bot_stop
+from config import (
+    DEEPGRAM_API_KEY, DEEPGRAM_WS_URL,
+    DEMO_NAV_KEYWORDS, DEMO_CREATE_CLIENT_KEYWORDS,
+)
 from state import ConversationState, Stage
 from ai import ask_ai, text_to_speech, extract_lead_info, classify_with_ai
 
+# ── Referencia al WebSocket de la webpage del agente ──────────────────────────
+_agent_ws = None
+_audio_done_event = asyncio.Event()
+
+
+def set_agent_websocket(ws):
+    global _agent_ws
+    _agent_ws = ws
+    print(f"[BOT] Agent WS {'conectado' if ws else 'desconectado'}")
+
+
+def on_agent_audio_done():
+    """Llamado desde main.py cuando la webpage termina de reproducir audio."""
+    _audio_done_event.set()
+
+
+# ── Estado de conversación ────────────────────────────────────────────────────
 conv_state = ConversationState()
 
-SPEAKING_COOLDOWN_EXTRA = 0.8
+SPEAKING_COOLDOWN_EXTRA = 0.3
 TRANSCRIPT_DEBOUNCE = 2.5
 DEMO_SILENCE_TIMEOUT = 10.0
 
@@ -25,8 +47,6 @@ _audio_lock = asyncio.Lock()
 # ── Estado global ─────────────────────────────────────────────────────────────
 is_speaking = False
 pending_speech: str = ""
-
-# Contador de intercambios completados (para avanzar INTRO → CALIFICACION)
 _turns_completed = 0
 
 # ── Barge-in ──────────────────────────────────────────────────────────────────
@@ -41,12 +61,56 @@ demo_continue_event = asyncio.Event()
 _pending_user_input: list[str] = []
 _demo_loop_started = False
 
+# ── Navegación MGW ────────────────────────────────────────────────────────────
+_last_navigated_module: str = ""
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+DEMO_MODULE_PATHS = {
+    "USUARIOS":         "/configuracion_usuarios.php",
+    "PANTALLA INICIAL": "/home.php",
+    "BALANZA":          "/balanza3.php?balanza=6",
+    "CAJA":             "/caja.php",
+    "FACTURACIÓN":      "/venta.php",
+    "VENTAS":           "/venta.php",
+    "CLIENTES":         "/clientes.php",
+    "CIERRES":          "/caja_cierre.php",
+    "PROVEEDORES":      "/compras.php",
+    "STOCK":            "/stock_existencia_2.php",
+    "ESTADÍSTICAS":     "/estadisticas_ventas.php",
+    "RRHH":             "/rrhh_personal.php",
+    "TIENDA WEB":       "/mitiendaweb.php",
+}
 
-def classify_interruption(text: str) -> str:
-    return classify_with_ai(text)
 
+# ── Helpers de comunicación con la webpage ────────────────────────────────────
+
+async def _send_to_agent(msg: dict):
+    if _agent_ws is None:
+        print("[BOT] Agent WS no disponible, ignorando mensaje")
+        return
+    try:
+        await _agent_ws.send_json(msg)
+    except Exception as e:
+        print(f"[BOT] Error enviando a agent WS: {e}")
+
+
+async def _send_audio(mp3_bytes: bytes):
+    b64 = base64.b64encode(mp3_bytes).decode()
+    await _send_to_agent({"type": "audio", "data": b64})
+
+
+async def _send_navigate(path: str):
+    await _send_to_agent({"type": "navigate", "path": path})
+
+
+async def _send_reset():
+    await _send_to_agent({"type": "reset"})
+
+
+async def _send_logged_in():
+    await _send_to_agent({"type": "logged_in"})
+
+
+# ── Audio: reproducir y esperar ───────────────────────────────────────────────
 
 def estimate_mp3_duration(mp3_bytes: bytes) -> float:
     try:
@@ -67,21 +131,20 @@ def estimate_mp3_duration(mp3_bytes: bytes) -> float:
 
 
 async def _speak_and_wait(mp3_bytes: bytes) -> bool:
-    """
-    Reproduce audio bajo el lock y espera a que termine O a barge-in.
-    Retorna True si hubo barge-in.
-    """
-    loop = asyncio.get_event_loop()
     duration = estimate_mp3_duration(mp3_bytes)
 
     async with _audio_lock:
-        await loop.run_in_executor(None, bot_speak, mp3_bytes)
+        _audio_done_event.clear()
+        await _send_audio(mp3_bytes)
 
-        wait_task = asyncio.ensure_future(asyncio.sleep(duration + SPEAKING_COOLDOWN_EXTRA))
-        barge_task = asyncio.ensure_future(barge_in_event.wait())
+        wait_task    = asyncio.ensure_future(_audio_done_event.wait())
+        barge_task   = asyncio.ensure_future(barge_in_event.wait())
+        timeout_task = asyncio.ensure_future(
+            asyncio.sleep(duration + SPEAKING_COOLDOWN_EXTRA + 2.0)
+        )
 
         done, pending = await asyncio.wait(
-            [wait_task, barge_task],
+            [wait_task, barge_task, timeout_task],
             return_when=asyncio.FIRST_COMPLETED,
         )
         for t in pending:
@@ -94,7 +157,32 @@ async def _speak_and_wait(mp3_bytes: bytes) -> bool:
     return barge_in_event.is_set()
 
 
+# ── Navegación MGW ────────────────────────────────────────────────────────────
+
+async def _mgw_navigate_from_reply(reply: str):
+    global _last_navigated_module
+    reply_lower = reply.lower()
+    for keyword, module in DEMO_NAV_KEYWORDS.items():
+        if keyword in reply_lower and module != _last_navigated_module:
+            path = DEMO_MODULE_PATHS.get(module)
+            if path:
+                print(f"[MGW] Navegando a: {module} → {path}")
+                await _send_navigate(path)
+                _last_navigated_module = module
+            break
+
+
+async def _mgw_hook(reply: str):
+    if conv_state.stage != Stage.DEMO:
+        return
+    await _mgw_navigate_from_reply(reply)
+
+
 # ── Máquina de estados ────────────────────────────────────────────────────────
+
+def classify_interruption(text: str) -> str:
+    return classify_with_ai(text)
+
 
 def _extract_lead_info(user_text: str):
     global conv_state
@@ -103,24 +191,20 @@ def _extract_lead_info(user_text: str):
     extracted = extract_lead_info(user_text)
     if not conv_state.lead_name and extracted.get("nombre"):
         conv_state.lead_name = extracted["nombre"].title()
-        print(f"👤 Nombre capturado: {conv_state.lead_name}")
+        print(f"👤 Nombre: {conv_state.lead_name}")
     if not conv_state.negocio and extracted.get("negocio"):
         conv_state.negocio = extracted["negocio"]
-        print(f"🏪 Negocio capturado: {conv_state.negocio}")
+        print(f"🏪 Negocio: {conv_state.negocio}")
 
 
 def _extract_contact_info(text: str):
     global conv_state
     if "@" in text or any(c.isdigit() for c in text):
         conv_state.contact_info = text.strip()
-        print(f"📞 Contacto capturado: {conv_state.contact_info}")
+        print(f"📞 Contacto: {conv_state.contact_info}")
 
 
 def _maybe_advance_stage(user_text: str, malena_reply: str):
-    """
-    Avanza el stage basándose en datos concretos, no en keywords frágiles.
-    Llamado después de cada turno completado.
-    """
     global conv_state, _turns_completed, _demo_loop_started
 
     _turns_completed += 1
@@ -128,18 +212,12 @@ def _maybe_advance_stage(user_text: str, malena_reply: str):
     user_lower = user_text.lower()
 
     if stage == Stage.INTRO:
-        # Avanzar a CALIFICACION después del primer turno completado
-        # (Malena ya se presentó, ahora a calificar)
         if _turns_completed >= 1:
             conv_state.advance()
             print(f"→ Estado: {conv_state.stage}")
 
     elif stage == Stage.CALIFICACION:
-        # Intentar extraer datos del usuario en cada turno
         _extract_lead_info(user_text)
-
-        # Avanzar a DEMO cuando tengamos nombre + negocio
-        # y el usuario haya dado el OK (confirma, o Malena ya lo invitó a la demo)
         if conv_state.ready_for_demo():
             usuario_confirmo = any(w in user_lower for w in [
                 "dale", "sí", "si", "bueno", "vamos", "perfecto", "claro",
@@ -155,7 +233,7 @@ def _maybe_advance_stage(user_text: str, malena_reply: str):
                 print(f"📋 Lead: {conv_state.summary()}")
                 if not _demo_loop_started:
                     _demo_loop_started = True
-                    asyncio.create_task(run_demo_loop())
+                    asyncio.create_task(_start_demo())
 
     elif stage == Stage.DEMO:
         palabras_cierre = [
@@ -170,6 +248,12 @@ def _maybe_advance_stage(user_text: str, malena_reply: str):
         _extract_contact_info(user_text)
 
 
+async def _start_demo():
+    print("[BOT] Arrancando demo — notificando webpage...")
+    await _send_logged_in()
+    await run_demo_loop()
+
+
 # ── Pipeline principal (INTRO / CALIFICACION / CIERRE) ────────────────────────
 
 async def process_transcript(transcript: str):
@@ -178,18 +262,16 @@ async def process_transcript(transcript: str):
     if not transcript.strip():
         return
 
-    # Paso 2 del barge-in: capturar la pregunta real
     if waiting_for_question:
         print(f"\n❓ [PREGUNTA POST-BARGE-IN] Usuario: {transcript}")
         await _answer_question(transcript)
         return
 
-    # Durante la demo el loop autónomo maneja todo
     if conv_state.stage == Stage.DEMO:
         if not is_speaking:
             demo_continue_event.set()
             _pending_user_input.append(transcript)
-            print(f"[DEMO] Input del usuario encolado: '{transcript}'")
+            print(f"[DEMO] Input encolado: '{transcript}'")
         return
 
     if is_speaking:
@@ -204,7 +286,6 @@ async def process_transcript(transcript: str):
         reply = await loop.run_in_executor(None, ask_ai, transcript, conv_state.stage)
         print(f"🤖 Malena: {reply}")
 
-        # Intentar extraer datos del usuario antes de avanzar el estado
         if conv_state.stage == Stage.CALIFICACION:
             _extract_lead_info(transcript)
 
@@ -214,16 +295,12 @@ async def process_transcript(transcript: str):
         mp3_bytes = await loop.run_in_executor(None, text_to_speech, reply)
 
         if barge_in_event.is_set():
-            await loop.run_in_executor(None, bot_stop)
-            await asyncio.sleep(0.4)
             await _handle_barge_in()
             return
 
         barge_in = await _speak_and_wait(mp3_bytes)
 
         if barge_in:
-            await loop.run_in_executor(None, bot_stop)
-            await asyncio.sleep(0.4)
             await _handle_barge_in()
 
     except Exception as e:
@@ -238,18 +315,13 @@ async def process_transcript(transcript: str):
 # ── Loop autónomo de la demo ───────────────────────────────────────────────────
 
 async def run_demo_loop():
-    """
-    Corre toda la etapa DEMO de forma autónoma.
-    Malena habla de corrido módulo a módulo.
-    El _audio_lock garantiza que nunca se superpone con _answer_question.
-    """
     global is_speaking, pending_speech, _pending_user_input
 
-    print("🎬 [DEMO LOOP] Iniciando demo autónoma...")
+    print("🎬 [DEMO LOOP] Iniciando...")
     loop = asyncio.get_event_loop()
 
     negocio = conv_state.negocio or "su negocio"
-    nombre = conv_state.lead_name or ""
+    nombre  = conv_state.lead_name or ""
     user_input_for_prompt = (
         f"Arrancá la demo para {nombre}, que tiene una {negocio}. "
         f"Mostrá los primeros 2 módulos (ACCESO y USUARIOS) con 3-4 oraciones en total. "
@@ -261,14 +333,12 @@ async def run_demo_loop():
         demo_continue_event.clear()
         _pending_user_input.clear()
 
-        # Esperar si hay una interrupción en curso
         if _audio_lock.locked() or waiting_for_question or handling_barge_in:
             print("[DEMO LOOP] Esperando interrupción en curso...")
             while _audio_lock.locked() or waiting_for_question or handling_barge_in:
                 await asyncio.sleep(0.2)
             user_input_for_prompt = (
-                "Continuá la demo desde donde estabas. "
-                "Siguiente módulo, 3-4 oraciones, hablá de corrido sin preguntar si seguimos."
+                "Continuá la demo desde donde estabas. Siguiente módulo, 3-4 oraciones."
             )
 
         try:
@@ -279,49 +349,35 @@ async def run_demo_loop():
             print(f"🤖 Malena: {reply}")
             pending_speech = reply
 
-            # Registrar módulos vistos (opcional, para no repetir)
             _maybe_advance_stage(user_input_for_prompt, reply)
+            await _mgw_hook(reply)
 
             mp3_bytes = await loop.run_in_executor(None, text_to_speech, reply)
 
-            # Barge-in durante generación de TTS
             if barge_in_event.is_set():
-                await loop.run_in_executor(None, bot_stop)
-                await asyncio.sleep(0.4)
                 await _handle_barge_in()
                 while waiting_for_question or handling_barge_in or _audio_lock.locked():
                     await asyncio.sleep(0.2)
-                user_input_for_prompt = (
-                    "Continuá la demo desde donde estabas. "
-                    "Siguiente módulo, 3-4 oraciones, sin preguntar si seguimos."
-                )
+                user_input_for_prompt = "Continuá la demo desde donde estabas. Siguiente módulo, 3-4 oraciones."
                 is_speaking = False
                 pending_speech = ""
                 continue
 
-            # Reproducir
             barge_in = await _speak_and_wait(mp3_bytes)
             is_speaking = False
             pending_speech = ""
             barge_in_event.clear()
 
             if barge_in:
-                await loop.run_in_executor(None, bot_stop)
-                await asyncio.sleep(0.4)
                 await _handle_barge_in()
                 while waiting_for_question or handling_barge_in or _audio_lock.locked():
                     await asyncio.sleep(0.2)
-                user_input_for_prompt = (
-                    "Continuá la demo desde donde estabas. "
-                    "Siguiente módulo, 3-4 oraciones, sin preguntar si seguimos."
-                )
+                user_input_for_prompt = "Continuá la demo desde donde estabas. Siguiente módulo, 3-4 oraciones."
                 continue
 
-            # Audio terminó — ventana de silencio antes de avanzar sola
             print(f"[DEMO LOOP] Esperando input ({DEMO_SILENCE_TIMEOUT}s)...")
-
             silence_task = asyncio.ensure_future(asyncio.sleep(DEMO_SILENCE_TIMEOUT))
-            user_task = asyncio.ensure_future(demo_continue_event.wait())
+            user_task    = asyncio.ensure_future(demo_continue_event.wait())
 
             done, pending = await asyncio.wait(
                 [silence_task, user_task],
@@ -336,11 +392,10 @@ async def run_demo_loop():
 
             if demo_continue_event.is_set() and _pending_user_input:
                 user_said = " ".join(_pending_user_input).strip()
-                print(f"[DEMO LOOP] Usuario dijo: '{user_said}'")
+                print(f"[DEMO LOOP] Usuario: '{user_said}'")
                 kind = classify_interruption(user_said)
                 print(f"[DEMO LOOP] Clasificación: {kind}")
 
-                # Verificar si el usuario quiere cerrar la demo
                 cierre_words = [
                     "no tengo más", "eso es todo", "perfecto así",
                     "muchas gracias", "listo", "re bien", "estoy conforme",
@@ -352,22 +407,16 @@ async def run_demo_loop():
 
                 if kind in ("noise", "backchannel"):
                     user_input_for_prompt = (
-                        "Perfecto, continuá con el siguiente módulo. "
-                        "3-4 oraciones, hablá de corrido sin preguntar si seguimos."
+                        "Perfecto, continuá con el siguiente módulo. 3-4 oraciones, hablá de corrido."
                     )
                 else:
                     user_input_for_prompt = (
                         f"El usuario preguntó: '{user_said}'. "
-                        f"Respondé en 1-2 oraciones y continuá con el siguiente módulo "
-                        f"sin preguntar si queremos seguir."
+                        f"Respondé en 1-2 oraciones y continuá con el siguiente módulo."
                     )
             else:
-                # Silencio — avanzar sola
                 print("[DEMO LOOP] Silencio — avanzando sola...")
-                user_input_for_prompt = (
-                    "Continuá con el siguiente módulo. "
-                    "3-4 oraciones, hablá de corrido sin preguntar si seguimos."
-                )
+                user_input_for_prompt = "Continuá con el siguiente módulo. 3-4 oraciones, hablá de corrido."
 
         except Exception as e:
             print(f"[ERROR] run_demo_loop: {e}")
@@ -375,11 +424,10 @@ async def run_demo_loop():
             is_speaking = False
             pending_speech = ""
             await asyncio.sleep(1)
-            user_input_for_prompt = (
-                "Continuá con el siguiente módulo de la demo."
-            )
+            user_input_for_prompt = "Continuá con el siguiente módulo de la demo."
 
     print("🎬 [DEMO LOOP] Demo terminada.")
+    await _send_reset()
 
 
 # ── Barge-in handlers ─────────────────────────────────────────────────────────
@@ -404,25 +452,24 @@ async def _handle_barge_in():
         interrupted_context = pending_speech
 
         if _is_complete_question(interruption):
-            # Ya tiene la pregunta — responder directo sin "Sí, decime"
             print("❓ Pregunta completa, respondiendo directo...")
             await _answer_question(interruption)
         else:
-            # Solo señaló que quiere hablar — ceder la palabra y esperar
             ack_prompt = (
                 "El usuario te interrumpió en medio de la demo. "
                 "Decí SOLO una frase muy corta para cederle la palabra "
                 "(ej: 'Sí, decime.', 'Claro, decime.', 'Dale, contame.'). "
-                "Una sola oración, sin retomar el tema ni agregar nada más."
+                "Una sola oración."
             )
             ack_reply = await loop.run_in_executor(None, ask_ai, ack_prompt, conv_state.stage)
             print(f"🤖 Malena (ack): {ack_reply}")
-            ack_mp3 = await loop.run_in_executor(None, text_to_speech, ack_reply)
-            ack_duration = estimate_mp3_duration(ack_mp3)
+            ack_mp3   = await loop.run_in_executor(None, text_to_speech, ack_reply)
 
             async with _audio_lock:
-                await loop.run_in_executor(None, bot_speak, ack_mp3)
-                await asyncio.sleep(ack_duration + 0.3)
+                _audio_done_event.clear()
+                await _send_audio(ack_mp3)
+                ack_duration = estimate_mp3_duration(ack_mp3)
+                await asyncio.sleep(ack_duration + 0.5)
 
             print("👂 Esperando pregunta real del usuario...")
             waiting_for_question = True
@@ -436,15 +483,7 @@ async def _handle_barge_in():
 
 
 def _is_complete_question(text: str) -> bool:
-    """
-    Determina si la interrupción ya es una pregunta/comentario completo
-    que Malena puede responder directo, sin necesitar "Sí, decime" primero.
-
-    Retorna False solo para frases que son pura señal de querer hablar:
-    "para", "una pregunta", "espera", etc.
-    """
     text_lower = text.strip().lower().rstrip(".,!")
-
     solo_senal = {
         "para", "pará", "para un momento", "pará un momento",
         "una pregunta", "tengo una pregunta", "una duda", "tengo una duda",
@@ -453,19 +492,13 @@ def _is_complete_question(text: str) -> bool:
     }
     if text_lower in solo_senal:
         return False
-
-    # Más de 4 palabras → casi seguro es contenido completo
     if len(text.split()) > 4:
         return True
-
-    # Tiene signo de pregunta o palabra interrogativa → pregunta completa
     interrogativas = ["qué", "que", "cómo", "como", "cuánto", "cuanto",
                       "cuándo", "cuando", "dónde", "donde", "cuál", "cual",
                       "quién", "quien", "por qué", "para qué"]
     if "?" in text or any(text_lower.startswith(w) for w in interrogativas):
         return True
-
-    # Corta y sin interrogativas → probablemente solo señal
     return False
 
 
@@ -476,7 +509,7 @@ async def _answer_question(question: str):
 
     try:
         kind = classify_interruption(question)
-        print(f"💬 Clasificación post-barge-in [{kind}]: '{question}'")
+        print(f"💬 Post-barge-in [{kind}]: '{question}'")
 
         context_hint = (
             f" Antes de ser interrumpida, estabas diciendo: '{interrupted_context}'."
@@ -484,36 +517,35 @@ async def _answer_question(question: str):
         )
 
         if kind in ("noise", "backchannel"):
-            print("↩️ Usuario canceló la pregunta, retomando...")
             resume_prompt = (
                 f"El usuario te había interrumpido pero dice '{question}' — no tiene pregunta real.{context_hint} "
-                f"Retomá naturalmente desde donde estabas en 1-2 oraciones, sin mencionar la interrupción."
+                f"Retomá naturalmente en 1-2 oraciones."
                 if interrupted_context else
-                f"El usuario dice '{question}'. Continuá con la demo normalmente."
+                f"El usuario dice '{question}'. Continuá con la demo."
             )
         else:
-            print(f"❓ Respondiendo pregunta real: '{question}'")
             resume_prompt = (
                 f"El usuario te preguntó: '{question}'.{context_hint} "
-                f"Respondé en 1-2 oraciones y retomá el punto de la demo donde estabas, "
-                f"sin sonar forzado ni repetir todo desde el principio."
+                f"Respondé en 1-2 oraciones y retomá la demo donde estabas."
             )
 
         reply = await loop.run_in_executor(None, ask_ai, resume_prompt, conv_state.stage)
         print(f"🤖 Malena (respuesta + retoma): {reply}")
 
-        mp3 = await loop.run_in_executor(None, text_to_speech, reply)
+        await _mgw_hook(reply)
+
+        mp3      = await loop.run_in_executor(None, text_to_speech, reply)
         duration = estimate_mp3_duration(mp3)
 
         async with _audio_lock:
             is_speaking = True
-            await loop.run_in_executor(None, bot_speak, mp3)
+            _audio_done_event.clear()
+            await _send_audio(mp3)
             await asyncio.sleep(duration + SPEAKING_COOLDOWN_EXTRA)
 
     except Exception as e:
         print(f"[ERROR] _answer_question: {e}")
         traceback.print_exc()
-
     finally:
         handling_barge_in = False
         waiting_for_question = False
@@ -551,7 +583,7 @@ async def deepgram_pipeline(audio_source: asyncio.Queue):
         ping_timeout=30,
         close_timeout=10,
     ) as ws:
-        print("🎤 Deepgram conectado, escuchando audio de la reunión...")
+        print("🎤 Deepgram conectado...")
 
         async def send_audio():
             KEEPALIVE_SILENCE = b'\x00\x00' * 1600
@@ -569,7 +601,6 @@ async def deepgram_pipeline(audio_source: asyncio.Queue):
 
             async for message in ws:
                 result = json.loads(message)
-
                 if result.get("type") != "Results":
                     continue
                 if not result.get("speech_final"):
@@ -579,12 +610,11 @@ async def deepgram_pipeline(audio_source: asyncio.Queue):
                 if not transcript:
                     continue
 
-                # Modo "esperando pregunta" post-barge-in
                 if waiting_for_question:
                     _accumulated_transcript = (
                         (_accumulated_transcript + " " + transcript).strip()
                     )
-                    print(f"[Debounce/pregunta] Acumulado: '{_accumulated_transcript}'")
+                    print(f"[Debounce/pregunta] '{_accumulated_transcript}'")
                     if _debounce_task and not _debounce_task.done():
                         _debounce_task.cancel()
                     _debounce_task = asyncio.create_task(
@@ -599,14 +629,14 @@ async def deepgram_pipeline(audio_source: asyncio.Queue):
                     if kind in ("noise", "backchannel"):
                         print(f"[BARGE-IN] Ignorado ({kind}): '{transcript}'")
                         continue
-                    print(f"[BARGE-IN] Pregunta detectada: '{transcript}'")
+                    print(f"[BARGE-IN] Pregunta: '{transcript}'")
                     barge_in_text = transcript
                     barge_in_event.set()
                 else:
                     _accumulated_transcript = (
                         (_accumulated_transcript + " " + transcript).strip()
                     )
-                    print(f"[Debounce] Acumulado: '{_accumulated_transcript}'")
+                    print(f"[Debounce] '{_accumulated_transcript}'")
                     if _debounce_task and not _debounce_task.done():
                         _debounce_task.cancel()
                     _debounce_task = asyncio.create_task(
@@ -626,11 +656,9 @@ async def handle_recall_audio(websocket):
         try:
             while True:
                 message = await websocket.receive()
-
                 if "text" in message:
-                    data = json.loads(message["text"])
+                    data  = json.loads(message["text"])
                     event = data.get("event", "")
-
                     if event == "audio_separate_raw.data":
                         participant = data["data"]["data"].get("participant", {})
                         if participant.get("name") == "Malena - Mi Gestión Web":
@@ -640,12 +668,10 @@ async def handle_recall_audio(websocket):
                         await audio_queue.put(pcm_audio)
                     else:
                         print(f"[WS] Evento: {event}")
-
                 elif "bytes" in message:
                     chunk = message["bytes"]
                     if len(chunk) > 4:
                         await audio_queue.put(chunk[4:])
-
         except Exception as e:
             print(f"[WS] Recall.ai desconectado: {e}")
         finally:
@@ -660,7 +686,4 @@ async def handle_recall_audio(websocket):
             traceback.print_exc()
         print("[DEEPGRAM] Task terminado")
 
-    await asyncio.gather(
-        receive_from_recall(),
-        run_deepgram(),
-    )
+    await asyncio.gather(receive_from_recall(), run_deepgram())

@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Malena - Mi Gestión Web</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      width: 1280px;
+      height: 720px;
+      overflow: hidden;
+      background: #0f172a;
+      font-family: 'Segoe UI', sans-serif;
+      color: #f1f5f9;
+    }
+
+    #layout {
+      display: flex;
+      width: 1280px;
+      height: 720px;
+    }
+
+    /* ── Sidebar ── */
+    #sidebar {
+      width: 260px;
+      height: 720px;
+      background: linear-gradient(160deg, #1e293b 0%, #0f172a 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      border-right: 1px solid #334155;
+      flex-shrink: 0;
+    }
+
+    #avatar-container {
+      position: relative;
+      width: 120px;
+      height: 120px;
+    }
+
+    #avatar {
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 48px;
+      position: relative;
+      z-index: 1;
+    }
+
+    #speaking-ring {
+      position: absolute;
+      inset: -8px;
+      border-radius: 50%;
+      border: 3px solid #3b82f6;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    #speaking-ring.active {
+      opacity: 1;
+      animation: pulse-ring 1.2s ease-in-out infinite;
+    }
+
+    @keyframes pulse-ring {
+      0%   { transform: scale(1);    opacity: 0.8; }
+      50%  { transform: scale(1.12); opacity: 0.4; }
+      100% { transform: scale(1);    opacity: 0.8; }
+    }
+
+    #malena-name { font-size: 18px; font-weight: 700; color: #f1f5f9; }
+
+    #malena-role {
+      font-size: 12px;
+      color: #94a3b8;
+      text-align: center;
+      padding: 0 16px;
+    }
+
+    #status-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-size: 12px;
+      color: #94a3b8;
+      margin-top: 8px;
+    }
+
+    #status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #475569;
+      transition: background 0.3s;
+    }
+
+    #status-dot.speaking  { background: #22c55e; }
+    #status-dot.listening { background: #3b82f6; }
+
+    #mgw-logo {
+      margin-top: auto;
+      margin-bottom: 24px;
+      text-align: center;
+    }
+
+    #mgw-logo span   { font-size: 11px; color: #475569; display: block; margin-bottom: 4px; }
+    #mgw-logo strong { font-size: 13px; color: #64748b; }
+
+    /* ── Panel del sistema ── */
+    #main-panel {
+      flex: 1;
+      height: 720px;
+      position: relative;
+      background: #fff;
+    }
+
+    #loading-screen {
+      position: absolute;
+      inset: 0;
+      background: #0f172a;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      z-index: 10;
+      transition: opacity 0.5s;
+    }
+
+    #loading-screen.hidden { opacity: 0; pointer-events: none; }
+
+    #loading-spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid #334155;
+      border-top-color: #3b82f6;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #loading-text { color: #94a3b8; font-size: 14px; }
+
+    #mgw-frame {
+      width: 100%;
+      height: 100%;
+      border: none;
+      display: block;
+    }
+
+    #nav-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(59, 130, 246, 0.08);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s;
+      z-index: 5;
+    }
+
+    #nav-overlay.flash { opacity: 1; }
+  </style>
+</head>
+<body>
+
+<div id="layout">
+
+  <div id="sidebar">
+    <div id="avatar-container">
+      <div id="avatar">👩‍💼</div>
+      <div id="speaking-ring"></div>
+    </div>
+    <div id="malena-name">Malena</div>
+    <div id="malena-role">Asesora de ventas<br>Mi Gestión Web</div>
+    <div id="status-badge">
+      <div id="status-dot"></div>
+      <span id="status-text">Conectando...</span>
+    </div>
+    <div id="mgw-logo">
+      <span>Sistema de gestión</span>
+      <strong>Mi Gestión Web</strong>
+    </div>
+  </div>
+
+  <div id="main-panel">
+    <div id="loading-screen">
+      <div id="loading-spinner"></div>
+      <div id="loading-text">Iniciando sesión en Mi Gestión Web...</div>
+    </div>
+    <div id="nav-overlay"></div>
+    <!--
+      El iframe carga las páginas de MGW a través del proxy /mgw-proxy/
+      Así son mismo origen → no hay problemas de cross-origin ni cookies.
+      No necesita sandbox porque es nuestro propio servidor.
+    -->
+    <iframe id="mgw-frame" src="about:blank"></iframe>
+  </div>
+
+</div>
+
+<script>
+// ── Config ────────────────────────────────────────────────────────────────────
+const WS_URL = (location.protocol === 'https:' ? 'wss://' : 'ws://') +
+               location.host + '/agent-ws';
+
+// Las páginas de MGW se cargan a través del proxy
+const PROXY_BASE = '/mgw-proxy';
+
+// ── UI ────────────────────────────────────────────────────────────────────────
+const statusDot    = document.getElementById('status-dot');
+const statusText   = document.getElementById('status-text');
+const speakingRing = document.getElementById('speaking-ring');
+
+function setStatus(state, text) {
+  statusDot.className = state;
+  statusText.textContent = text;
+  speakingRing.classList.toggle('active', state === 'speaking');
+}
+
+// ── Iframe ────────────────────────────────────────────────────────────────────
+const frame         = document.getElementById('mgw-frame');
+const loadingScreen = document.getElementById('loading-screen');
+const navOverlay    = document.getElementById('nav-overlay');
+
+function navigateTo(path) {
+  // Cargar la página a través del proxy (mismo origen)
+  const proxyUrl = PROXY_BASE + path;
+  console.log('[NAV]', proxyUrl);
+
+  navOverlay.classList.add('flash');
+  setTimeout(() => navOverlay.classList.remove('flash'), 300);
+
+  frame.src = proxyUrl;
+}
+
+frame.addEventListener('load', () => {
+  if (frame.src !== 'about:blank' && frame.src !== '') {
+    loadingScreen.classList.add('hidden');
+  }
+});
+
+// ── Audio ─────────────────────────────────────────────────────────────────────
+let audioContext  = null;
+let audioQueue    = [];
+let isPlayingAudio = false;
+
+function getAudioContext() {
+  if (!audioContext) {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  return audioContext;
+}
+
+async function playMp3(base64Data) {
+  const ctx = getAudioContext();
+  const binary = atob(base64Data);
+  const bytes  = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+  try {
+    const audioBuffer = await ctx.decodeAudioData(bytes.buffer);
+    return new Promise((resolve) => {
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(ctx.destination);
+      source.onended = resolve;
+      source.start(0);
+    });
+  } catch (e) {
+    console.error('[AUDIO] Error:', e);
+  }
+}
+
+async function processAudioQueue() {
+  if (isPlayingAudio || audioQueue.length === 0) return;
+  isPlayingAudio = true;
+  setStatus('speaking', 'Hablando...');
+
+  while (audioQueue.length > 0) {
+    const b64 = audioQueue.shift();
+    await playMp3(b64);
+  }
+
+  isPlayingAudio = false;
+  setStatus('listening', 'Escuchando...');
+
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'audio_done' }));
+  }
+}
+
+// ── WebSocket ─────────────────────────────────────────────────────────────────
+let ws = null;
+
+function connect() {
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => {
+    console.log('[WS] Conectado');
+    setStatus('listening', 'Escuchando...');
+  };
+
+  ws.onmessage = (event) => {
+    let msg;
+    try { msg = JSON.parse(event.data); }
+    catch { return; }
+
+    switch (msg.type) {
+
+      case 'audio':
+        audioQueue.push(msg.data);
+        processAudioQueue();
+        break;
+
+      case 'navigate':
+        navigateTo(msg.path);
+        break;
+
+      case 'logged_in':
+        // Login ya lo hizo el servidor — cargar home directo via proxy
+        navigateTo('/home.php');
+        break;
+
+      case 'reset':
+        frame.src = 'about:blank';
+        loadingScreen.classList.remove('hidden');
+        audioQueue    = [];
+        isPlayingAudio = false;
+        setStatus('listening', 'Escuchando...');
+        break;
+    }
+  };
+
+  ws.onclose = () => {
+    console.log('[WS] Desconectado — reintentando...');
+    setStatus('', 'Reconectando...');
+    setTimeout(connect, 2000);
+  };
+
+  ws.onerror = (e) => console.error('[WS] Error:', e);
+}
+
+connect();
+</script>
+
+</body>
+</html>
