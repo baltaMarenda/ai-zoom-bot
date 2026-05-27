@@ -16,6 +16,17 @@ ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "p7AwDmKvTdoHTBuueGvP")
 RECALL_API_KEY  = os.getenv("RECALL_API_KEY")
 RECALL_REGION   = os.getenv("RECALL_REGION", "us-east-1")
 PUBLIC_WS_URL   = os.getenv("PUBLIC_WS_URL")
+# URL base pública del servidor (sin trailing slash) — usada para la webpage del agente
+# Ej: https://ai-zoom-bot-production.up.railway.app
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
+
+# ─── Mi Gestión Web ───────────────────────────────────────────────────────────
+MGW_URL      = os.getenv("MGW_URL", "https://www.migestionweb.pro/")
+MGW_USER     = os.getenv("MGW_USER", "mgw")
+MGW_EMPRESA  = os.getenv("MGW_EMPRESA", "dev1")
+MGW_PASSWORD = os.getenv("MGW_PASSWORD", "xmgwdev1")
+
+
 
 # ─── Audio ────────────────────────────────────────────────────────────────────
 SAMPLE_RATE = 16000
@@ -92,38 +103,39 @@ Máximo 2-3 frases por respuesta.
 SYSTEM_PROMPT_DEMO = SYSTEM_PROMPT_BASE + """
 ETAPA ACTUAL: DEMO DEL SISTEMA
 
-Estás haciendo una demo de voz en tiempo real. Tu trabajo es mostrar el sistema de corrido,
-como lo haría un vendedor real en una videollamada, sin esperar confirmación después de cada oración.
+Estás haciendo una demo en vivo. El sistema está abierto en pantalla — el cliente lo está viendo.
+Mientras hablás, el sistema navega automáticamente a cada sección.
 
 MÓDULOS EN ORDEN (mostrá 1-2 por bloque):
 1. ACCESO: link web, sin instalación, desde cualquier lugar
-2. USUARIOS: admin vs cajero, permisos configurables
-3. PANTALLA INICIAL: novedades, menú lateral
-4. BALANZA: conexión automática, pesaje de productos
+2. USUARIOS: admin vs cajero, permisos configurables — el sistema ya está en Configuración > Usuarios
+3. PANTALLA INICIAL: novedades, menú lateral — el sistema ya está en el Home
+4. BALANZA: conexión automática, pesaje de productos — el sistema ya está en Balanza
 5. CAJA (lo más importante):
    - Escaneo por código de barras o QR, o carga manual
    - Modificar precio, eliminar con registro
    - Medios de pago: efectivo, Mercado Pago, Cuenta DNI, tarjetas con recargo
    - Descuentos por producto o total
    - ACLARAR: NO valida transferencias automáticamente (muestra saldo al cierre)
+   - El sistema ya está en Caja
 6. FACTURACIÓN: con factura (FCE → ARCA) o sin factura (presupuesto)
    - No hay cierre Z ni X → se usa Estadísticas → Facturación electrónica → Excel
-7. CLIENTES: guardar, listas de precios mayorista/especial
+7. CLIENTES: guardar, listas de precios mayorista/especial — el sistema ya está en Clientes
+   - En este módulo se crea un cliente de prueba en vivo
 8. VENTAS: ticket térmico, reimpresión, envío por mail/WhatsApp, anulación con nota de crédito
-9. CIERRES: por usuario/turno, faltante/sobrante, retiros, caja mayor
-10. PROVEEDORES: compras, IVA, IIBB, impacta en stock, pagos con recibo
-11. STOCK: ingresos, ventas, egresos, producción
-12. ESTADÍSTICAS: ventas por producto/grupo/forma de pago
-13. RRHH: fichaje, adelantos, sueldos
-14. TIENDA WEB: tienda online integrada con stock (sin PedidosYa/Rappi por ahora)
+9. CIERRES: por usuario/turno, faltante/sobrante, retiros, caja mayor — el sistema ya está en Cierre de caja
+10. PROVEEDORES: compras, IVA, IIBB, impacta en stock, pagos con recibo — el sistema ya está en Proveedores
+11. STOCK: ingresos, ventas, egresos, producción — el sistema ya está en Stock > Existencia
+12. ESTADÍSTICAS: ventas por producto/grupo/forma de pago — el sistema ya está en Estadísticas
+13. RRHH: fichaje, adelantos, sueldos — el sistema ya está en RRHH > Personal
+14. TIENDA WEB: tienda online integrada con stock (sin PedidosYa/Rappi por ahora) — el sistema ya está en Mi Tienda Web
 
 CÓMO HABLAR EN LA DEMO:
 - Generá bloques de 3-5 oraciones cubriendo 1-2 módulos
-- Hablá de corrido, como si estuvieras mostrando la pantalla
+- Hablá de corrido, como si estuvieras mostrando la pantalla ("acá ven que...", "en esta sección...")
 - NO termines cada bloque con "¿querés que te muestre...?" ni esperés confirmación
 - Cada 2-3 módulos podés hacer UN check-in natural como:
   "¿Vas bien hasta acá?" o "¿Alguna pregunta sobre esto?"
-  Pero no lo hagas después de cada bloque — solo de vez en cuando
 - Si el usuario pregunta algo, respondé brevemente y retomá el hilo sin volver atrás
 - Adaptá qué módulos destacar según el negocio (ej: carnicería → balanza, caja, stock)
 - Cuando el usuario diga que no tiene más preguntas o está conforme, cerrá la demo
@@ -151,3 +163,34 @@ PROMPTS_BY_STAGE = {
     "demo":         SYSTEM_PROMPT_DEMO,
     "cierre":       SYSTEM_PROMPT_CIERRE,
 }
+
+# ─── Mapeo de keywords en respuesta de Malena → módulo a navegar ──────────────
+# bot.py detecta estas palabras en el reply de Malena y llama a demo_navigate()
+DEMO_NAV_KEYWORDS: dict[str, str] = {
+    "configuración > usuarios":  "USUARIOS",
+    "usuarios":                  "USUARIOS",
+    "pantalla inicial":          "PANTALLA INICIAL",
+    "home":                      "PANTALLA INICIAL",
+    "balanza":                   "BALANZA",
+    "caja":                      "CAJA",
+    "facturación":               "FACTURACIÓN",
+    "ventas":                    "VENTAS",
+    "clientes":                  "CLIENTES",
+    "cierre":                    "CIERRES",
+    "proveedores":               "PROVEEDORES",
+    "stock":                     "STOCK",
+    "estadísticas":              "ESTADÍSTICAS",
+    "estadisticas":              "ESTADÍSTICAS",
+    "rrhh":                      "RRHH",
+    "personal":                  "RRHH",
+    "tienda web":                "TIENDA WEB",
+    "mi tienda":                 "TIENDA WEB",
+}
+
+# Keywords que indican que hay que crear un cliente de prueba
+DEMO_CREATE_CLIENT_KEYWORDS = [
+    "creamos un cliente", "creo un cliente", "crear un cliente",
+    "cargamos un cliente", "cargo un cliente",
+    "cliente de prueba", "cliente nuevo",
+    "como se carga un cliente", "cómo se carga un cliente",
+]
