@@ -159,17 +159,25 @@
       display: block;
     }
 
-    #nav-overlay {
+    /* ── Screenshot overlay (demo de caja en vivo) ── */
+    #screenshot-view {
       position: absolute;
       inset: 0;
-      background: rgba(59, 130, 246, 0.08);
-      pointer-events: none;
-      opacity: 0;
-      transition: opacity 0.2s;
-      z-index: 5;
+      z-index: 8;
+      display: none;
+      background: #fff;
     }
 
-    #nav-overlay.flash { opacity: 1; }
+    #screenshot-view.active {
+      display: block;
+    }
+
+    #screenshot-img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #f8f8f8;
+    }
   </style>
 </head>
 <body>
@@ -199,11 +207,9 @@
       <div id="loading-text">Iniciando sesión en Mi Gestión Web...</div>
     </div>
     <div id="nav-overlay"></div>
-    <!--
-      El iframe carga las páginas de MGW a través del proxy /mgw-proxy/
-      Así son mismo origen → no hay problemas de cross-origin ni cookies.
-      No necesita sandbox porque es nuestro propio servidor.
-    -->
+    <div id="screenshot-view">
+      <img id="screenshot-img" src="" alt="Demo en vivo" />
+    </div>
     <iframe id="mgw-frame" src="about:blank"></iframe>
   </div>
 
@@ -300,6 +306,20 @@ async function processAudioQueue() {
   }
 }
 
+// ── Screenshot (demo de caja en vivo) ────────────────────────────────────────
+const screenshotView = document.getElementById('screenshot-view');
+const screenshotImg  = document.getElementById('screenshot-img');
+
+function showScreenshot(b64) {
+  screenshotImg.src = 'data:image/jpeg;base64,' + b64;
+  screenshotView.classList.add('active');
+  loadingScreen.classList.add('hidden');
+}
+
+function hideScreenshot() {
+  screenshotView.classList.remove('active');
+}
+
 // ── WebSocket ─────────────────────────────────────────────────────────────────
 let ws = null;
 
@@ -317,6 +337,15 @@ function connect() {
     catch { return; }
 
     switch (msg.type) {
+
+      case 'screenshot':
+        showScreenshot(msg.data);
+        break;
+
+      case 'screenshot_end':
+        // Demo terminó — volver al iframe normal
+        setTimeout(hideScreenshot, 3000);
+        break;
 
       case 'audio':
         audioQueue.push(msg.data);
