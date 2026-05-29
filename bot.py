@@ -17,6 +17,7 @@ from config import (
 )
 from state import ConversationState, Stage
 from ai import ask_ai, text_to_speech, extract_lead_info, classify_with_ai
+from mgw_playwright import pw_start, pw_login, pw_stop, demo_venta_caja
 
 # ── Referencia al WebSocket de la webpage del agente ──────────────────────────
 _agent_ws = None
@@ -159,6 +160,24 @@ async def _speak_and_wait(mp3_bytes: bytes) -> bool:
 
 # ── Navegación MGW ────────────────────────────────────────────────────────────
 
+async def _run_caja_demo(con_factura: bool = False):
+    """Ejecuta la demo de venta con Playwright, enviando screenshots al iframe."""
+    print(f"[CAJA] Iniciando demo Playwright ({'FCE' if con_factura else 'Presupuesto'})...")
+
+    async def on_screenshot(b64: str):
+        await _send_to_agent({"type": "screenshot", "data": b64})
+
+    ok = await demo_venta_caja(on_screenshot=on_screenshot, con_factura=con_factura)
+
+    # Notificar fin de demo — vuelve al iframe normal
+    await _send_to_agent({"type": "screenshot_end"})
+
+    if ok:
+        print("[CAJA] ✓ Demo Playwright completada")
+    else:
+        print("[CAJA] ✗ Demo Playwright falló")
+
+
 async def _mgw_navigate_from_reply(reply: str):
     global _last_navigated_module
     reply_lower = reply.lower()
@@ -176,6 +195,13 @@ async def _mgw_hook(reply: str):
     if conv_state.stage != Stage.DEMO:
         return
     await _mgw_navigate_from_reply(reply)
+
+    # Si Malena menciona la caja, ejecutar demo de venta en paralelo
+    reply_lower = reply.lower()
+    if any(k in reply_lower for k in ["caja", "venta", "ticket", "cobro", "pago"]):
+        if _last_navigated_module == "CAJA":
+            con_factura = any(k in reply_lower for k in ["factura", "fce", "electrónica"])
+            asyncio.create_task(_run_caja_demo(con_factura))
 
 
 # ── Máquina de estados ────────────────────────────────────────────────────────
@@ -249,9 +275,25 @@ def _maybe_advance_stage(user_text: str, malena_reply: str):
 
 
 async def _start_demo():
-    print("[BOT] Arrancando demo — notificando webpage...")
+    """Inicia Playwright, hace login y lanza el demo loop."""
+    print("[BOT] Iniciando Playwright para la demo...")
+    try:
+        await pw_start()
+        ok = await pw_login()
+        if ok:
+            print("[BOT] Playwright logueado ✓")
+        else:
+            print("[BOT] Login Playwright falló — demo continúa sin screenshots")
+    except Exception as e:
+        print(f"[BOT] Error iniciando Playwright: {e}")
+
     await _send_logged_in()
     await run_demo_loop()
+
+    try:
+        await pw_stop()
+    except Exception:
+        pass
 
 
 # ── Pipeline principal (INTRO / CALIFICACION / CIERRE) ────────────────────────
@@ -324,8 +366,11 @@ async def run_demo_loop():
     nombre  = conv_state.lead_name or ""
     user_input_for_prompt = (
         f"Arrancá la demo para {nombre}, que tiene una {negocio}. "
-        f"Mostrá los primeros 2 módulos (ACCESO y USUARIOS) con 3-4 oraciones en total. "
-        f"Hablá de corrido sin preguntar si querés continuar."
+        f"Empezá SIEMPRE por el módulo de CAJA — es el más importante. "
+        f"Describí que van a hacer una venta de prueba en vivo: buscar el producto Huevos, "
+        f"agregar cantidad, seleccionar método de pago efectivo, y cerrar con Presupuesto (F8). "
+        f"Mencioná también la opción de FCE (F4) para factura electrónica. "
+        f"3-5 oraciones, hablá de corrido."
     )
 
     while conv_state.stage == Stage.DEMO:
