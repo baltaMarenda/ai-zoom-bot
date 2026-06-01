@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel
 
 from recall import create_bot, get_bot_status, current_bot_id
-from bot import handle_recall_audio, set_agent_websocket, on_agent_audio_done
+from bot import handle_recall_audio, set_agent_websocket, remove_agent_websocket, on_agent_audio_done
 from ai import reset_conversation
 from mgw_session import mgw_login, mgw_get, is_logged_in, get_cookies
 
@@ -175,7 +175,7 @@ async def agent_ws(websocket: WebSocket):
     except Exception as e:
         print(f"[AGENT WS] Error: {e}")
     finally:
-        set_agent_websocket(None)
+        remove_agent_websocket(websocket)
 
 
 @app.websocket("/audio")

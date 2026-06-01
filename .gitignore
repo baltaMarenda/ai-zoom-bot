@@ -2,3 +2,4 @@ venv/
 .env
 __pycache__/
 readme.md
+.DS_Store

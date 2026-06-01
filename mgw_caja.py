@@ -9,7 +9,7 @@ from mgw_session import mgw_get, is_logged_in
 from config import MGW_URL
 
 # Producto de demo: Huevos (id 1008) — ajustable
-DEMO_PRODUCTO_ID  = 1020
+DEMO_PRODUCTO_ID  = 10
 DEMO_PRODUCTO_NOMBRE = "Huevos"
 DEMO_CANTIDAD     = 1
 

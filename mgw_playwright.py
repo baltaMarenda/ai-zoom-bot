@@ -1,7 +1,7 @@
 """
 mgw_playwright.py
 Ejecuta la demo de caja con Playwright — browser real con JS.
-Toma screenshots en cada paso y los envía al iframe via WebSocket.
+Dividida en fases para sincronizar con lo que dice Malena.
 """
 import asyncio
 import base64
@@ -9,9 +9,7 @@ from playwright.async_api import async_playwright, Page
 
 from config import MGW_URL, MGW_USER, MGW_EMPRESA, MGW_PASSWORD
 
-# Producto demo — ID numérico extraído del HTML de caja.php
-# value: "1008" → Maple de Huevos
-# value: "1009" → Docena de Huevos
+# Producto demo — ID numérico del array JS de caja.php
 DEMO_PRODUCTO_NOMBRE = "Maple de Huevos"
 DEMO_PRODUCTO_ID     = 1008
 DEMO_CANTIDAD        = 1
@@ -19,6 +17,10 @@ DEMO_CANTIDAD        = 1
 _pw_instance = None
 _browser     = None
 _page: Page | None = None
+
+# Control de fases — para no repetir
+_caja_fase1_done = False
+_caja_fase2_done = False
 
 
 async def _screenshot_b64() -> str:
@@ -39,6 +41,13 @@ async def _snap(on_screenshot, delay: float = 0.0):
         b64 = await _screenshot_b64()
         if b64:
             await on_screenshot(b64)
+
+
+def reset_caja_fases():
+    """Resetea el estado de fases al iniciar una nueva demo."""
+    global _caja_fase1_done, _caja_fase2_done
+    _caja_fase1_done = False
+    _caja_fase2_done = False
 
 
 async def pw_start():
@@ -95,11 +104,17 @@ async def pw_login() -> bool:
         return False
 
 
-async def demo_venta_caja(on_screenshot=None, con_factura: bool = False) -> bool:
+# ── FASE 1: navegar a caja, tipear producto, agregar al ticket ────────────────
+
+async def demo_caja_fase1_agregar(on_screenshot=None) -> bool:
     """
-    Ejecuta la demo de venta completa en Playwright.
-    on_screenshot(b64) — callback que recibe cada screenshot para enviarlo al iframe.
+    Fase 1: muestra la caja vacía, tipea 'Huevos', agrega al ticket.
+    Se llama cuando Malena habla de buscar el producto y agregar.
     """
+    global _caja_fase1_done
+    if _caja_fase1_done:
+        print("[PW] Fase 1 ya ejecutada, saltando")
+        return True
     if _page is None:
         print("[PW] Browser no iniciado")
         return False
@@ -110,76 +125,75 @@ async def demo_venta_caja(on_screenshot=None, con_factura: bool = False) -> bool
         await _snap(on_screenshot, delay)
 
     try:
-        # ── 1. Navegar a caja — cliente ve la pantalla vacía ─────────────────
-        print("[PW] Navegando a caja...")
+        # 1. Navegar a caja
+        print("[PW] [Fase 1] Navegando a caja...")
         await _page.goto(f"{base}/caja.php", wait_until="domcontentloaded", timeout=20000)
         await _page.wait_for_selector('input#producto, input[name="producto"]', timeout=15000)
         await snap(2.0)  # cliente ve la caja vacía
 
-        # ── 2. Simular búsqueda: escribir en el campo producto ───────────────
-        # Esto es solo visual — el typeahead filtra localmente el array JS
-        print(f"[PW] Escribiendo '{DEMO_PRODUCTO_NOMBRE}' en el campo...")
+        # 2. Tipear "Huevos" letra por letra — visual para el cliente
+        print(f"[PW] [Fase 1] Escribiendo 'Huevos'...")
         campo = _page.locator('input#producto, input[name="producto"]').first
         await campo.click()
         await campo.fill("")
-        await campo.type("Huevos", delay=80)  # tipear despacio para que se vea
-        await snap(1.5)  # cliente ve el texto "Huevos" escrito
+        await campo.type("Huevos", delay=120)  # más lento para que se vea bien
+        await snap(1.5)  # cliente ve el texto escrito y el dropdown
 
-        # ── 3. Seleccionar del dropdown via JS (manipular typeahead) ─────────
-        # El typeahead de Bootstrap filtra el array local y muestra un <ul>.
-        # Lo activamos via JS seteando el valor y disparando el evento correcto.
-        print(f"[PW] Seleccionando producto ID={DEMO_PRODUCTO_ID} via JS...")
-        await _page.evaluate(f"""
-            // Setear el valor visible del campo
-            var campo = document.querySelector('input#producto, input[name="producto"]');
-            if (campo) {{
-                campo.value = '{DEMO_PRODUCTO_NOMBRE}';
-                // Disparar el evento que usa el typeahead para confirmar selección
-                $(campo).trigger('typeahead:selected');
-                // También intentar via el data del typeahead directamente
-                var ta = $(campo).data('typeahead');
-                if (ta) {{
-                    ta.query = '{DEMO_PRODUCTO_NOMBRE}';
-                }}
-            }}
-            // Setear el ID oculto del producto (campo hidden que usa el form)
-            var hiddenId = document.querySelector('input[name="id_producto"], input#id_producto');
-            if (hiddenId) {{
-                hiddenId.value = '{DEMO_PRODUCTO_ID}';
-            }}
-        """)
-        await snap(1.0)  # cliente ve el producto seleccionado
+        # 3. Agregar producto via mgw_session (sesión autenticada server-side)
+        print(f"[PW] [Fase 1] Agregando producto ID={DEMO_PRODUCTO_ID} via session...")
+        from mgw_session import mgw_get as _mgw_get
+        _agregar_url = f"/ajax_caja_agregar_producto_consti.php?cantidad={DEMO_CANTIDAD}&producto={DEMO_PRODUCTO_ID}&cliente=0"
+        print(f"[PW] [Fase 1] URL: {_agregar_url}")
+        loop = asyncio.get_event_loop()
+        resp = await loop.run_in_executor(None, _mgw_get, _agregar_url)
+        result_text = resp.text if resp else "sin respuesta"
+        print(f"[PW] [Fase 1] Resultado agregar: {result_text!r}")
 
-        # ── 4. Agregar producto via fetch con ID numérico ────────────────────
-        # El endpoint requiere el ID numérico, no el nombre
-        print(f"[PW] Agregando producto ID={DEMO_PRODUCTO_ID} via fetch...")
-        agregar_result = await _page.evaluate(f"""
-            async () => {{
-                const resp = await fetch(
-                    '/ajax_caja_agregar_producto_consti.php?cantidad={DEMO_CANTIDAD}&producto={DEMO_PRODUCTO_ID}&cliente=0',
-                    {{method: 'GET', credentials: 'same-origin'}}
-                );
-                return await resp.text();
-            }}
-        """)
-        print(f"[PW] Resultado agregar: {agregar_result}")
-
-        # Refrescar la lista de productos en el ticket (el iframe del ticket)
-        await _page.evaluate("""
-            if (typeof actualizar_lista_ventas === 'function') {
-                actualizar_lista_ventas();
-            } else if (typeof cargar_lista_ventas === 'function') {
-                cargar_lista_ventas();
-            }
-        """)
+        # 4. Refrescar el iframe de caja para mostrar el producto en el ticket
+        await _page.reload(wait_until="domcontentloaded")
+        await _page.wait_for_selector('input#producto, input[name="producto"]', timeout=10000)
         await snap(2.5)  # cliente ve el producto en el ticket
 
-        # ── 5. Seleccionar forma de pago Efectivo ────────────────────────────
-        # El select de forma de pago puede estar oculto; forzamos via JS
-        print("[PW] Seleccionando Efectivo via JS...")
+        _caja_fase1_done = True
+        print("[PW] [Fase 1] ✓ Producto agregado al ticket")
+        return True
 
-        # Primero intentar click en botones/links visibles
+    except Exception as e:
+        import traceback
+        print(f"[PW] [Fase 1] Error: {e}")
+        traceback.print_exc()
+        await snap(0.5)
+        return False
+
+
+# ── FASE 2: seleccionar Efectivo, cerrar con Presupuesto F8 ───────────────────
+
+async def demo_caja_fase2_pagar(on_screenshot=None, initial_delay: float = 0.0) -> bool:
+    """
+    Fase 2: selecciona Efectivo como forma de pago, cierra con Presupuesto (F8).
+    initial_delay: segundos a esperar antes de arrancar (para sincronizar con el audio).
+    """
+    global _caja_fase2_done
+    if _caja_fase2_done:
+        print("[PW] Fase 2 ya ejecutada, saltando")
+        return True
+    if _page is None:
+        print("[PW] Browser no iniciado")
+        return False
+
+    if initial_delay > 0:
+        print(f"[PW] [Fase 2] Esperando {initial_delay}s antes de arrancar...")
+        await asyncio.sleep(initial_delay)
+
+    async def snap(delay: float = 1.5):
+        await _snap(on_screenshot, delay)
+
+    try:
+        # 1. Seleccionar forma de pago Efectivo
+        print("[PW] [Fase 2] Seleccionando Efectivo...")
         seleccionado = False
+
+        # Intento A: botones/links/celdas visibles
         for selector in [
             'button:has-text("Efectivo")',
             'a:has-text("Efectivo")',
@@ -192,12 +206,12 @@ async def demo_venta_caja(on_screenshot=None, con_factura: bool = False) -> bool
                 if await el.count() > 0 and await el.is_visible():
                     await el.click()
                     seleccionado = True
-                    print(f"[PW] Efectivo clickeado via '{selector}' ✓")
+                    print(f"[PW] [Fase 2] Efectivo via '{selector}' ✓")
                     break
             except Exception:
                 continue
 
-        # Si no hubo botón visible: select_option o JS directo
+        # Intento B: select_option
         if not seleccionado:
             for sel_selector in [
                 'select#forma_de_pago',
@@ -209,13 +223,13 @@ async def demo_venta_caja(on_screenshot=None, con_factura: bool = False) -> bool
                     if await sel_el.count() > 0:
                         await sel_el.select_option(label="Efectivo")
                         seleccionado = True
-                        print(f"[PW] Efectivo via select_option ✓")
+                        print(f"[PW] [Fase 2] Efectivo via select_option ✓")
                         break
                 except Exception:
                     continue
 
+        # Intento C: JS directo (select oculto)
         if not seleccionado:
-            # Forzar con JS — encuentra el <select> aunque esté oculto
             await _page.evaluate("""
                 const selects = document.querySelectorAll('select');
                 for (const s of selects) {
@@ -224,18 +238,18 @@ async def demo_venta_caja(on_screenshot=None, con_factura: bool = False) -> bool
                             !opt.text.toLowerCase().includes('%')) {
                             s.value = opt.value;
                             s.dispatchEvent(new Event('change', {bubbles: true}));
-                            console.log('Efectivo seteado via JS, value=' + opt.value);
                             break;
                         }
                     }
                 }
             """)
-            print("[PW] Efectivo forzado via JS ✓")
+            print("[PW] [Fase 2] Efectivo forzado via JS ✓")
 
-        await snap(2.0)  # cliente ve el panel de pago con vuelto
+        await snap(3.0)  # cliente ve el panel de pago con vuelto — pausa más larga
 
-        # ── 6. Cerrar venta con Presupuesto ──────────────────────────────────
-        print("[PW] Cerrando venta con Presupuesto...")
+        # 2. Cerrar con Presupuesto (F8) — opción más usada por los clientes
+        await asyncio.sleep(8.0)  # pausa larga: Malena explica presupuesto F8 antes de cerrar
+        print("[PW] [Fase 2] Cerrando con Presupuesto (F8)...")
         cerrado = False
 
         for selector in [
@@ -250,13 +264,13 @@ async def demo_venta_caja(on_screenshot=None, con_factura: bool = False) -> bool
                 if await el.count() > 0 and await el.is_visible():
                     await el.click()
                     cerrado = True
-                    print(f"[PW] Venta cerrada via '{selector}' ✓")
+                    print(f"[PW] [Fase 2] Presupuesto via '{selector}' ✓")
                     break
             except Exception:
                 continue
 
         if not cerrado:
-            # Intentar via JS buscando el onclick con factura=3
+            # JS fallback — busca onclick con factura=3
             await _page.evaluate("""
                 const todos = document.querySelectorAll('[onclick]');
                 for (const el of todos) {
@@ -267,17 +281,28 @@ async def demo_venta_caja(on_screenshot=None, con_factura: bool = False) -> bool
                     }
                 }
             """)
-            print("[PW] Presupuesto via JS ✓")
+            print("[PW] [Fase 2] Presupuesto via JS ✓")
 
-        await snap(2.5)  # confirmación de venta
-        await snap(2.0)  # historial actualizado
+        await snap(3.0)  # cliente ve la confirmación
+        await snap(3.0)  # cliente ve el historial actualizado
 
-        print("[PW] ✓ Demo de venta completada")
+        _caja_fase2_done = True
+        print("[PW] [Fase 2] ✓ Venta cerrada con Presupuesto")
         return True
 
     except Exception as e:
         import traceback
-        print(f"[PW] Error en demo: {e}")
+        print(f"[PW] [Fase 2] Error: {e}")
         traceback.print_exc()
         await snap(0.5)
         return False
+
+
+# ── Función legacy — mantiene compatibilidad si algo la llama ────────────────
+
+async def demo_venta_caja(on_screenshot=None, con_factura: bool = False) -> bool:
+    """Wrapper legacy: ejecuta fase 1 + fase 2 seguidas."""
+    ok1 = await demo_caja_fase1_agregar(on_screenshot)
+    await asyncio.sleep(1.0)
+    ok2 = await demo_caja_fase2_pagar(on_screenshot)
+    return ok1 and ok2
