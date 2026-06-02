@@ -455,6 +455,84 @@ async def _reset_caja_items() -> None:
         print(f"[PW] [RESET CAJA] {e}")
 
 
+async def _manejar_arqueo(on_screenshot=None) -> None:
+    """
+    Detecta la UI de apertura/arqueo de caja y la confirma.
+    El caller ya esperó el tiempo suficiente para que el AJAX de arqueo haya disparado.
+    Loggea todos los elementos visibles para facilitar el debug si falla.
+    """
+    if _page is None:
+        return
+    try:
+        # Dump de todos los elementos interactivos visibles — clave para debug
+        elementos = await _page.evaluate("""() => {
+            return [...document.querySelectorAll('input, button, a, [onclick]')]
+                .filter(el => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                })
+                .slice(0, 20)
+                .map(el => ({
+                    tag:     el.tagName,
+                    id:      el.id || '',
+                    name:    el.getAttribute('name') || '',
+                    type:    el.getAttribute('type') || '',
+                    value:   el.value || el.getAttribute('value') || '',
+                    text:    el.textContent?.trim().slice(0, 40) || '',
+                    onclick: (el.getAttribute('onclick') || '').slice(0, 60),
+                    class:   el.className?.slice(0, 60) || ''
+                }));
+        }""")
+        print(f"[PW] [ARQUEO] Elementos visibles en caja ({len(elementos)}):")
+        for el in elementos:
+            print(f"  {el}")
+
+        # Buscar y hacer clic en el botón de confirmación del arqueo
+        for selector in [
+            'button:has-text("Iniciar")',
+            'button:has-text("Abrir")',
+            'button:has-text("Aceptar")',
+            'button:has-text("Confirmar")',
+            'button:has-text("Guardar")',
+            'button:has-text("Continuar")',
+            'button:has-text("Ok")',
+            'button:has-text("OK")',
+            'input[value="Iniciar"]',
+            'input[value="Aceptar"]',
+            'input[value="Confirmar"]',
+            'input[value="Guardar"]',
+            '[onclick*="arqueo"]',
+            '[onclick*="guardar_arqueo"]',
+            '[onclick*="iniciar_caja"]',
+            '[onclick*="abrir_caja"]',
+            '.modal-footer .btn-primary',
+            '.modal-footer .btn-success',
+            '.modal .btn-primary',
+            '.modal .btn-success',
+            'button[type="submit"]',
+            'input[type="submit"]',
+        ]:
+            try:
+                el = _page.locator(selector).first
+                if await el.count() > 0 and await el.is_visible():
+                    texto = await el.text_content() or selector
+                    print(f"[PW] [ARQUEO] Confirmando via '{selector}' (texto: '{texto.strip()[:30]}')")
+                    await el.click()
+                    await asyncio.sleep(2.5)
+                    print("[PW] [ARQUEO] Apertura de caja confirmada ✓")
+                    if on_screenshot:
+                        b64 = await _screenshot_b64()
+                        if b64:
+                            await on_screenshot(b64)
+                    return
+            except Exception:
+                continue
+
+        print("[PW] [ARQUEO] Ningún botón de arqueo encontrado — la interfaz principal podría estar directa")
+    except Exception as e:
+        print(f"[PW] [ARQUEO] Error: {e}")
+
+
 async def _demo_modulos_restantes(decir_frase, navigate_fn=None) -> None:
     """Recorre los módulos post-caja con frases pre-escritas y navegación del iframe."""
     async def nav(path: str):
@@ -613,16 +691,32 @@ async def run_demo_mgw(
 
         await nav("/caja.php")
         await _page.goto(f"{base}/caja.php", wait_until="domcontentloaded", timeout=30000)
-        # Esperar a que el campo de búsqueda esté en el DOM antes de interactuar
-        await _page.wait_for_selector('input#producto, input[name="producto"]', timeout=15000)
-        # Pausa fija para que el JS de caja termine de inicializarse (arqueo, etc.)
-        await asyncio.sleep(3.0)
-        print("[PW] [CAJA] Página lista ✓")
+        # Esperar que el JS de caja complete la inicialización y el AJAX de arqueo dispare.
+        # En el log se ve que ajax_caja_arqueo_nuevo.php se dispara varios segundos
+        # después de domcontentloaded, cuando terminan de cargar todos los assets.
+        await asyncio.sleep(8.0)
+        # Screenshot para ver el estado real de la página en este punto
+        await snap()
+        # Detectar y confirmar el form/modal de arqueo (con dump JS para debug)
+        await _manejar_arqueo(on_screenshot=on_screenshot)
+        # Si el arqueo confirmó algo, esperar a que la interfaz principal aparezca
+        await asyncio.sleep(2.0)
+        # Esperar el campo de producto; si no aparece en 20s, loggear e intentar continuar
+        try:
+            await _page.wait_for_selector(
+                'input#producto, input[name="producto"], input.ui-autocomplete-input',
+                timeout=20000,
+            )
+            print("[PW] [CAJA] Página lista ✓")
+        except Exception as e_sel:
+            print(f"[PW] [CAJA] Campo producto no encontrado: {e_sel}")
+            await snap()  # screenshot adicional para ver qué está en pantalla
+            raise  # propagar para que el except externo lo loggee completo
 
         # Limpiar ítems del ticket que hayan quedado de sesiones anteriores
         await _reset_caja_items()
 
-        await asyncio.sleep(2.0)
+        await asyncio.sleep(1.5)
         await snap()  # ⑥ caja con ticket vacío
 
         # ── 4. CAJA — buscar y agregar Huevos ────────────────────────────────
