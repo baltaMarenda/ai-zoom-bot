@@ -14,11 +14,13 @@ import traceback
 from config import (
     DEEPGRAM_API_KEY, DEEPGRAM_WS_URL,
     DEMO_NAV_KEYWORDS, DEMO_CREATE_CLIENT_KEYWORDS,
+    TEST_MODE,
 )
 from state import ConversationState, Stage
 from ai import ask_ai, ask_ai_streaming, text_to_speech, extract_lead_info, classify_with_ai
 from mgw_playwright import (
-    pw_start, pw_login, pw_stop,
+    pw_start, pw_stop,
+    demo_acceso_login,
     demo_caja_fase1_agregar, demo_caja_fase2_pagar,
     reset_caja_fases,
 )
@@ -70,9 +72,27 @@ _turns_completed = 0
 # ── Barge-in ──────────────────────────────────────────────────────────────────
 barge_in_event = asyncio.Event()
 barge_in_text: str = ""
+
+# ── Sincronización entre módulos ──────────────────────────────────────────────
+# Se setea cuando demo_acceso_login() termina; _run_caja_fase1_inner() espera esto
+# para no navegar a caja.php antes de que el browser tenga sesión activa.
+_acceso_login_done = asyncio.Event()
+# Se setea cuando demo_caja_fase2_pagar() termina; _start_demo() espera antes de pw_stop().
+_fase2_complete_event = asyncio.Event()
+
+# ── Sincronización Fase 2 ─────────────────────────────────────────────────────
+# Se setea cuando el bloque de audio de pago termina; demo_caja_fase2_pagar
+# espera esta señal antes de presionar F8 en lugar de usar un delay fijo.
+_fase2_press_f8 = asyncio.Event()
+
+# Guardia de re-entrada para Fase 2: se setea sincrónicamente en el mismo frame
+# que create_task, sin cruzar módulos. Evita la race condition donde dos partes
+# del loop verifican _caja_fase2_launched antes de que la task haya corrido.
+_fase2_task_created = False
 handling_barge_in: bool = False
 interrupted_context: str = ""
 waiting_for_question: bool = False
+_sequential_demo_active: bool = False  # True mientras run_demo_secuencial está corriendo
 
 # ── Demo loop ─────────────────────────────────────────────────────────────────
 demo_continue_event = asyncio.Event()
@@ -85,6 +105,7 @@ _current_demo_module: str = ""   # módulo actualmente en demo
 _module_locked: bool = False     # True mientras se muestra un módulo
 
 DEMO_MODULE_PATHS = {
+    "ACCESO":           "/index.php",
     "USUARIOS":         "/configuracion_usuarios.php",
     "PANTALLA INICIAL": "/home.php",
     "BALANZA":          "/balanza3.php?balanza=6",
@@ -190,6 +211,33 @@ async def _on_screenshot(b64: str):
     await _send_to_agent({"type": "screenshot", "data": b64})
 
 
+async def _on_screenshot_end():
+    await _send_to_agent({"type": "screenshot_end"})
+
+
+async def decir_frase(texto: str):
+    """Genera TTS para 'texto', lo envía al agente y espera que termine.
+    Si hay barge-in durante la reproducción, lo maneja y espera que se resuelva antes de retornar.
+    """
+    global is_speaking
+    loop = asyncio.get_event_loop()
+    print(f"  🗣️  '{texto[:70]}...'")
+    is_speaking = True
+    barge_in_event.clear()
+    try:
+        mp3 = await loop.run_in_executor(None, text_to_speech, texto)
+        barge_in = await _speak_and_wait(mp3)
+        if barge_in:
+            is_speaking = False
+            barge_in_event.clear()
+            await _handle_barge_in()
+            while handling_barge_in or waiting_for_question or _audio_lock.locked():
+                await asyncio.sleep(0.1)
+    finally:
+        is_speaking = False
+        barge_in_event.clear()
+
+
 async def _run_caja_fase1():
     await _run_caja_fase1_inner()
 
@@ -229,6 +277,12 @@ async def _mgw_navigate_from_reply(reply: str):
             _last_navigated_module = module
             _current_demo_module = module
             _module_locked = True
+            # Al navegar a CAJA via keyword, lanzar Fase 1 automáticamente
+            if module == "CAJA":
+                from mgw_playwright import _caja_fase1_done, _caja_fase1_launched
+                if not _caja_fase1_done and not _caja_fase1_launched:
+                    print("[MGW] Auto-lanzando Fase 1 al navegar a CAJA...")
+                    asyncio.create_task(_run_caja_fase1())
         break
 
 
@@ -248,12 +302,13 @@ _FASE1_KEYWORDS = [
 _FASE2_KEYWORDS = [
     "presupuestar", "presupuesto f8", "cerrar la venta", "cerramos la venta",
     "cerrás la venta", "fce f4", "factura electrónica", "f8", "f4",
-    "para cerrar", "al cerrar",
+    "para cerrar", "al cerrar", "el sistema se encarga", "encarga solo",
+    "el sistema lo hace", "se encarga solo",
 ]
 
 
 async def _mgw_hook(reply: str):
-    if conv_state.stage != Stage.DEMO:
+    if conv_state.stage != Stage.DEMO or _sequential_demo_active:
         return
     await _mgw_navigate_from_reply(reply)
 
@@ -307,7 +362,25 @@ async def _run_caja_fase2_con_prerequisito_delayed(delay: float):
     await _run_caja_fase2_inner(initial_delay=delay)
 
 
+async def _run_acceso_demo() -> bool:
+    print("[ACCESO] Iniciando demo de login...")
+    ok = await demo_acceso_login(on_screenshot=_on_screenshot)
+    await _send_to_agent({"type": "screenshot_end"})
+    print(f"[ACCESO] Demo login {'✓' if ok else '✗'}")
+    # Señalizar siempre para que _run_caja_fase1_inner() no quede esperando indefinidamente
+    _acceso_login_done.set()
+    return ok
+
+
 async def _run_caja_fase1_inner() -> bool:
+    # Esperar que demo_acceso_login() termine antes de navegar a caja.php,
+    # ya que ese paso establece la sesión activa en el browser headless.
+    if not _acceso_login_done.is_set():
+        print("[CAJA] Esperando login de ACCESO antes de navegar a caja...")
+        try:
+            await asyncio.wait_for(_acceso_login_done.wait(), timeout=30.0)
+        except asyncio.TimeoutError:
+            print("[CAJA] Timeout esperando ACCESO — continuando igual")
     print("[CAJA] Iniciando Fase 1 (buscar + agregar)...")
     ok = await demo_caja_fase1_agregar(on_screenshot=_on_screenshot)
     await _send_to_agent({"type": "screenshot_end"})
@@ -317,8 +390,13 @@ async def _run_caja_fase1_inner() -> bool:
 
 async def _run_caja_fase2_inner(initial_delay: float = 0.0) -> bool:
     print("[CAJA] Iniciando Fase 2 (pago + cierre)...")
-    ok = await demo_caja_fase2_pagar(on_screenshot=_on_screenshot, initial_delay=initial_delay)
+    ok = await demo_caja_fase2_pagar(
+        on_screenshot=_on_screenshot,
+        initial_delay=initial_delay,
+        press_f8_signal=_fase2_press_f8,
+    )
     await _send_to_agent({"type": "screenshot_end"})
+    _fase2_complete_event.set()  # habilita pw_stop() en _start_demo()
     print(f"[CAJA] Fase 2 {'✓' if ok else '✗'}")
     return ok
 
@@ -359,7 +437,17 @@ def _maybe_advance_stage(user_text: str, malena_reply: str):
     if stage == Stage.INTRO:
         if _turns_completed >= 1:
             conv_state.advance()
-            print(f"→ Estado: {conv_state.stage}")
+            if TEST_MODE:
+                # Saltar CALIFICACION: poner datos ficticios y arrancar demo de inmediato
+                conv_state.lead_name = "Tester"
+                conv_state.negocio   = "negocio de prueba"
+                conv_state.advance()  # CALIFICACION → DEMO
+                print(f"→ Estado: {conv_state.stage} [TEST MODE — saltando calificación]")
+                if not _demo_loop_started:
+                    _demo_loop_started = True
+                    asyncio.create_task(_start_demo())
+            else:
+                print(f"→ Estado: {conv_state.stage}")
 
     elif stage == Stage.CALIFICACION:
         _extract_lead_info(user_text)
@@ -393,22 +481,53 @@ def _maybe_advance_stage(user_text: str, malena_reply: str):
         _extract_contact_info(user_text)
 
 
+async def run_demo_secuencial():
+    """
+    Orquesta la demo guiada por eventos secuenciales.
+    Llama a run_demo_mgw que avanza paso a paso: habla → actúa → habla → actúa.
+    No usa keyword detection — cada acción de Playwright está atada a una frase específica.
+    """
+    global _sequential_demo_active
+    _sequential_demo_active = True
+    print("🎬 [DEMO SECUENCIAL] Iniciando...")
+    try:
+        from mgw_playwright import run_demo_mgw
+        await run_demo_mgw(
+            decir_frase=decir_frase,
+            on_screenshot=_on_screenshot,
+            on_screenshot_end=_on_screenshot_end,
+            navigate_fn=_send_navigate,
+            should_continue=lambda: conv_state.stage == Stage.DEMO,
+        )
+    except Exception as e:
+        print(f"[ERROR] run_demo_secuencial: {e}")
+        traceback.print_exc()
+    finally:
+        _sequential_demo_active = False
+
+    print("🎬 [DEMO SECUENCIAL] Completada.")
+    if conv_state.stage == Stage.DEMO:
+        conv_state.advance()
+        print(f"→ Estado: {conv_state.stage}")
+    await _send_reset()
+
+
 async def _start_demo():
-    """Inicia Playwright, hace login y lanza el demo loop."""
+    """Inicia Playwright y lanza la demo secuencial."""
+    global _fase2_task_created
     print("[BOT] Iniciando Playwright para la demo...")
     reset_caja_fases()
+    _fase2_task_created = False
+    _acceso_login_done.clear()
+    _fase2_complete_event.clear()
     try:
         await pw_start()
-        ok = await pw_login()
-        if ok:
-            print("[BOT] Playwright logueado ✓")
-        else:
-            print("[BOT] Login Playwright falló — demo continúa sin screenshots")
     except Exception as e:
         print(f"[BOT] Error iniciando Playwright: {e}")
+        return
 
     await _send_logged_in()
-    await run_demo_loop()
+    await run_demo_secuencial()
 
     try:
         await pw_stop()
@@ -477,21 +596,37 @@ async def process_transcript(transcript: str):
 # ── Loop autónomo de la demo ───────────────────────────────────────────────────
 
 async def run_demo_loop():
-    global is_speaking, pending_speech, _pending_user_input
+    global is_speaking, pending_speech, _pending_user_input, _fase2_task_created
+    global _last_navigated_module, _current_demo_module, _module_locked
 
     print("🎬 [DEMO LOOP] Iniciando...")
     loop = asyncio.get_event_loop()
 
+    # ── Arranque forzado en ACCESO ────────────────────────────────────────────
+    # Primero se muestra el login en vivo, luego CAJA (Fase 1 + Fase 2), luego el resto.
+    # _module_locked bloquea que GPT navegue a otro módulo antes de terminar ACCESO.
+    _last_navigated_module = "ACCESO"
+    _current_demo_module   = "ACCESO"
+    _module_locked         = True
+    await _send_navigate("/index.php")
+    asyncio.create_task(_run_acceso_demo())
+    print("[DEMO LOOP] ✓ ACCESO: navegación forzada + demo login iniciada")
+    # ─────────────────────────────────────────────────────────────────────────
+
     negocio = conv_state.negocio or "su negocio"
     nombre  = conv_state.lead_name or ""
     user_input_for_prompt = (
-        f"Arrancá la demo para {nombre}, que tiene una {negocio}. "
-        f"Empezá SIEMPRE por el módulo de CAJA. "
-        f"Describí SOLO: buscar el producto 'Huevos', indicar la cantidad, apretar Agregar, y que se puede aplicar un descuento. "
-        f"PROHIBIDO mencionar: métodos de pago, efectivo, Mercado Pago, tarjeta, vuelto, presupuestar, FCE, factura, cerrar venta. "
-        f"Eso va en el siguiente bloque. Solo mostrá el agregar producto. "
-        f"2-3 oraciones cortas."
+        f"Arrancá la demo para {nombre}, que tiene un/a {negocio}. "
+        f"La pantalla muestra la página de ingreso al sistema. "
+        f"Explicá SOLO esto en 3-4 oraciones: "
+        f"que el sistema es 100% web, sin instalación, accesible desde cualquier dispositivo; "
+        f"que en el primer campo va el nombre de la empresa (en este caso 'prueba' porque es un sistema de demo); "
+        f"y que en los campos de abajo van el usuario y la contraseña "
+        f"que se le darían al negocio al momento de implementar el sistema. "
+        f"PROHIBIDO mencionar: caja, módulos, ventas, facturación, cualquier funcionalidad del sistema."
     )
+
+    _primera_iteracion = True  # evita sobreescribir el prompt de ACCESO si el lock está tomado al arrancar
 
     while conv_state.stage == Stage.DEMO:
         barge_in_event.clear()
@@ -502,9 +637,12 @@ async def run_demo_loop():
             print("[DEMO LOOP] Esperando interrupción en curso...")
             while _audio_lock.locked() or waiting_for_question or handling_barge_in:
                 await asyncio.sleep(0.2)
-            user_input_for_prompt = (
-                "Continuá la demo desde donde estabas. Siguiente módulo, 3-4 oraciones."
-            )
+            if not _primera_iteracion:
+                user_input_for_prompt = (
+                    "Continuá la demo desde donde estabas. Siguiente módulo, 3-4 oraciones."
+                )
+
+        _primera_iteracion = False
 
         try:
             print(f"\n🎬 [DEMO LOOP] Generando bloque...")
@@ -546,8 +684,12 @@ async def run_demo_loop():
                     tiene_f1 = any(k in sentence_lower for k in _FASE1_KEYWORDS)
                     tiene_f2 = any(k in sentence_lower for k in _FASE2_KEYWORDS)
                     if tiene_f1 and tiene_f2 and not _caja_fase1_done:
+                        _fase2_press_f8.clear()
+                        _fase2_task_created = True
                         asyncio.create_task(_run_caja_fase1_y_fase2())
-                    elif tiene_f2 and not _caja_fase2_done:
+                    elif tiene_f2 and not _caja_fase2_done and not _fase2_task_created:
+                        _fase2_press_f8.clear()
+                        _fase2_task_created = True
                         asyncio.create_task(_run_caja_fase2_con_prerequisito())
                     elif tiene_f1 and not _caja_fase1_done:
                         asyncio.create_task(_run_caja_fase1())
@@ -559,8 +701,9 @@ async def run_demo_loop():
                 from mgw_playwright import _caja_fase1_done, _caja_fase2_done
                 if (_last_navigated_module != "CAJA"
                         and _current_demo_module == "CAJA"
-                        and _caja_fase1_done and not _caja_fase2_done):
+                        and _caja_fase1_done and not _caja_fase2_done and not _fase2_task_created):
                     print("[DEMO LOOP] Malena avanzó de CAJA — lanzando Fase 2 inmediatamente...")
+                    _fase2_task_created = True
                     asyncio.create_task(_run_caja_fase2_con_prerequisito())
 
                 # Reproducir esta oración y esperar que termine (o barge-in)
@@ -572,6 +715,7 @@ async def run_demo_loop():
             is_speaking = False
             pending_speech = ""
             barge_in_event.clear()
+            _fase2_press_f8.set()  # bloque de audio terminó → habilitar F8
 
             if barge_in_occurred:
                 await _handle_barge_in()
@@ -583,8 +727,7 @@ async def run_demo_loop():
             # Si el bloque terminó habiendo explicado el pago (fase1 hecha, fase2 no)
             # lanzar fase2 AHORA — ya terminó de hablar, es el momento de cerrar
             from mgw_playwright import _caja_fase1_done, _caja_fase2_done
-            if _caja_fase1_done and not _caja_fase2_done:
-                # Verificar si el bloque habló de métodos de pago o cierre
+            if _caja_fase1_done and not _caja_fase2_done and not _fase2_task_created:
                 bloque_lower = full_reply.lower()
                 hablo_de_pago = any(k in bloque_lower for k in [
                     "presupuestar", "f8", "fce", "f4", "método de pago",
@@ -592,6 +735,8 @@ async def run_demo_loop():
                 ])
                 if hablo_de_pago:
                     print("[DEMO LOOP] Bloque de pago terminó — lanzando Fase 2 ahora...")
+                    _fase2_press_f8.set()
+                    _fase2_task_created = True
                     asyncio.create_task(_run_caja_fase2_con_prerequisito())
 
             # ── Esperar input o silencio ──────────────────────────────────────
@@ -638,9 +783,16 @@ async def run_demo_loop():
                     )
             else:
                 print("[DEMO LOOP] Silencio — avanzando sola...")
-                unlock_demo_module()  # liberar lock para que pueda navegar al siguiente
-                from mgw_playwright import _caja_fase1_done, _caja_fase2_done
-                if _caja_fase1_done and not _caja_fase2_done:
+                unlock_demo_module()
+                from mgw_playwright import _caja_fase1_done, _caja_fase2_done, _caja_fase1_launched
+                if _caja_fase1_done and not _caja_fase2_done and not _fase2_task_created:
+                    # Fase 1 lista, cierre aún pendiente — lanzar Fase 2 de inmediato en
+                    # paralelo para que Playwright seleccione Efectivo mientras Malena habla.
+                    # F8 se disparará cuando el bloque de audio termine (línea _fase2_press_f8.set).
+                    print("[DEMO LOOP] Silencio post-Fase1 — lanzando Fase 2 de inmediato...")
+                    _fase2_press_f8.clear()
+                    _fase2_task_created = True
+                    asyncio.create_task(_run_caja_fase2_con_prerequisito())
                     user_input_for_prompt = (
                         "Continuá con el módulo de CAJA. Ya mostraste cómo agregar el producto. "
                         "Ahora explicá en detalle: "
@@ -651,6 +803,20 @@ async def run_demo_loop():
                         "Explicá todo esto con calma, 4-5 oraciones. "
                         "IMPORTANTE: NO digas que vas a cerrar la venta ni que la vas a ejecutar — "
                         "solo explicá las opciones. El sistema lo hace solo al terminar."
+                    )
+                elif not _caja_fase1_done and not _caja_fase1_launched:
+                    # Todavía no se mostró CAJA — venir de ACCESO o de cualquier estado previo
+                    print("[DEMO LOOP] Silencio post-ACCESO — forzando navegación a CAJA...")
+                    _last_navigated_module = "CAJA"
+                    _current_demo_module   = "CAJA"
+                    _module_locked         = True
+                    await _send_navigate("/caja.php")
+                    asyncio.create_task(_run_caja_fase1())
+                    user_input_for_prompt = (
+                        "Ahora pasamos a la sección de CAJA para hacer una venta de prueba en vivo. "
+                        "Describí SOLO en 2-3 oraciones: "
+                        "que se busca el producto 'Huevos', se indica la cantidad y se aprieta Agregar. "
+                        "PROHIBIDO: métodos de pago, efectivo, presupuestar, cerrar venta, usuarios."
                     )
                 else:
                     user_input_for_prompt = "Continuá con el siguiente módulo. 3-4 oraciones, hablá de corrido."

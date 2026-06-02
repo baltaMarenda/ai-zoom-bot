@@ -1,0 +1,315 @@
+INFO:     Started server process [15010]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+[MGW Session] URL final post-login: https://www.migestionweb.pro/home.php
+[MGW Session] Status: 200
+[MGW Session] Cookies: ['PHPSESSID', 'empresa']
+[MGW Session] Response snippet: <!DOCTYPE html>
+<html lang="en" class="no-js">
+	<head>
+		<meta charset="UTF-8">
+<meta http-equiv="Content-type" content="text/html;charset=UTF-8">
+<title>Mi Gestión Web</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=0, minimum-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-
+[MGW Session] Login OK ✓
+[Main] Login MGW exitoso ✓
+[Recall] Bot creado con Output Media: 8ecb2847-64db-443f-9f7c-7ce7aabcf066
+[Recall] Webpage del agente: https://chatroom-fancy-subtly.ngrok-free.dev/agent
+INFO:     127.0.0.1:57285 - "POST /bot/create HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /agent HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "WebSocket /audio" [accepted]
+INFO:     connection open
+[WS] Recall.ai conectado ✓
+[DEEPGRAM] Task iniciado
+INFO:     34.220.234.222:0 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     34.220.234.222:0 - "WebSocket /agent-ws" [accepted]
+INFO:     connection open
+[BOT] Agent WS conectado (total: 1)
+[AGENT WS] Webpage del agente conectada ✓
+🎤 Deepgram conectado...
+[Debounce] 'Hola, buen día.'
+
+🧠 [INTRO] Usuario: Hola, buen día.
+🤖 Malena: Hola, ¿cómo estás? Soy Malena, de Mi Gestión Web. Hoy te voy a mostrar una demo del sistema para que veas cómo funciona. Después, Juan Cruz te va a contactar para pasar precios y requisitos técnicos, y también ofrecemos hardware como balanzas y POS all in one. ¿Me decís tu nombre para arrancar?
+→ Estado: Stage.CALIFICACION
+[Debounce] 'Sí, Baltazar me llamó.'
+
+🧠 [CALIFICACION] Usuario: Sí, Baltazar me llamó.
+🤖 Malena: Buenísimo, Baltazar. ¿Qué tipo de negocio tenés? ¿De qué rubro y tamaño?
+👤 Nombre: Baltazar
+[Debounce] 'Tengo una carnicería chica.'
+
+🧠 [CALIFICACION] Usuario: Tengo una carnicería chica.
+🤖 Malena: Perfecto, Baltazar. ¿De dónde sos?
+🏪 Negocio: carnicería
+[Debounce] 'De Chivilcoy.'
+
+🧠 [CALIFICACION] Usuario: De Chivilcoy.
+🤖 Malena: Buenísimo, Chivilcoy tiene unos lomitos buenos, ¿eh? Jaja. Contame, ¿ya usás algún sistema de gestión o lo hacés todo a mano?
+[Debounce] 'No, no, a mano nomás.'
+
+🧠 [CALIFICACION] Usuario: No, no, a mano nomás.
+🤖 Malena: Ah, te volvés loco jaja. Perfecto, Baltazar, entonces te muestro el sistema para que veas cómo te puede facilitar todo. ¿Vamos?
+→ Estado: Stage.DEMO
+📋 Lead: Nombre: Baltazar | Negocio: carnicería | Sistema actual: ? | Contacto: ?
+[BOT] Iniciando Playwright para la demo...
+[PW] Browser iniciado ✓
+🎬 [DEMO SECUENCIAL] Iniciando...
+[PW] [DEMO] Limpiando cookies de sesión previa...
+[PW] [DEMO] Navegando al login...
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/index.php HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap/css/bootstrap.min.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/DataTables/media/css/DT_bootstrap.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /assets/css/chat.css HTTP/1.1" 404 Not Found
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/perfect-scrollbar/src/perfect-scrollbar.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/fonts/style.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/font-awesome/css/font-awesome.min.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/img/logo_navidad.png HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/js/bootstrap-typeahead.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/css/main-responsive.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/css/theme_light.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-fileupload/bootstrap-fileupload.min.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-timepicker/css/bootstrap-timepicker.min.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/iCheck/skins/all.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-colorpalette/css/bootstrap-colorpalette.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/css3-animation/animations.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/css/jquery-ui.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/datepicker/css/datepicker.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/gritter/css/jquery.gritter.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/select2/select2.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/js/jquery-ui.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/css/main.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/js/jquery-1.8.0.min.js HTTP/1.1" 200 OK
+  🗣️  'Fijate que el sistema es 100% web, no necesita instalación. Se accede ...'
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/iCheck/skins/minimal/_all.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/iCheck/skins/square/_all.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/iCheck/skins/polaris/polaris.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/iCheck/skins/futurico/futurico.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/iCheck/skins/flat/_all.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/iCheck/skins/line/_all.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/jquery-ui/jquery-ui-1.10.2.custom.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap/js/bootstrap.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-hover-dropdown/bootstrap-hover-dropdown.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/perfect-scrollbar/src/perfect-scrollbar.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/jquery-cookie/jquery.cookie.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/iCheck/jquery.icheck.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/perfect-scrollbar/src/jquery.mousewheel.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/images/bg_2.png HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/less/less-1.5.0.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/blockUI/jquery.blockUI.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-colorpalette/js/bootstrap-colorpalette.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/js/main.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-datepicker/js/bootstrap-datepicker.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-daterangepicker/moment.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-timepicker/js/bootstrap-timepicker.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/select2/select2.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-daterangepicker/daterangepicker.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/DataTables/media/js/jquery.dataTables.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/js/table-data.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/DataTables/media/js/DT_bootstrap.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/gritter/js/jquery.gritter.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/js/jquery.table2excel.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/summernote/summernote.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/reinicializar.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/js/jquery.qrcode.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/css/print.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/js/login.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/jquery-validation/dist/jquery.validate.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/fonts/fonts/clip-font.woff HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/font-awesome/fonts/fontawesome-webfont.woff?v=4.1.0 HTTP/1.1" 200 OK
+  🗣️  'Ahora estamos ingresando en vivo para hacer la demo....'
+[PW] [LOGIN] Sesión establecida ✓
+  🗣️  'Muy bien, ya estamos adentro. Esta es la pantalla de inicio del sistem...'
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/home.php HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/css/jquery-ui.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/fonts/style.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /assets/css/chat.css HTTP/1.1" 404 Not Found
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/css/main-responsive.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/font-awesome/css/font-awesome.min.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/DataTables/media/css/DT_bootstrap.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/gritter/css/jquery.gritter.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-fileupload/bootstrap-fileupload.min.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/css/theme_light.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/css3-animation/animations.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-timepicker/css/bootstrap-timepicker.min.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/perfect-scrollbar/src/perfect-scrollbar.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/select2/select2.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/iCheck/skins/all.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-colorpalette/css/bootstrap-colorpalette.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/css/main.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap/css/bootstrap.min.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/js/bootstrap-typeahead.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/datepicker/css/datepicker.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-daterangepicker/daterangepicker-bs3.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/js/jquery-ui.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/jQuery-Tags-Input/jquery.tagsinput.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/js/jquery-1.8.0.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/img/cargando1.gif HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-colorpicker/css/bootstrap-colorpicker.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/summernote/build/summernote.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/iCheck/skins/square/_all.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/iCheck/skins/minimal/_all.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/iCheck/skins/flat/_all.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/iCheck/skins/futurico/futurico.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/iCheck/skins/line/_all.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/iCheck/skins/polaris/polaris.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/img/logo_chico_navidad1.png HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/jquery-ui/jquery-ui-1.10.2.custom.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap/js/bootstrap.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/blockUI/jquery.blockUI.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-hover-dropdown/bootstrap-hover-dropdown.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/iCheck/jquery.icheck.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/js/table-data.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/select2/select2.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-colorpalette/js/bootstrap-colorpalette.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/js/main.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/perfect-scrollbar/src/perfect-scrollbar.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-timepicker/js/bootstrap-timepicker.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-daterangepicker/moment.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-datepicker/js/bootstrap-datepicker.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/perfect-scrollbar/src/jquery.mousewheel.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/less/less-1.5.0.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/DataTables/media/js/DT_bootstrap.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-daterangepicker/daterangepicker.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/jquery.maskedinput/src/jquery.maskedinput.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/js/jquery.qrcode.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/autosize/jquery.autosize.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/js/jquery.table2excel.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/jquery-cookie/jquery.cookie.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/reinicializar.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/DataTables/media/js/jquery.dataTables.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/jquery-maskmoney/jquery.maskMoney.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/summernote/summernote.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-colorpicker/js/commits.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/jquery-inputlimiter/jquery.inputlimiter.1.3.1.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/gritter/js/jquery.gritter.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/flot/jquery.flot.resize.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/js/webcam-easy.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/flot/jquery.flot.pie.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/jQuery-Tags-Input/jquery.tagsinput.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/flot/jquery.flot.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/jquery-ui-touch-punch/jquery.ui.touch-punch.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/ckeditor/adapters/jquery.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/css/print.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/jquery-easy-pie-chart/jquery.easy-pie-chart.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-fileupload/bootstrap-fileupload.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/fullcalendar/fullcalendar/fullcalendar.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/summernote/build/summernote.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-colorpicker/js/bootstrap-colorpicker.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/chat/online_users.php?t=1780404779067 HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/js/form-elements.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/js/index.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/font-awesome/fonts/fontawesome-webfont.woff?v=4.1.0 HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/jquery.sparkline/jquery.sparkline.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/ckeditor/ckeditor.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/fonts/fonts/clip-font.woff HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "POST /mgw-proxy/chat/auth.php HTTP/1.1" 405 Method Not Allowed
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/img/video_balanza_1.mp4 HTTP/1.1" 200 OK
+  🗣️  'Ahora pasamos a la sección de Caja para hacer una venta de prueba en v...'
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/caja.php HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /assets/css/chat.css HTTP/1.1" 404 Not Found
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap/css/bootstrap.min.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-fileupload/bootstrap-fileupload.min.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/css/theme_light.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/css/jquery-ui.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/js/jquery-ui.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/fonts/style.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-colorpalette/css/bootstrap-colorpalette.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/gritter/css/jquery.gritter.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-timepicker/css/bootstrap-timepicker.min.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/DataTables/media/css/DT_bootstrap.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/iCheck/skins/all.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/js/bootstrap-typeahead.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/select2/select2.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/perfect-scrollbar/src/perfect-scrollbar.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/css3-animation/animations.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/font-awesome/css/font-awesome.min.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/css/main-responsive.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/css/main.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/img/cargando1.gif HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-daterangepicker/daterangepicker-bs3.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/datepicker/css/datepicker.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/jQuery-Tags-Input/jquery.tagsinput.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-colorpicker/css/bootstrap-colorpicker.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/summernote/build/summernote.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/js/jquery-1.8.0.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/iCheck/skins/flat/_all.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/iCheck/skins/minimal/_all.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/iCheck/skins/line/_all.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/iCheck/skins/square/_all.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/iCheck/skins/futurico/futurico.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/iCheck/skins/polaris/polaris.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/img/logo_chico_navidad1.png HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/jquery-ui/jquery-ui-1.10.2.custom.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap/js/bootstrap.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-hover-dropdown/bootstrap-hover-dropdown.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/jquery-cookie/jquery.cookie.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/perfect-scrollbar/src/jquery.mousewheel.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/iCheck/jquery.icheck.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/perfect-scrollbar/src/perfect-scrollbar.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/blockUI/jquery.blockUI.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/less/less-1.5.0.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-colorpalette/js/bootstrap-colorpalette.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-datepicker/js/bootstrap-datepicker.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/js/jquery.qrcode.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-colorpicker/js/commits.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/js/jquery.table2excel.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/reinicializar.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/jquery.maskedinput/src/jquery.maskedinput.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/gritter/js/jquery.gritter.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/js/main.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-daterangepicker/daterangepicker.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/summernote/summernote.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/select2/select2.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/autosize/jquery.autosize.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/DataTables/media/js/DT_bootstrap.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/jquery-maskmoney/jquery.maskMoney.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-colorpicker/js/bootstrap-colorpicker.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-timepicker/js/bootstrap-timepicker.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/jquery-inputlimiter/jquery.inputlimiter.1.3.1.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-fileupload/bootstrap-fileupload.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/js/form-elements.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/ckeditor/adapters/jquery.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/jQuery-Tags-Input/jquery.tagsinput.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/jquery-ui-touch-punch/jquery.ui.touch-punch.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/jquery-easy-pie-chart/jquery.easy-pie-chart.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/summernote/build/summernote.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/js/table-data.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/bootstrap-daterangepicker/moment.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/flot/jquery.flot.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/jquery.sparkline/jquery.sparkline.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/js/index.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/css/print.css HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/flot/jquery.flot.resize.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/flot/jquery.flot.pie.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/chat/online_users.php?t=1780404801638 HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/ckeditor/ckeditor.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/fullcalendar/fullcalendar/fullcalendar.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/js/jspdf.umd.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/font-awesome/fonts/fontawesome-webfont.woff?v=4.1.0 HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/fonts/fonts/clip-font.woff HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/assets/plugins/DataTables/media/js/jquery.dataTables.min.js HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "POST /mgw-proxy/chat/auth.php HTTP/1.1" 405 Method Not Allowed
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/ajax_caja_arqueo_nuevo.php HTTP/1.1" 200 OK
+INFO:     34.220.234.222:0 - "GET /mgw-proxy/img/ajax.gif HTTP/1.1" 200 OK
+Traceback (most recent call last):
+  File "/Users/baltazarmarenda/Downloads/ai-zoom-bot/mgw_playwright.py", line 617, in run_demo_mgw
+    await _page.wait_for_selector('input#producto, input[name="producto"]', timeout=15000)
+  File "/Users/baltazarmarenda/Downloads/ai-zoom-bot/venv/lib/python3.11/site-packages/playwright/async_api/_generated.py", line 8795, in wait_for_selector
+    await self._impl_obj.wait_for_selector(
+  File "/Users/baltazarmarenda/Downloads/ai-zoom-bot/venv/lib/python3.11/site-packages/playwright/_impl/_page.py", line 424, in wait_for_selector
+    return await self._main_frame.wait_for_selector(**locals_to_params(locals()))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/baltazarmarenda/Downloads/ai-zoom-bot/venv/lib/python3.11/site-packages/playwright/_impl/_frame.py", line 372, in wait_for_selector
+    await self._channel.send(
+  File "/Users/baltazarmarenda/Downloads/ai-zoom-bot/venv/lib/python3.11/site-packages/playwright/_impl/_connection.py", line 69, in send
+    return await self._connection.wrap_api_call(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/baltazarmarenda/Downloads/ai-zoom-bot/venv/lib/python3.11/site-packages/playwright/_impl/_connection.py", line 559, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+playwright._impl._errors.TimeoutError: Page.wait_for_selector: Timeout 15000ms exceeded.
+Call log:
+  - waiting for locator("input#producto, input[name=\"producto\"]") to be visible

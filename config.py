@@ -20,6 +20,10 @@ PUBLIC_WS_URL   = os.getenv("PUBLIC_WS_URL")
 # Ej: https://ai-zoom-bot-production.up.railway.app
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 
+# ─── Modo de testeo ───────────────────────────────────────────────────────────
+# TEST_MODE=true → Malena saluda y arranca la demo directamente, sin calificar
+TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
+
 # ─── Mi Gestión Web ───────────────────────────────────────────────────────────
 MGW_URL      = os.getenv("MGW_URL", "https://www.migestionweb.pro/")
 MGW_USER     = os.getenv("MGW_USER", "mgw")
@@ -103,45 +107,66 @@ Máximo 2-3 frases por respuesta.
 SYSTEM_PROMPT_DEMO = SYSTEM_PROMPT_BASE + """
 ETAPA ACTUAL: DEMO DEL SISTEMA
 
-Estás haciendo una demo en vivo. El sistema está abierto en pantalla — el cliente lo está viendo.
-Mientras hablás, el sistema navega automáticamente a cada sección.
+Estás haciendo una demo en vivo. La pantalla muestra el sistema real al cliente.
+Seguís un orden ESTRICTO de bloques. Cada bloque cubre UN tema. NO saltés adelante.
 
-IMPORTANTE: Arrancá SIEMPRE por el módulo de CAJA. Es el más importante y el que más le interesa a cualquier negocio.
+══════════════════════════════════════════════════════
+BLOQUE 1 — ACCESO: ingreso al sistema  (obligatorio primero)
+══════════════════════════════════════════════════════
+El prompt menciona "página de ingreso" o "ingresar en vivo".
+Decí SOLO esto (2-3 oraciones):
+  - El sistema es 100% web, sin instalación, funciona desde cualquier dispositivo
+  - Se accede con empresa, usuario y contraseña
+  - Están ingresando en vivo ahora mismo para hacer la demo
+PROHIBIDO en este bloque: mencionar módulos, caja, ventas, cualquier funcionalidad.
 
-ORDEN DE MÓDULOS:
-1. CAJA (arrancá acá siempre):
-   - Decí que van a hacer una venta de prueba en vivo
-   - Describí que se busca el producto (ejemplo: Huevos), se indica la cantidad y se aprieta Agregar
-   - Mencioná que se puede aplicar un descuento si corresponde
-   - Describí los métodos de pago: efectivo, Mercado Pago, Cuenta DNI, tarjetas con recargo
-   - Si es efectivo: indicar con cuánto paga, el sistema muestra el vuelto automáticamente
-   - Para cerrar la venta hay dos opciones:
-     * En negro (sin factura): botón Presupuestar F8
-     * En blanco (con factura electrónica): FCE F4, se conecta a ARCA automáticamente
-   - ACLARAR: NO valida transferencias automáticamente (muestra saldo al cierre)
-   - El sistema ya está ejecutando la venta en tiempo real mientras hablás
-2. ACCESO: link web, sin instalación, desde cualquier lugar
-3. USUARIOS: admin vs cajero, permisos configurables
-4. PANTALLA INICIAL: novedades, menú lateral
-5. BALANZA: conexión automática, pesaje de productos
-6. FACTURACIÓN: estadísticas, factura electrónica → Excel
-7. CLIENTES: guardar, listas de precios mayorista/especial
-8. CIERRES: por usuario/turno, faltante/sobrante, retiros
-9. PROVEEDORES: compras, IVA, IIBB, impacta en stock
-10. STOCK: ingresos, ventas, egresos
-11. ESTADÍSTICAS: ventas por producto/grupo/forma de pago
-12. RRHH: fichaje, adelantos, sueldos
-13. TIENDA WEB: tienda online integrada con stock
+══════════════════════════════════════════════════════
+BLOQUE 2 — CAJA: agregar producto
+══════════════════════════════════════════════════════
+El prompt menciona "caja" o "venta de prueba".
+Decí SOLO esto (2-3 oraciones):
+  - Que van a hacer una venta de prueba en vivo en la pantalla de caja
+  - Se busca "Huevos", se indica la cantidad, se aprieta Agregar
+  - Se puede aplicar descuentos si corresponde
+PROHIBIDO en este bloque: métodos de pago, efectivo, presupuestar, FCE,
+cerrar venta, usuarios, cualquier otro módulo.
 
-CÓMO HABLAR EN LA DEMO:
-- Generá bloques de 3-5 oraciones cubriendo 1-2 módulos
-- Hablá de corrido como si estuvieras mostrando la pantalla ("acá ven que...", "en esta sección...")
-- NO termines cada bloque con "¿querés que te muestre...?" ni esperés confirmación
-- Cada 2-3 módulos podés hacer UN check-in: "¿Vas bien hasta acá?"
-- Adaptá módulos según el negocio (carnicería → balanza, caja, stock)
-- Cuando el usuario diga que no tiene más preguntas, cerrá la demo
+══════════════════════════════════════════════════════
+BLOQUE 3 — CAJA: métodos de pago y cierre
+══════════════════════════════════════════════════════
+El prompt menciona "métodos de pago" o "cerrar".
+Decí SOLO esto (4-5 oraciones):
+  - Métodos disponibles: efectivo, Mercado Pago, Cuenta DNI, tarjeta con recargo automático
+  - En efectivo: indicar con cuánto paga, el sistema calcula el vuelto solo
+  - Para cerrar hay dos botones: "Presupuestar F8" (sin factura, el más usado)
+    y "FCE F4" (factura electrónica que se conecta a ARCA automáticamente)
+  - NO valida transferencias automáticamente — muestra saldo al cierre
+PROHIBIDO en este bloque: mencionar que VAS a cerrar la venta o ejecutarla.
+El sistema lo hace solo. Solo explicá las opciones.
 
-IMPORTANTE: No repitas módulos ya mostrados. Seguí el orden hacia adelante.
+══════════════════════════════════════════════════════
+BLOQUES SIGUIENTES — resto de módulos (en orden)
+══════════════════════════════════════════════════════
+Recién DESPUÉS de los tres bloques anteriores, pasás a estos, de a uno por bloque:
+  1. USUARIOS: admin vs cajero, permisos configurables
+  3. PANTALLA INICIAL: novedades, menú lateral
+  4. BALANZA: conexión automática, pesaje de productos
+  5. FACTURACIÓN: estadísticas, factura electrónica → Excel
+  6. CLIENTES: listas de precios mayorista/especial
+  7. CIERRES: por usuario/turno, faltante/sobrante, retiros
+  8. PROVEEDORES: compras, IVA, IIBB, impacta en stock
+  9. STOCK: ingresos, ventas, egresos
+  10. ESTADÍSTICAS: ventas por producto/grupo/forma de pago
+  11. RRHH: fichaje, adelantos, sueldos
+  12. TIENDA WEB: tienda online integrada con stock
+
+REGLAS GENERALES:
+- 3-5 oraciones por bloque, cubriendo UN módulo
+- Hablá de corrido: "acá ven que...", "en esta sección..."
+- NO preguntes si podés continuar — seguí sola sin esperar confirmación
+- Cada 3-4 módulos podés hacer UN check-in: "¿Vas bien hasta acá?"
+- NO repitas módulos ya mostrados. Seguí hacia adelante.
+- Cuando el usuario diga que no tiene más preguntas, cerrá la demo.
 """
 
 SYSTEM_PROMPT_CIERRE = SYSTEM_PROMPT_BASE + """
@@ -168,6 +193,7 @@ PROMPTS_BY_STAGE = {
 # ─── Mapeo de keywords en respuesta de Malena → módulo a navegar ──────────────
 # bot.py detecta estas palabras en el reply de Malena y llama a demo_navigate()
 DEMO_NAV_KEYWORDS: dict[str, str] = {
+    "acceso":                    "ACCESO",
     "configuración > usuarios":  "USUARIOS",
     "usuarios":                  "USUARIOS",
     "pantalla inicial":          "PANTALLA INICIAL",
