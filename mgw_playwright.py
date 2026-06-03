@@ -533,23 +533,468 @@ async def _manejar_arqueo(on_screenshot=None) -> None:
         print(f"[PW] [ARQUEO] Error: {e}")
 
 
-async def _demo_modulos_restantes(decir_frase, navigate_fn=None) -> None:
-    """Recorre los módulos post-caja con frases pre-escritas y navegación del iframe."""
+# ── CLIENTES: abrir formulario de nuevo cliente con Playwright ────────────────
+
+async def _demo_clientes_abrir_formulario(on_screenshot=None) -> bool:
+    """
+    Navega a clientes.php en el headless browser, hace click en 'Nuevo Cliente'
+    y captura el formulario AJAX con estilos completos.
+    No navega a ajax_clientes_nuevo_cliente.php directamente (devuelve HTML parcial).
+    """
+    if _page is None:
+        return False
+
+    base = MGW_URL.rstrip("/")
+
+    async def snap():
+        b64 = await _screenshot_b64()
+        if b64 and on_screenshot:
+            await on_screenshot(b64)
+
+    try:
+        print("[PW] [CLIENTES] Navegando a clientes.php...")
+        await _page.goto(f"{base}/clientes.php", wait_until="domcontentloaded", timeout=20000)
+        await asyncio.sleep(2.5)
+        await snap()  # lista de clientes
+
+        print("[PW] [CLIENTES] Buscando botón Nuevo Cliente...")
+        clicked = False
+        for selector in [
+            'a:has-text("Nuevo Cliente")',
+            'button:has-text("Nuevo Cliente")',
+            'a:has-text("Nuevo")',
+            'button:has-text("Nuevo")',
+            '[onclick*="nuevo_cliente"]',
+            '[onclick*="NuevoCliente"]',
+            'a.btn-success',
+            'button.btn-success',
+        ]:
+            try:
+                el = _page.locator(selector).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    clicked = True
+                    print(f"[PW] [CLIENTES] Click via '{selector}' ✓")
+                    break
+            except Exception:
+                continue
+
+        if not clicked:
+            await _page.evaluate("""
+                const all = [...document.querySelectorAll('a, button')];
+                const btn = all.find(e => {
+                    const t = (e.textContent || '').trim().toLowerCase();
+                    return t.includes('nuevo') || t.includes('alta');
+                });
+                if (btn) btn.click();
+            """)
+            print("[PW] [CLIENTES] Click via JS fallback")
+
+        await asyncio.sleep(3.0)
+        await snap()  # formulario de nuevo cliente (cargado vía AJAX)
+        print("[PW] [CLIENTES] ✓ Formulario visible")
+        return True
+
+    except Exception as e:
+        import traceback
+        print(f"[PW] [CLIENTES] Error: {e}")
+        traceback.print_exc()
+        await snap()
+        return False
+
+
+# ── PROVEEDORES: demo completa de compra e ingreso de stock ───────────────────
+
+async def _demo_proveedores(decir_frase, on_screenshot=None, on_screenshot_end=None, navigate_fn=None) -> bool:
+    """
+    Demo de Proveedores: 7 pasos interleaved (audio → acción → screenshot).
+    Sin wait_for_response — usa selectores visibles y sleeps explícitos.
+    """
+    if _page is None:
+        return False
+
+    base = MGW_URL.rstrip("/")
+
+    async def snap():
+        b64 = await _screenshot_b64()
+        if b64 and on_screenshot:
+            await on_screenshot(b64)
+
+    async def snap_end():
+        if on_screenshot_end:
+            await on_screenshot_end()
+
     async def nav(path: str):
         if navigate_fn:
             await navigate_fn(path)
 
+    async def click_first(selectors: list, label: str) -> bool:
+        for selector in selectors:
+            try:
+                el = _page.locator(selector).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    print(f"[PW] [PROV] {label} via '{selector}' ✓")
+                    return True
+            except Exception:
+                continue
+        return False
+
+    try:
+        # ── PASO 1: Navegar a compras.php, abrir movimientos del proveedor ──────
+        await decir_frase(
+            "Ahora pasamos a la sección de Proveedores. "
+            "Desde acá podemos gestionar las cuentas corrientes de quienes nos abastecen "
+            "y, lo más importante, ingresar stock al sistema al registrar una compra."
+        )
+
+        await nav("/compras.php")
+        print("[PW] [PROV] Navegando a compras.php...")
+        await _page.goto(f"{base}/compras.php", wait_until="domcontentloaded", timeout=20000)
+        await asyncio.sleep(3.0)
+        await snap()  # lista de proveedores
+
+        print("[PW] [PROV] Buscando botón Editar del primer proveedor...")
+        # El botón correcto tiene title/tooltip "Editar" y dispara ajax_proveedores_movimientos.php
+        clicked = await click_first([
+            'tbody tr:first-child [title="Editar"]',
+            'tbody tr:first-child [data-original-title="Editar"]',
+            'tbody tr:first-child [data-title="Editar"]',
+            '[title="Editar"]',
+            '[data-original-title="Editar"]',
+        ], "Editar proveedor 1")
+
+        if not clicked:
+            await _page.evaluate("""
+                const all = [...document.querySelectorAll('[title], [data-original-title]')];
+                const btn = all.find(e => {
+                    const t = (e.getAttribute('title') || e.getAttribute('data-original-title') || '');
+                    return t.trim().toLowerCase() === 'editar';
+                });
+                if (btn) btn.click();
+            """)
+            print("[PW] [PROV] Editar vía JS ✓")
+
+        await asyncio.sleep(3.0)
+        await snap()  # vista de movimientos del proveedor
+
+        # ── PASO 2: Click en "+ Compra" ─────────────────────────────────────────
+        await decir_frase(
+            "Vamos a simular una carga de stock. "
+            "Para eso, hacemos click en el botón '+ Compra' para abrir el formulario de comprobantes."
+        )
+
+        clicked = await click_first([
+            'a:has-text("+ Compra")',
+            'button:has-text("+ Compra")',
+            'a:has-text("Nueva Compra")',
+            'a:has-text("Nueva compra")',
+            '[onclick*="nuevo_compra"]',
+            '[onclick*="nueva_compra"]',
+            '[onclick*="compra_nuevo"]',
+        ], "+ Compra")
+
+        if not clicked:
+            await _page.evaluate("""
+                const all = [...document.querySelectorAll('a, button')];
+                const btn = all.find(e => {
+                    const t = (e.textContent || '').trim().toLowerCase();
+                    return t.includes('+ compra') || t.includes('nueva compra');
+                });
+                if (btn) btn.click();
+            """)
+            print("[PW] [PROV] + Compra vía JS ✓")
+
+        await asyncio.sleep(3.0)
+        await snap()  # formulario Nueva Compra
+
+        # ── PASO 3: Llenar formulario y "Finalizar" ──────────────────────────────
+        await decir_frase(
+            "Colocamos los datos del remito o factura del proveedor y el importe global de la compra "
+            "para asentar la deuda o el movimiento de caja. "
+            "Una vez completado, presionamos Finalizar."
+        )
+
+        print("[PW] [PROV] Llenando formulario...")
+
+        # Número de comprobante
+        for sel in ['input[name="numero"]', 'input[name="nro"]', 'input[name="num"]',
+                    'input[placeholder*="úmero"]', 'input[placeholder*="umero"]']:
+            try:
+                el = _page.locator(sel).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.fill("0001-00012345")
+                    print(f"[PW] [PROV] Número via '{sel}' ✓")
+                    break
+            except Exception:
+                continue
+
+        await asyncio.sleep(0.3)
+
+        # Tipo de comprobante
+        for sel in ['select[name="tipo"]', 'select[name="tipo_factura"]', 'select[name="comprobante"]']:
+            try:
+                el = _page.locator(sel).first
+                if await el.count() > 0:
+                    for label in ["Factura A", "Remito", "Factura B", "Factura C"]:
+                        try:
+                            await el.select_option(label=label)
+                            print(f"[PW] [PROV] Tipo '{label}' ✓")
+                            break
+                        except Exception:
+                            continue
+                    break
+            except Exception:
+                continue
+
+        await asyncio.sleep(0.3)
+
+        # Importe — tipeo lento para que sea visual
+        for sel in ['input[name="importe"]', 'input[name="total"]', 'input[name="monto"]',
+                    'input[placeholder*="mporte"]']:
+            try:
+                el = _page.locator(sel).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    await el.fill("")
+                    await el.type("17000", delay=150)
+                    print(f"[PW] [PROV] Importe via '{sel}' ✓")
+                    break
+            except Exception:
+                continue
+
+        await asyncio.sleep(0.5)
+        await snap()  # formulario completado
+
+        await click_first([
+            'button:has-text("Finalizar")',
+            'a:has-text("Finalizar")',
+            'input[value="Finalizar"]',
+            '[onclick*="finalizar"]',
+            '[onclick*="ingresar"]',
+        ], "Finalizar compra")
+
+        await asyncio.sleep(3.0)
+        await snap()  # lista con la compra creada
+
+        # ── PASO 4: Click en carrito verde (detalles de la compra) ──────────────
+        await decir_frase(
+            "La compra ya está creada en el sistema, pero ahora hace falta cargarle los productos específicos "
+            "para que impacten directamente en nuestro stock. "
+            "Para esto, ingresamos al carrito verde que aparece a la derecha de la compra."
+        )
+
+        clicked = await click_first([
+            '[onclick*="compra_detalles"]',
+            '[onclick*="detalle_compra"]',
+            '.fa-shopping-cart',
+            'tbody tr:first-child [onclick*="detalle"]',
+            'tbody tr:first-child a.btn-success',
+        ], "Carrito verde")
+
+        if not clicked:
+            await _page.evaluate("""
+                const all = [...document.querySelectorAll('[onclick]')];
+                const btn = all.find(e => {
+                    const oc = e.getAttribute('onclick') || '';
+                    return oc.includes('detalle') || oc.includes('carrito') || oc.includes('producto');
+                });
+                if (btn) btn.click();
+            """)
+            print("[PW] [PROV] Carrito verde vía JS ✓")
+
+        await asyncio.sleep(3.0)
+        await snap()  # formulario productos de la compra
+
+        # ── PASO 5: Agregar producto "Vacío" ─────────────────────────────────────
+        await decir_frase(
+            "En este formulario indicamos el producto que compramos. "
+            "Por ejemplo, vamos a ingresar 'Vacío', que tiene el código 11. "
+            "Colocamos el precio de costo y, como es un producto que se vende al peso, "
+            "le indicamos 1 kilo recibido y le damos a Agregar."
+        )
+
+        print("[PW] [PROV] Cargando producto Vacío (código 11)...")
+
+        # Campo producto — tipear el código 11 para que el autocomplete lo encuentre directo
+        for sel in ['input[name="producto"]', '#producto', 'input.ui-autocomplete-input',
+                    'input[placeholder*="roducto"]', 'input[placeholder*="uscar"]']:
+            try:
+                el = _page.locator(sel).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    await el.fill("")
+                    await el.type("11", delay=150)
+                    print(f"[PW] [PROV] Código 11 via '{sel}' ✓")
+                    break
+            except Exception:
+                continue
+
+        await asyncio.sleep(1.5)
+        try:
+            await _page.wait_for_selector('.ui-autocomplete .ui-menu-item', state="visible", timeout=4000)
+            await _page.locator('.ui-autocomplete .ui-menu-item').first.click()
+            print("[PW] [PROV] Producto seleccionado del autocomplete ✓")
+        except Exception:
+            print("[PW] [PROV] Sin autocomplete, continuando")
+
+        await asyncio.sleep(0.5)
+
+        # Campo precio
+        for sel in ['input[name="precio"]', 'input[name="precio_costo"]', 'input[name="costo"]',
+                    'input[placeholder*="recio"]']:
+            try:
+                el = _page.locator(sel).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    await el.fill("15000")
+                    print(f"[PW] [PROV] Precio via '{sel}' ✓")
+                    break
+            except Exception:
+                continue
+
+        await asyncio.sleep(0.3)
+
+        # Campo peso (kilos) — dejar Unidades vacío
+        for sel in ['input[name="peso"]', 'input[name="kilos"]', 'input[name="kg"]',
+                    'input[placeholder*="eso"]', 'input[placeholder*="kg"]']:
+            try:
+                el = _page.locator(sel).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    await el.fill("1")
+                    print(f"[PW] [PROV] Peso via '{sel}' ✓")
+                    break
+            except Exception:
+                continue
+
+        await asyncio.sleep(0.3)
+        await snap()  # formulario con datos antes de Agregar
+
+        await click_first([
+            'button:has-text("Agregar")',
+            'a:has-text("Agregar")',
+            'input[value="Agregar"]',
+            '#btnAgregar',
+            '[onclick*="agregar"]',
+        ], "Agregar producto")
+
+        await asyncio.sleep(2.0)
+        await snap()  # Vacío en el detalle de compra
+
+        # ── PASO 6: Finalizar detalles de compra ─────────────────────────────────
+        await decir_frase(
+            "Desde esta sección podemos seguir sumando más productos a la misma compra. "
+            "El sistema controla el balance: avisa si hay diferencia y por seguridad no deja cerrar "
+            "si supera los 25 pesos. Como todo coincide, presionamos 'Finalizar detalles de compra'."
+        )
+
+        await click_first([
+            'button:has-text("Finalizar detalles")',
+            'a:has-text("Finalizar detalles")',
+            '[onclick*="finalizar_compra_detalles"]',
+            '[onclick*="finalizar_detalles"]',
+            'button:has-text("Finalizar")',
+            'a:has-text("Finalizar")',
+        ], "Finalizar detalles")
+
+        await asyncio.sleep(3.0)
+        await snap()  # lista de movimientos actualizada
+
+        # ── PASO 7: Marcar como pagada (acepta dialog nativo) ────────────────────
+        await decir_frase(
+            "Excelente, la compra está asentada y el stock de Vacío ya ingresó al sistema. "
+            "Sin embargo, figura como 'Impaga'. Al realizar el pago, simplemente presionamos "
+            "sobre la etiqueta 'Impaga' y confirmamos la alerta en pantalla."
+        )
+
+        # Registrar handler ANTES del click para capturar el dialog nativo
+        async def _accept_dialog(dialog):
+            try:
+                await dialog.accept()
+                print("[PW] [PROV] Dialog aceptado ✓")
+            except Exception as exc:
+                print(f"[PW] [PROV] Error en dialog: {exc}")
+
+        _page.on("dialog", _accept_dialog)
+
+        clicked = await click_first([
+            'span:has-text("Impaga")',
+            'a:has-text("Impaga")',
+            'button:has-text("Impaga")',
+            '.label-warning',
+            '[onclick*="pagar"]',
+            '[onclick*="impaga"]',
+            '[onclick*="estado_pago"]',
+        ], "Impaga")
+
+        await asyncio.sleep(2.5)
+        await snap()  # compra marcada como pagada
+        _page.remove_listener("dialog", _accept_dialog)
+
+        await snap_end()
+        print("[PW] [PROV] ✓ Demo de Proveedores completa")
+        return True
+
+    except Exception as e:
+        import traceback
+        print(f"[PW] [PROV] Error: {e}")
+        traceback.print_exc()
+        b64 = await _screenshot_b64()
+        if b64 and on_screenshot:
+            await on_screenshot(b64)
+        return False
+
+
+# ── Módulos post-caja: Clientes → Proveedores → resto (iframe simple) ─────────
+
+async def _demo_modulos_restantes(decir_frase, navigate_fn=None, on_screenshot=None, on_screenshot_end=None) -> None:
+    """Recorre los módulos post-caja. Clientes y Proveedores usan Playwright;
+    el resto navega el iframe con frases pre-escritas."""
+
+    async def nav(path: str):
+        if navigate_fn:
+            await navigate_fn(path)
+
+    async def snap_end():
+        if on_screenshot_end:
+            await on_screenshot_end()
+
+    # ── CLIENTES ───────────────────────────────────────────────────────────────
+    await nav("/clientes.php")
+    await asyncio.sleep(1.5)
+    await decir_frase(
+        "Ahora te muestro el módulo de Clientes. "
+        "Acá podés guardar los datos de tus clientes para que el nombre se autocomplete en la caja al momento de vender. "
+        "Muy práctico para no tipear todo de vuelta y para tener el historial de compras de cada uno."
+    )
+    await asyncio.sleep(0.5)
+    await _demo_clientes_abrir_formulario(on_screenshot=on_screenshot)
+    await decir_frase(
+        "Y lo bueno es que a cada cliente le podés asignar una lista de precios diferente. "
+        "Si tenés un mayorista o alguien a quien le hacés precio especial, "
+        "le ponés la lista mayorista, al costo, o la que vos quieras, en lugar del precio de mostrador. "
+        "Acá ven la pantalla para dar de alta un nuevo cliente, donde se configuran todos esos datos."
+    )
+    await snap_end()
+    await asyncio.sleep(0.5)
+
+    # ── PROVEEDORES ────────────────────────────────────────────────────────────
+    await _demo_proveedores(
+        decir_frase=decir_frase,
+        on_screenshot=on_screenshot,
+        on_screenshot_end=on_screenshot_end,
+        navigate_fn=navigate_fn,
+    )
+    await asyncio.sleep(0.5)
+
+    # ── RESTO (iframe simple) ──────────────────────────────────────────────────
     modulos = [
         ("/configuracion_usuarios.php",
          "En el módulo de Usuarios pueden crear distintos perfiles de acceso. "
          "Por ejemplo, un perfil de administrador que ve todo el sistema "
          "y uno de cajero que solo accede a la caja. "
          "Cada perfil tiene permisos configurables para controlar exactamente qué puede hacer cada empleado."),
-
-        ("/clientes.php",
-         "Acá está el módulo de Clientes. "
-         "Pueden cargar listas de precios diferenciadas: precio de mostrador, mayorista, o especial. "
-         "El sistema aplica el precio correcto según el cliente de forma automática en la caja."),
 
         ("/stock_existencia_2.php",
          "En Stock pueden ver el movimiento completo de cada producto: ingresos, ventas y egresos. "
@@ -677,10 +1122,16 @@ async def run_demo_mgw(
         await decir_frase(
             "Muy bien, ya estamos adentro. Esta es la pantalla de inicio del sistema. "
             "Acá aparecen las novedades y en el menú de la izquierda están todos los módulos disponibles. "
-            "Desde acá manejan todo: caja, clientes, stock, estadísticas, y más."
+            "También desde acá los empleados pueden fichar su entrada y salida ingresando su DNI, "
+            "sin necesidad de ningún hardware extra."
         )
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(0.5)
         await snap()
+
+        await decir_frase(
+            "Y en esta pantalla también aparece un video sobre la nueva balanza todo en uno "
+            "que ofrecemos junto con el sistema."
+        )
 
         # ── 3. CAJA — navegación y limpieza de estado ─────────────────────────
         if not _ok():
@@ -725,7 +1176,9 @@ async def run_demo_mgw(
         await decir_frase(
             "Acá está el ticket de caja vacío. "
             "Para registrar una venta busco el producto en el campo de arriba. "
-            "Escribo 'Huevos', selecciono la sugerencia, indico la cantidad y aprieto Agregar."
+            "Escribo 'Huevos' y selecciono la sugerencia. "
+            "El número 10 que aparece es el código interno del producto en el sistema. "
+            "Indico la cantidad y aprieto Agregar."
         )
 
         campo = _page.locator('input#producto, input[name="producto"]').first
@@ -830,7 +1283,30 @@ async def run_demo_mgw(
             """)
             print("[PW] [CAJA] Efectivo forzado via JS ✓")
 
-        await asyncio.sleep(3.0)
+        await asyncio.sleep(2.0)
+
+        # Tipear monto en efectivo para que el sistema muestre el vuelto
+        print("[PW] [CAJA] Ingresando monto en efectivo...")
+        for sel in [
+            'input[placeholder*="Paga con"]',
+            'input[placeholder*="paga con"]',
+            'input[name="efectivo"]', 'input[name="monto_efectivo"]',
+            'input[name="recibe"]', 'input[name="monto"]',
+        ]:
+            try:
+                el = _page.locator(sel).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    await el.fill("")
+                    await el.type("2000", delay=150)
+                    print(f"[PW] [CAJA] Monto efectivo via '{sel}' ✓")
+                    # Disparar evento para que calcule el vuelto
+                    await el.press("Tab")
+                    break
+            except Exception:
+                continue
+
+        await asyncio.sleep(2.0)
         await snap()  # ⑨ panel de pago con vuelto calculado
 
         # ── 6. BOTONES DE CIERRE + PRESUPUESTO ───────────────────────────────
@@ -884,7 +1360,11 @@ async def run_demo_mgw(
 
         # ── 7. MÓDULOS RESTANTES ──────────────────────────────────────────────
         if _ok():
-            await _demo_modulos_restantes(decir_frase, navigate_fn)
+            await _demo_modulos_restantes(
+                decir_frase, navigate_fn,
+                on_screenshot=on_screenshot,
+                on_screenshot_end=on_screenshot_end,
+            )
 
         return True
 
