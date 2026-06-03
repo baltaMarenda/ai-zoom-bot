@@ -3,3 +3,5 @@ venv/
 __pycache__/
 readme.md
 .DS_Store
+.claude
+CLAUDE.md
