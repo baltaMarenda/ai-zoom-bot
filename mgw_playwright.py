@@ -533,23 +533,116 @@ async def _manejar_arqueo(on_screenshot=None) -> None:
         print(f"[PW] [ARQUEO] Error: {e}")
 
 
-async def _demo_modulos_restantes(decir_frase, navigate_fn=None) -> None:
+async def _demo_clientes_abrir_formulario(on_screenshot=None) -> bool:
+    """
+    Desde /clientes.php (ya cargada en el headless browser), hace click en el
+    botón de Nuevo Cliente para que el formulario AJAX aparezca en la misma
+    página, y captura el resultado. No navega a ajax_clientes_nuevo_cliente.php
+    directamente porque ese endpoint devuelve HTML parcial sin CSS/JS.
+    """
+    if _page is None:
+        return False
+
+    base = MGW_URL.rstrip("/")
+
+    async def snap(delay: float = 1.5):
+        await _snap(on_screenshot, delay)
+
+    try:
+        print("[PW] [CLIENTES] Navegando a clientes.php en el headless browser...")
+        await _page.goto(f"{base}/clientes.php", wait_until="domcontentloaded", timeout=20000)
+        await asyncio.sleep(2.5)
+        await snap(0.0)  # lista de clientes
+
+        print("[PW] [CLIENTES] Buscando botón Nuevo Cliente...")
+        clicked = False
+        for selector in [
+            'a:has-text("Nuevo Cliente")',
+            'button:has-text("Nuevo Cliente")',
+            'a:has-text("Nuevo")',
+            'button:has-text("Nuevo")',
+            '[onclick*="nuevo_cliente"]',
+            '[onclick*="alta_cliente"]',
+            '[onclick*="NuevoCliente"]',
+            'a.btn-success',
+            'button.btn-success',
+        ]:
+            try:
+                el = _page.locator(selector).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    clicked = True
+                    print(f"[PW] [CLIENTES] Click via '{selector}' ✓")
+                    break
+            except Exception:
+                continue
+
+        if not clicked:
+            await _page.evaluate("""
+                const all = [...document.querySelectorAll('a, button, input[type="button"]')];
+                const btn = all.find(e => {
+                    const t = (e.textContent || e.value || '').trim().toLowerCase();
+                    return t.includes('nuevo') || t.includes('alta') || t.includes('agregar');
+                });
+                if (btn) btn.click();
+            """)
+            print("[PW] [CLIENTES] Click via JS fallback")
+
+        await asyncio.sleep(3.0)
+        await snap(0.0)  # formulario de nuevo cliente (cargado vía AJAX en la misma página)
+
+        print("[PW] [CLIENTES] ✓ Formulario de nuevo cliente visible")
+        return True
+
+    except Exception as e:
+        import traceback
+        print(f"[PW] [CLIENTES] Error: {e}")
+        traceback.print_exc()
+        await snap(0.5)
+        return False
+
+
+async def _demo_modulos_restantes(decir_frase, navigate_fn=None, on_screenshot=None, on_screenshot_end=None) -> None:
     """Recorre los módulos post-caja con frases pre-escritas y navegación del iframe."""
     async def nav(path: str):
         if navigate_fn:
             await navigate_fn(path)
 
+    async def snap_end():
+        if on_screenshot_end:
+            await on_screenshot_end()
+
+    # ── CLIENTES — primero, con Playwright para mostrar el formulario ───────────
+    await nav("/clientes.php")
+    await asyncio.sleep(1.5)
+    await decir_frase(
+        "Ahora te muestro el módulo de Clientes. "
+        "Acá podés guardar los datos de tus clientes para que el nombre se autocomplete en la caja al momento de vender. "
+        "Muy práctico para no tipear todo de vuelta y para tener el historial de compras de cada uno."
+    )
+    await asyncio.sleep(0.5)
+
+    # Playwright: navega a clientes.php, abre el formulario de nuevo cliente y captura screenshots
+    await _demo_clientes_abrir_formulario(on_screenshot=on_screenshot)
+
+    await decir_frase(
+        "Y lo bueno es que a cada cliente le podés asignar una lista de precios diferente. "
+        "Si tenés un mayorista o alguien a quien le hacés precio especial, "
+        "le ponés la lista mayorista, al costo, o la que vos quieras, en lugar del precio de mostrador. "
+        "Acá ven la pantalla para dar de alta un nuevo cliente, donde se configuran todos esos datos."
+    )
+
+    # Volver al modo iframe (termina la superposición de Playwright)
+    await snap_end()
+    await asyncio.sleep(0.5)
+
+    # ── RESTO DE MÓDULOS (simple: nav iframe + frase) ────────────────────────────
     modulos = [
         ("/configuracion_usuarios.php",
          "En el módulo de Usuarios pueden crear distintos perfiles de acceso. "
          "Por ejemplo, un perfil de administrador que ve todo el sistema "
          "y uno de cajero que solo accede a la caja. "
          "Cada perfil tiene permisos configurables para controlar exactamente qué puede hacer cada empleado."),
-
-        ("/clientes.php",
-         "Acá está el módulo de Clientes. "
-         "Pueden cargar listas de precios diferenciadas: precio de mostrador, mayorista, o especial. "
-         "El sistema aplica el precio correcto según el cliente de forma automática en la caja."),
 
         ("/stock_existencia_2.php",
          "En Stock pueden ver el movimiento completo de cada producto: ingresos, ventas y egresos. "
@@ -884,7 +977,11 @@ async def run_demo_mgw(
 
         # ── 7. MÓDULOS RESTANTES ──────────────────────────────────────────────
         if _ok():
-            await _demo_modulos_restantes(decir_frase, navigate_fn)
+            await _demo_modulos_restantes(
+                decir_frase, navigate_fn,
+                on_screenshot=on_screenshot,
+                on_screenshot_end=on_screenshot_end,
+            )
 
         return True
 

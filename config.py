@@ -148,17 +148,17 @@ El sistema lo hace solo. Solo explicá las opciones.
 BLOQUES SIGUIENTES — resto de módulos (en orden)
 ══════════════════════════════════════════════════════
 Recién DESPUÉS de los tres bloques anteriores, pasás a estos, de a uno por bloque:
-  1. USUARIOS: admin vs cajero, permisos configurables
+  1. CLIENTES: se guardan para autocompletar en caja; se les asigna lista de precios (mayorista, al costo, etc.)
+  2. USUARIOS: admin vs cajero, permisos configurables
   3. PANTALLA INICIAL: novedades, menú lateral
   4. BALANZA: conexión automática, pesaje de productos
   5. FACTURACIÓN: estadísticas, factura electrónica → Excel
-  6. CLIENTES: listas de precios mayorista/especial
-  7. CIERRES: por usuario/turno, faltante/sobrante, retiros
-  8. PROVEEDORES: compras, IVA, IIBB, impacta en stock
-  9. STOCK: ingresos, ventas, egresos
-  10. ESTADÍSTICAS: ventas por producto/grupo/forma de pago
-  11. RRHH: fichaje, adelantos, sueldos
-  12. TIENDA WEB: tienda online integrada con stock
+  6. CIERRES: por usuario/turno, faltante/sobrante, retiros
+  7. PROVEEDORES: compras, IVA, IIBB, impacta en stock
+  8. STOCK: ingresos, ventas, egresos
+  9. ESTADÍSTICAS: ventas por producto/grupo/forma de pago
+  10. RRHH: fichaje, adelantos, sueldos
+  11. TIENDA WEB: tienda online integrada con stock
 
 REGLAS GENERALES:
 - 3-5 oraciones por bloque, cubriendo UN módulo

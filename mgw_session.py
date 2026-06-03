@@ -67,6 +67,24 @@ def mgw_get(path: str) -> requests.Response | None:
         return None
 
 
+def mgw_post(path: str, data: dict | None = None, raw_body: bytes | None = None,
+             content_type: str | None = None) -> requests.Response | None:
+    if _session is None:
+        return None
+    base = MGW_URL.rstrip("/")
+    url  = f"{base}{path}"
+    try:
+        headers = {}
+        if content_type:
+            headers["Content-Type"] = content_type
+        if raw_body is not None:
+            return _session.post(url, data=raw_body, headers=headers, timeout=15, allow_redirects=True)
+        return _session.post(url, data=data or {}, timeout=15, allow_redirects=True)
+    except Exception as e:
+        print(f"[MGW Session] Error POST {path}: {e}")
+        return None
+
+
 def get_cookies() -> dict:
     return _cookies
 

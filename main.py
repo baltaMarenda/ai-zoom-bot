@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from recall import create_bot, get_bot_status, current_bot_id
 from bot import handle_recall_audio, set_agent_websocket, remove_agent_websocket, on_agent_audio_done
 from ai import reset_conversation
-from mgw_session import mgw_login, mgw_get, is_logged_in, get_cookies
+from mgw_session import mgw_login, mgw_get, mgw_post, is_logged_in, get_cookies
 
 app = FastAPI(title="Malena Bot - Mi Gestión Web")
 
@@ -63,6 +63,36 @@ async def agent_page():
     Sirve la webpage que Recall.ai corre internamente como Output Media.
     """
     return FileResponse("app/static/agent.html", media_type="text/html")
+
+
+@app.post("/mgw-proxy/{path:path}")
+async def mgw_proxy_post(path: str, request: Request):
+    """Reenvía requests POST del iframe (AJAX) a Mi Gestión Web con la sesión autenticada."""
+    if not is_logged_in():
+        return HTMLResponse("<h3>Sin sesión MGW</h3>", status_code=503)
+
+    query = str(request.url.query)
+    full_path = f"/{path}"
+    if query:
+        full_path += f"?{query}"
+
+    body = await request.body()
+    content_type = request.headers.get("content-type", "")
+
+    loop = asyncio.get_event_loop()
+    resp = await loop.run_in_executor(
+        None, mgw_post, full_path, None, body, content_type or None
+    )
+
+    if resp is None:
+        return Response(status_code=502)
+
+    resp_content_type = resp.headers.get("content-type", "application/json")
+    return Response(
+        content=resp.content,
+        status_code=resp.status_code,
+        media_type=resp_content_type,
+    )
 
 
 @app.get("/mgw-proxy/{path:path}")
