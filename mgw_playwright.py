@@ -603,6 +603,57 @@ async def _demo_clientes_abrir_formulario(on_screenshot=None) -> bool:
         return False
 
 
+# ── STOCK: mostrar existencias con botón Todos ────────────────────────────────
+
+async def demo_stock_existencias(on_screenshot=None) -> bool:
+    """
+    Navega a Stock > Existencias en Playwright, aprieta el botón Todos
+    y toma screenshots de la tabla completa para mostrar en la reunión.
+    """
+    if _page is None:
+        return False
+
+    base = MGW_URL.rstrip("/")
+
+    async def snap(delay: float = 0.0):
+        await _snap(on_screenshot, delay)
+
+    try:
+        print("[PW] [STOCK] Navegando a Existencias...")
+        await _page.goto(
+            f"{base}/stock_existencia_2.php",
+            wait_until="domcontentloaded",
+            timeout=20000,
+        )
+        await asyncio.sleep(2.0)
+        await snap()  # vista inicial antes de filtrar
+
+        print("[PW] [STOCK] Haciendo clic en botón Todos...")
+        todos_btn = _page.locator("#boton_grupo_todos")
+        if await todos_btn.count() > 0 and await todos_btn.is_visible():
+            await todos_btn.click()
+            print("[PW] [STOCK] Clic en #boton_grupo_todos ✓")
+        else:
+            await _page.evaluate("""
+                const btn = document.getElementById('boton_grupo_todos');
+                if (btn) btn.click();
+            """)
+            print("[PW] [STOCK] Clic via JS fallback ✓")
+
+        await asyncio.sleep(3.0)
+        await snap()  # tabla completa con todas las existencias
+
+        print("[PW] [STOCK] Demo existencias ✓")
+        return True
+
+    except Exception as e:
+        import traceback
+        print(f"[PW] [STOCK] Error: {e}")
+        traceback.print_exc()
+        await snap()
+        return False
+
+
 # ── PROVEEDORES: demo completa de compra e ingreso de stock ───────────────────
 
 async def _demo_proveedores(decir_frase, on_screenshot=None, on_screenshot_end=None, navigate_fn=None) -> bool:
@@ -989,35 +1040,64 @@ async def _demo_modulos_restantes(decir_frase, navigate_fn=None, on_screenshot=N
     await asyncio.sleep(0.5)
 
     # ── RESTO (iframe simple) ──────────────────────────────────────────────────
-    modulos = [
-        ("/configuracion_usuarios.php",
-         "En el módulo de Usuarios pueden crear distintos perfiles de acceso. "
-         "Por ejemplo, un perfil de administrador que ve todo el sistema "
-         "y uno de cajero que solo accede a la caja. "
-         "Cada perfil tiene permisos configurables para controlar exactamente qué puede hacer cada empleado."),
 
-        ("/stock_existencia_2.php",
-         "En Stock pueden ver el movimiento completo de cada producto: ingresos, ventas y egresos. "
-         "El stock se actualiza solo con cada venta desde la caja. "
-         "También pueden hacer ajustes manuales o ingresar mercadería por compras a proveedores."),
+    # Usuarios
+    await nav("/configuracion_usuarios.php")
+    await asyncio.sleep(1.5)
+    await decir_frase(
+        "En el módulo de Usuarios pueden crear distintos perfiles de acceso. "
+        "Por ejemplo, un perfil de administrador que ve todo el sistema "
+        "y uno de cajero que solo accede a la caja. "
+        "Cada perfil tiene permisos configurables para controlar exactamente qué puede hacer cada empleado."
+    )
+    await asyncio.sleep(0.5)
 
-        ("/estadisticas_ventas.php",
-         "Las Estadísticas les dan una visión clara del negocio en tiempo real. "
-         "Ventas por producto, por grupo, por forma de pago, y por período. "
-         "Todo se puede exportar a Excel con un clic para analizar como quieran."),
+    # Stock > Existencias — con Playwright + screenshots
+    await nav("/stock_existencia_2.php")
+    await asyncio.sleep(1.0)
+    await decir_frase(
+        "Ahora vemos Stock, específicamente la sección de Existencias. "
+        "Esta pantalla te da el panorama completo de tu inventario. "
+        "Podés filtrar por grupo de productos, o apretar el botón Todos para ver todo junto de una."
+    )
+    await demo_stock_existencias(on_screenshot)
+    await decir_frase(
+        "La tabla tiene varias columnas. "
+        "Producto muestra todos los artículos del local. "
+        "Stock es lo que registraste que tenés físicamente. "
+        "Ingresos son las compras a proveedores que cargaste en el sistema."
+    )
+    await decir_frase(
+        "Ventas son las operaciones que se hicieron desde caja. "
+        "Envío entre sucursales aplica si tenés más de un local y mandás mercadería de una a la otra. "
+        "Egresos son salidas de stock sin venta. "
+        "Producción es lo que elaborás vos: si comprás una media res y la despostás, acá se refleja lo despostado. "
+        "Y la columna Existencia es el cálculo automático del sistema: lo que ingresó menos lo que vendiste, "
+        "así siempre sabés cuánto deberías tener en el local."
+    )
+    await snap_end()
+    await asyncio.sleep(0.5)
 
-        ("/caja_cierre.php",
-         "En Cierres pueden cerrar la caja por usuario o por turno. "
-         "El sistema muestra el efectivo esperado versus lo que hay en la caja, "
-         "el faltante o sobrante, y los retiros del día. "
-         "Muy útil para el control diario del negocio."),
-    ]
+    # Estadísticas
+    await nav("/estadisticas_ventas.php")
+    await asyncio.sleep(1.5)
+    await decir_frase(
+        "Las Estadísticas les dan una visión clara del negocio en tiempo real. "
+        "Ventas por producto, por grupo, por forma de pago, y por período. "
+        "Todo se puede exportar a Excel con un clic para analizar como quieran."
+    )
+    await asyncio.sleep(0.5)
 
-    for path, texto in modulos:
-        await nav(path)
-        await asyncio.sleep(1.5)
-        await decir_frase(texto)
-        await asyncio.sleep(0.5)
+    # Cierres
+    await nav("/caja_cierre.php")
+    await asyncio.sleep(1.5)
+    await decir_frase(
+        "En Cierres pueden cerrar la caja por usuario o por turno. "
+        "El sistema muestra el efectivo esperado versus lo que hay en la caja, "
+        "el faltante o sobrante, y los retiros del día. "
+        "Muy útil para el control diario del negocio."
+    )
+    await asyncio.sleep(0.5)
 
 
 async def run_demo_mgw(
