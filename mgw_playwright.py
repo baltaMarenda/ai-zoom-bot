@@ -7,7 +7,7 @@ import asyncio
 import base64
 from playwright.async_api import async_playwright, Page
 
-from config import MGW_URL, MGW_USER, MGW_EMPRESA, MGW_PASSWORD
+from config import MGW_URL, MGW_USER, MGW_EMPRESA, MGW_PASSWORD, TEST_MODE
 
 # Producto demo — ID numérico del array JS de caja.php
 DEMO_PRODUCTO_NOMBRE = "Huevos"
@@ -1044,7 +1044,446 @@ async def _demo_proveedores(
 
 
 
-async def _demo_modulos_restantes(decir_frase, navigate_fn=None, on_screenshot=None, on_screenshot_end=None) -> None:
+async def _demo_produccion(
+    decir_frase,
+    on_screenshot=None,
+    on_screenshot_end=None,
+    navigate_fn=None,
+) -> bool:
+    """
+    Demo de Producción:
+    Plantillas → nueva plantilla "Milanesas" → detalle (ingredientes entrada + salida)
+    → Produccion → nueva produccion con esa plantilla.
+    """
+    if _page is None:
+        return False
+
+    base = MGW_URL.rstrip("/")
+
+    async def snap():
+        b64 = await _screenshot_b64()
+        if b64 and on_screenshot:
+            await on_screenshot(b64)
+
+    async def snap_end():
+        if on_screenshot_end:
+            await on_screenshot_end()
+
+    async def nav(path: str):
+        if navigate_fn:
+            await navigate_fn(path)
+
+    async def click_first(selectors: list, label: str) -> bool:
+        for selector in selectors:
+            try:
+                el = _page.locator(selector).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    print(f"[PW] [PROD] {label} via '{selector}' ✓")
+                    return True
+            except Exception:
+                continue
+        return False
+
+    async def ingresar_producto_detalle(nombre: str, cantidad: str):
+        for sel in [
+            'input[name="producto"]', '#producto', '.ui-autocomplete-input',
+            'input[placeholder*="roducto"]', 'input[placeholder*="uscar"]',
+        ]:
+            try:
+                el = _page.locator(sel).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    await el.fill("")
+                    await el.type(nombre, delay=120)
+                    print(f"[PW] [PROD] '{nombre}' via '{sel}' ✓")
+                    break
+            except Exception:
+                continue
+
+        await asyncio.sleep(1.5)
+        try:
+            await _page.wait_for_selector('.ui-autocomplete .ui-menu-item', state="visible", timeout=4000)
+            await _page.locator('.ui-autocomplete .ui-menu-item').first.click()
+            print(f"[PW] [PROD] Autocomplete '{nombre}' ✓")
+        except Exception:
+            print(f"[PW] [PROD] Sin autocomplete para '{nombre}'")
+
+        try:
+            cant_el = _page.locator('#cantidad').first
+            if await cant_el.count() > 0:
+                await cant_el.click()
+                await cant_el.fill(cantidad)
+                print(f"[PW] [PROD] Cantidad={cantidad} ✓")
+        except Exception as e:
+            print(f"[PW] [PROD] Error cantidad: {e}")
+
+    try:
+        # ── PASO 1: Plantillas ────────────────────────────────────────────────────
+        await decir_frase(
+            "Genial, entonces te muestro la sección de Producción. "
+            "Acá tenemos dos partes: Producción y Plantillas, como se ve en el menú. "
+            "Primero, para producir necesitamos tener la plantilla de qué usamos para elaborar. "
+            "Vamos a Producción, Plantillas."
+        )
+
+        await nav("/produccion_plantillas.php")
+        print("[PW] [PROD] Navegando a produccion_plantillas.php...")
+        await _page.goto(f"{base}/produccion_plantillas.php", wait_until="domcontentloaded", timeout=20000)
+        await asyncio.sleep(2.0)
+        await snap()  # lista de plantillas
+
+        # ── PASO 2: Nueva plantilla ───────────────────────────────────────────────
+        await decir_frase(
+            "Agregamos una nueva plantilla apretando el botón Nueva plantilla. "
+            "Ingresamos el nombre, en este caso Milanesas, y apretamos Agregar."
+        )
+
+        clicked = await click_first([
+            'a[href="#modal_nuevo_plantilla_id"]',
+            'a[onclick*="plantilla_nueva"]',
+            'button[onclick*="plantilla_nueva"]',
+            'a:has-text("Nueva plantilla")',
+            'button:has-text("Nueva plantilla")',
+        ], "Nueva plantilla")
+
+        if not clicked:
+            await _page.evaluate("""
+                const btn = [...document.querySelectorAll('a, button')].find(e => {
+                    const oc = (e.getAttribute('onclick') || '').toLowerCase();
+                    const t = (e.textContent || '').trim().toLowerCase();
+                    return oc.includes('plantilla_nueva') || t.includes('nueva plantilla');
+                });
+                if (btn) btn.click();
+            """)
+            print("[PW] [PROD] Nueva plantilla via JS ✓")
+
+        await asyncio.sleep(2.0)
+        await snap()  # modal nueva plantilla
+
+        # Nombre de la plantilla
+        for sel in ['input[name="nombre"]', 'input[id="nombre"]', 'input[placeholder*="ombre"]', 'input[type="text"]']:
+            try:
+                el = _page.locator(sel).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    await el.fill("")
+                    await el.type("Milanesas", delay=120)
+                    print(f"[PW] [PROD] Nombre via '{sel}' ✓")
+                    break
+            except Exception:
+                continue
+
+        await asyncio.sleep(0.5)
+        await snap()  # nombre completado
+
+        clicked = await click_first([
+            '#boton_agregar_plantilla',
+            'button:has-text("Agregar")',
+            '.modal-footer .btn-primary',
+            'button[type="submit"]',
+        ], "Agregar plantilla")
+
+        if not clicked:
+            await _page.evaluate("""
+                const btn = document.getElementById('boton_agregar_plantilla')
+                    || [...document.querySelectorAll('button')].find(
+                        e => e.textContent.trim().toLowerCase() === 'agregar'
+                    );
+                if (btn) btn.click();
+            """)
+            print("[PW] [PROD] Agregar plantilla via JS ✓")
+
+        await asyncio.sleep(4.0)  # esperar DataTable refresh + Bootstrap tooltip init
+        await snap()  # plantilla en la lista
+
+        # ── PASO 3: Ver detalles ──────────────────────────────────────────────────
+        await decir_frase(
+            "Ahí ya tenemos la plantilla guardada. "
+            "Ahora nos falta detallar qué usamos para hacer ese producto. "
+            "Apretamos el botón Ver detalles a la derecha."
+        )
+
+        # Debug: loguear todos los botones visibles en tbody
+        btns_debug = await _page.evaluate("""() => {
+            return [...document.querySelectorAll('tbody a, tbody button')]
+                .filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; })
+                .map(el => ({
+                    tag:   el.tagName,
+                    text:  (el.textContent || '').trim().slice(0, 30),
+                    title: el.getAttribute('title') || '',
+                    doa:   el.getAttribute('data-original-title') || '',
+                    href:  el.getAttribute('href') || '',
+                    oc:    (el.getAttribute('onclick') || '').slice(0, 60),
+                }));
+        }""")
+        print(f"[PW] [PROD] Botones en DataTable ({len(btns_debug)}):")
+        for b in btns_debug:
+            print(f"  {b}")
+
+        # Buscar en la fila que contiene "Milanesas" y hacer clic en el botón de detalles
+        ver_result = await _page.evaluate("""() => {
+            const rows = [...document.querySelectorAll('tbody tr')];
+            for (const row of rows) {
+                if (!row.textContent.toLowerCase().includes('milanesa')) continue;
+                const btns = [...row.querySelectorAll('a, button, [onclick]')];
+                for (const btn of btns) {
+                    const title = (btn.getAttribute('title') || btn.getAttribute('data-original-title') || '').toLowerCase();
+                    const href  = (btn.getAttribute('href') || '').toLowerCase();
+                    const oc    = (btn.getAttribute('onclick') || '').toLowerCase();
+                    if (title.includes('detalle') || href.includes('detalle') || oc.includes('detalle')) {
+                        btn.click();
+                        return 'by-detalle: ' + btn.outerHTML.slice(0, 120);
+                    }
+                }
+                // Fallback: segundo botón de la fila (generalmente Ver detalles)
+                if (btns.length >= 2) { btns[1].click(); return 'btn[1]: ' + btns[1].outerHTML.slice(0, 120); }
+                if (btns.length >= 1) { btns[0].click(); return 'btn[0]: ' + btns[0].outerHTML.slice(0, 120); }
+            }
+            // Último recurso: cualquier botón visible con "detalle" en atributos
+            const any = [...document.querySelectorAll('[title*="etalle"],[data-original-title*="etalle"],[href*="etalle"],[onclick*="etalle"]')];
+            if (any.length) { any[0].click(); return 'any-detalle: ' + any[0].outerHTML.slice(0, 120); }
+            return null;
+        }""")
+        print(f"[PW] [PROD] Ver detalles: {ver_result}")
+
+        # Esperar navegación a la página de detalles
+        try:
+            await _page.wait_for_url("**detalle**", timeout=8000)
+            print("[PW] [PROD] Navegación a detalles ✓")
+        except Exception:
+            await asyncio.sleep(3.0)
+
+        await snap()  # página de detalles
+
+        # ── PASO 4: Agregar Pechuga — Entrada ────────────────────────────────────
+        await decir_frase(
+            "Acá vamos a agregar lo que usamos para producir. "
+            "El tipo lo dejamos en Entrada — que es la materia prima. "
+            "Buscamos Pechuga, ponemos 1 de cantidad, y agregamos."
+        )
+
+        try:
+            await _page.locator('#tipo').first.select_option(value="1")
+            print("[PW] [PROD] Tipo = Entrada ✓")
+        except Exception as e:
+            print(f"[PW] [PROD] No se pudo setear tipo Entrada: {e}")
+
+        await ingresar_producto_detalle("Pechuga", "1")
+        await asyncio.sleep(0.5)
+        await snap()
+
+        clicked = await click_first([
+            '#boton_agregar_producto',
+            'button:has-text("Agregar")',
+        ], "Agregar Pechuga")
+
+        if not clicked:
+            await _page.evaluate("""
+                const btn = document.getElementById('boton_agregar_producto')
+                    || [...document.querySelectorAll('button, a')].find(e =>
+                        e.textContent.trim().toLowerCase() === 'agregar'
+                    );
+                if (btn) btn.click();
+            """)
+            print("[PW] [PROD] Agregar Pechuga via JS ✓")
+
+        await asyncio.sleep(2.0)
+        await snap()
+
+        # ── PASO 5: Agregar Huevos — Entrada ─────────────────────────────────────
+        await decir_frase("Ahora hacemos lo mismo con los Huevos: buscamos Huevos y ponemos 4.")
+
+        await ingresar_producto_detalle("Huevos", "4")
+        await asyncio.sleep(0.5)
+        await snap()
+
+        clicked = await click_first([
+            '#boton_agregar_producto',
+            'button:has-text("Agregar")',
+        ], "Agregar Huevos")
+
+        if not clicked:
+            await _page.evaluate("""
+                const btn = document.getElementById('boton_agregar_producto')
+                    || [...document.querySelectorAll('button, a')].find(e =>
+                        e.textContent.trim().toLowerCase() === 'agregar'
+                    );
+                if (btn) btn.click();
+            """)
+            print("[PW] [PROD] Agregar Huevos via JS ✓")
+
+        await asyncio.sleep(2.0)
+        await snap()
+
+        # ── PASO 6: Salida — Milanesas ────────────────────────────────────────────
+        await decir_frase(
+            "Una vez que los agregamos, cambiamos el tipo a Salida — que es lo que vamos a elaborar. "
+            "En Producto ponemos Milanesas y la cantidad que obtenemos con esa materia prima, "
+            "en este caso 1, y apretamos Agregar."
+        )
+
+        try:
+            await _page.locator('#tipo').first.select_option(value="2")
+            print("[PW] [PROD] Tipo = Salida ✓")
+        except Exception as e:
+            print(f"[PW] [PROD] No se pudo setear tipo Salida: {e}")
+
+        await ingresar_producto_detalle("Milanesas", "1")
+        await asyncio.sleep(0.5)
+        await snap()
+
+        clicked = await click_first([
+            '#boton_agregar_producto',
+            'button:has-text("Agregar")',
+        ], "Agregar Milanesas (salida)")
+
+        if not clicked:
+            await _page.evaluate("""
+                const btn = document.getElementById('boton_agregar_producto')
+                    || [...document.querySelectorAll('button, a')].find(e =>
+                        e.textContent.trim().toLowerCase() === 'agregar'
+                    );
+                if (btn) btn.click();
+            """)
+            print("[PW] [PROD] Agregar Milanesas via JS ✓")
+
+        await asyncio.sleep(2.0)
+        await snap()  # plantilla completa con ingredientes
+
+        # ── PASO 7: Sección Produccion ────────────────────────────────────────────
+        await decir_frase(
+            "Ahí ya tenemos cargada la plantilla. "
+            "Entonces ya podemos pasar a la sección Producción."
+        )
+
+        await nav("/produccion.php")
+        print("[PW] [PROD] Navegando a produccion.php...")
+        await _page.goto(f"{base}/produccion.php", wait_until="domcontentloaded", timeout=20000)
+        await asyncio.sleep(2.0)
+        await snap()
+
+        # ── PASO 8: Nueva Produccion ──────────────────────────────────────────────
+        await decir_frase(
+            "Acá es donde vamos a usar la plantilla que creamos recién. "
+            "Apretamos Nueva Producción."
+        )
+
+        clicked = await click_first([
+            'a[onclick*="nueva_produccion"]',
+            'button[onclick*="nueva_produccion"]',
+            'a:has-text("Nueva producción")',
+            'button:has-text("Nueva producción")',
+        ], "Nueva producción")
+
+        if not clicked:
+            await _page.evaluate("""
+                const btn = [...document.querySelectorAll('a, button, [onclick]')].find(e => {
+                    const oc = (e.getAttribute('onclick') || '').toLowerCase();
+                    const t = (e.textContent || '').trim().toLowerCase();
+                    return oc.includes('nueva_produccion') || t.includes('nueva producción') || t.includes('nueva produccion');
+                });
+                if (btn) btn.click();
+            """)
+            print("[PW] [PROD] Nueva producción via JS ✓")
+
+        await asyncio.sleep(2.5)
+        await snap()
+
+        await decir_frase(
+            "Elegimos la plantilla Milanesas que creamos recién, "
+            "ponemos la cantidad — en este caso 1 — "
+            "y seleccionamos Salida de producción."
+        )
+
+        # Seleccionar plantilla "Milanesas"
+        try:
+            plantilla_sel = _page.locator('#plantilla').first
+            if await plantilla_sel.count() > 0:
+                await plantilla_sel.select_option(label="Milanesas")
+                print("[PW] [PROD] Plantilla Milanesas ✓")
+        except Exception as e:
+            print(f"[PW] [PROD] Error seleccionando plantilla: {e}")
+            await _page.evaluate("""
+                const sel = document.getElementById('plantilla');
+                if (sel) {
+                    for (const opt of sel.options) {
+                        if (opt.text.toLowerCase().includes('milanesa')) {
+                            sel.value = opt.value;
+                            sel.dispatchEvent(new Event('change', {bubbles: true}));
+                            break;
+                        }
+                    }
+                }
+            """)
+
+        # Cantidad 1
+        try:
+            cant_el = _page.locator('#cantidad').first
+            if await cant_el.count() > 0 and await cant_el.is_visible():
+                await cant_el.click()
+                await cant_el.fill("1")
+                print("[PW] [PROD] Cantidad produccion=1 ✓")
+        except Exception as e:
+            print(f"[PW] [PROD] Error cantidad produccion: {e}")
+
+        # Tipo: Salida de producción (value=2)
+        try:
+            tipo_sel = _page.locator('#tipo').first
+            if await tipo_sel.count() > 0 and await tipo_sel.is_visible():
+                await tipo_sel.select_option(value="2")
+                print("[PW] [PROD] Tipo produccion = Salida ✓")
+        except Exception as e:
+            print(f"[PW] [PROD] Error tipo produccion: {e}")
+
+        await asyncio.sleep(0.5)
+        await snap()
+
+        # Click Agregar
+        clicked = await click_first([
+            'button[onclick*="agregar_produccion"]',
+            'a[onclick*="agregar_produccion"]',
+            'button:has-text("Agregar")',
+            'a:has-text("Agregar")',
+        ], "Agregar produccion")
+
+        if not clicked:
+            await _page.evaluate("""
+                const btn = [...document.querySelectorAll('[onclick], button, a')].find(e => {
+                    const oc = (e.getAttribute('onclick') || '').toLowerCase();
+                    const t = (e.textContent || '').trim().toLowerCase();
+                    return oc.includes('agregar_produccion') || t === 'agregar';
+                });
+                if (btn) btn.click();
+            """)
+            print("[PW] [PROD] Agregar produccion via JS ✓")
+
+        await asyncio.sleep(2.5)
+        await snap()
+
+        await decir_frase(
+            "Y ahí ya tendríamos la producción terminada. "
+            "El sistema descontó automáticamente la materia prima del stock "
+            "y sumó el kilo de Milanesas elaborado."
+        )
+
+        await asyncio.sleep(1.0)
+        await snap()
+        await snap_end()
+        print("[PW] [PROD] ✓ Demo de Producción completa")
+        return True
+
+    except Exception as e:
+        import traceback
+        print(f"[PW] [PROD] Error: {e}")
+        traceback.print_exc()
+        b64 = await _screenshot_b64()
+        if b64 and on_screenshot:
+            await on_screenshot(b64)
+        return False
+
+
+async def _demo_modulos_restantes(decir_frase, navigate_fn=None, on_screenshot=None, on_screenshot_end=None, wait_for_input_fn=None) -> None:
     """Recorre los módulos post-caja. Clientes y Proveedores usan Playwright;
     el resto navega el iframe con frases pre-escritas."""
 
@@ -1123,6 +1562,27 @@ async def _demo_modulos_restantes(decir_frase, navigate_fn=None, on_screenshot=N
     await snap_end()
     await asyncio.sleep(0.5)
 
+    # ── PRODUCCIÓN (condicional) ────────────────────────────────────────────────
+    if wait_for_input_fn is not None:
+        await decir_frase(
+            "Una consulta: en el negocio hacen algún tipo de producción propia? "
+            "Por ejemplo, si elaboran milanesas, o si hacen desposte de carne."
+        )
+        respuesta_prod = await wait_for_input_fn(timeout=12.0)
+        hace_produccion = any(w in respuesta_prod.lower() for w in [
+            "sí", "si", "claro", "dale", "ajá", "aja",
+            "hacemos", "hago", "produce", "elabora",
+            "milanesa", "desposta", "desposte",
+        ])
+        if hace_produccion:
+            await _demo_produccion(
+                decir_frase=decir_frase,
+                on_screenshot=on_screenshot,
+                on_screenshot_end=on_screenshot_end,
+                navigate_fn=navigate_fn,
+            )
+    await asyncio.sleep(0.5)
+
     # Estadísticas > Ventas — con Playwright + screenshots
     await nav("/estadisticas_ventas.php")
     await asyncio.sleep(1.0)
@@ -1164,6 +1624,7 @@ async def run_demo_mgw(
     on_screenshot_end=None,
     navigate_fn=None,
     should_continue=None,
+    wait_for_input_fn=None,
 ) -> bool:
     """
     Demo secuencial completa: Login → Home → Caja (agregar + pago + presupuesto) → Módulos.
@@ -1270,6 +1731,17 @@ async def run_demo_mgw(
             "Y en esta pantalla también aparece un video sobre la nueva balanza todo en uno "
             "que ofrecemos junto con el sistema."
         )
+
+        # TEST_MODE: saltar caja y módulos, ir directo a la demo de Producción
+        if TEST_MODE:
+            print("[PW] [DEMO] TEST_MODE: saltando a demo de Producción...")
+            await _demo_produccion(
+                decir_frase=decir_frase,
+                on_screenshot=on_screenshot,
+                on_screenshot_end=on_screenshot_end,
+                navigate_fn=navigate_fn,
+            )
+            return True
 
         # ── 3. CAJA — navegación y limpieza de estado ─────────────────────────
         if not _ok():
@@ -1502,6 +1974,7 @@ async def run_demo_mgw(
                 decir_frase, navigate_fn,
                 on_screenshot=on_screenshot,
                 on_screenshot_end=on_screenshot_end,
+                wait_for_input_fn=wait_for_input_fn,
             )
 
         return True
