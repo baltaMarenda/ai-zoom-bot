@@ -292,6 +292,24 @@ def unlock_demo_module():
     print("[MGW] Lock de módulo liberado")
 
 
+async def _wait_for_demo_input(timeout: float = 12.0) -> str:
+    """Espera input del usuario durante la demo secuencial. Retorna '' si hay timeout."""
+    demo_continue_event.clear()
+    _pending_user_input.clear()
+    silence_task = asyncio.ensure_future(asyncio.sleep(timeout))
+    user_task    = asyncio.ensure_future(demo_continue_event.wait())
+    done, pending = await asyncio.wait(
+        [silence_task, user_task], return_when=asyncio.FIRST_COMPLETED
+    )
+    for t in pending:
+        t.cancel()
+        try:
+            await t
+        except (asyncio.CancelledError, Exception):
+            pass
+    return " ".join(_pending_user_input).strip()
+
+
 # Keywords que indican cada fase de la demo de caja
 _FASE1_KEYWORDS = [
     "busco", "buscamos", "buscá", "huevos", "agregar",
@@ -498,6 +516,7 @@ async def run_demo_secuencial():
             on_screenshot_end=_on_screenshot_end,
             navigate_fn=_send_navigate,
             should_continue=lambda: conv_state.stage == Stage.DEMO,
+            wait_for_input_fn=_wait_for_demo_input,
         )
     except Exception as e:
         print(f"[ERROR] run_demo_secuencial: {e}")
