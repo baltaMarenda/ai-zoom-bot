@@ -603,6 +603,67 @@ async def _demo_clientes_abrir_formulario(on_screenshot=None) -> bool:
         return False
 
 
+# ── ESTADÍSTICAS > VENTAS: filtrar por hoy y buscar ──────────────────────────
+
+async def demo_estadisticas_ventas(on_screenshot=None) -> bool:
+    """
+    Navega a Estadísticas > Ventas, asegura la fecha de hoy y aprieta Buscar.
+    Toma screenshots del formulario inicial y de los resultados.
+    """
+    if _page is None:
+        return False
+
+    import datetime
+    base = MGW_URL.rstrip("/")
+    hoy = datetime.date.today().strftime("%d/%m/%Y")
+
+    async def snap(delay: float = 0.0):
+        await _snap(on_screenshot, delay)
+
+    try:
+        print("[PW] [ESTAD] Navegando a estadisticas_ventas.php...")
+        await _page.goto(
+            f"{base}/estadisticas_ventas.php",
+            wait_until="domcontentloaded",
+            timeout=20000,
+        )
+        await asyncio.sleep(2.0)
+        await snap()  # vista inicial con los filtros visibles
+
+        # Poner fecha de hoy en los campos de fecha que estén vacíos
+        await _page.evaluate(f"""() => {{
+            document.querySelectorAll('input[name*="fecha"], input[id*="fecha"]')
+                .forEach(inp => {{
+                    if (!inp.value) {{
+                        inp.value = '{hoy}';
+                        inp.dispatchEvent(new Event('change', {{bubbles: true}}));
+                    }}
+                }});
+        }}""")
+
+        print("[PW] [ESTAD] Clic en Buscar...")
+        buscar = _page.locator("#boton_buscar")
+        if await buscar.count() > 0 and await buscar.is_visible():
+            await buscar.click()
+            print("[PW] [ESTAD] Clic en #boton_buscar ✓")
+        else:
+            await _page.evaluate("const b = document.getElementById('boton_buscar'); if(b) b.click();")
+            print("[PW] [ESTAD] Clic via JS fallback ✓")
+
+        await asyncio.sleep(3.0)
+        await snap()  # resultados de ventas del día
+
+        print("[PW] [ESTAD] Demo estadísticas ventas ✓")
+        return True
+
+    except Exception as e:
+        import traceback
+        print(f"[PW] [ESTAD] Error: {e}")
+        traceback.print_exc()
+        await snap()
+        return False
+
+
 # ── STOCK: mostrar existencias con botón Todos ────────────────────────────────
 
 async def demo_stock_existencias(on_screenshot=None) -> bool:
@@ -1062,14 +1123,27 @@ async def _demo_modulos_restantes(decir_frase, navigate_fn=None, on_screenshot=N
     await snap_end()
     await asyncio.sleep(0.5)
 
-    # Estadísticas
+    # Estadísticas > Ventas — con Playwright + screenshots
     await nav("/estadisticas_ventas.php")
-    await asyncio.sleep(1.5)
+    await asyncio.sleep(1.0)
     await decir_frase(
-        "Las Estadísticas les dan una visión clara del negocio en tiempo real. "
-        "Ventas por producto, por grupo, por forma de pago, y por período. "
-        "Todo se puede exportar a Excel con un clic para analizar como quieran."
+        "Ahora pasamos a la sección de Estadísticas. "
+        "Acá tienen una visión completa del negocio: ventas, compras, egresos, facturas electrónicas y mucho más. "
+        "Para esta demo vamos a ver específicamente la parte de Ventas."
     )
+    await decir_frase(
+        "En esta sección podemos filtrar por muchos factores: fecha, grupo de producto, clientes, vendedores, y más. "
+        "Para este ejemplo filtramos únicamente por fecha — las ventas que se hicieron hoy — "
+        "y apretamos el botón Buscar."
+    )
+    await demo_estadisticas_ventas(on_screenshot)
+    await decir_frase(
+        "Acá vemos todas las ventas que hicimos en el día: "
+        "qué productos en específico vendimos, las cantidades, los importes, y un montón de datos "
+        "que ayudan a conocer la rentabilidad de nuestros productos. "
+        "Todo esto se puede exportar a Excel con un clic para analizarlo como quieran."
+    )
+    await snap_end()
     await asyncio.sleep(0.5)
 
     # Cierres
