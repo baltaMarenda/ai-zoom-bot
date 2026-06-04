@@ -533,6 +533,129 @@ async def _manejar_arqueo(on_screenshot=None) -> None:
         print(f"[PW] [ARQUEO] Error: {e}")
 
 
+# ── CLIENTES: abrir formulario de nuevo cliente con Playwright ────────────────
+
+async def _demo_clientes_abrir_formulario(on_screenshot=None) -> bool:
+    """
+    Navega a clientes.php en el headless browser, hace click en 'Nuevo Cliente'
+    y captura el formulario AJAX con estilos completos.
+    No navega a ajax_clientes_nuevo_cliente.php directamente (devuelve HTML parcial).
+    """
+    if _page is None:
+        return False
+
+    base = MGW_URL.rstrip("/")
+
+    async def snap():
+        b64 = await _screenshot_b64()
+        if b64 and on_screenshot:
+            await on_screenshot(b64)
+
+    try:
+        print("[PW] [CLIENTES] Navegando a clientes.php...")
+        await _page.goto(f"{base}/clientes.php", wait_until="domcontentloaded", timeout=20000)
+        await asyncio.sleep(2.5)
+        await snap()  # lista de clientes
+
+        print("[PW] [CLIENTES] Buscando botón Nuevo Cliente...")
+        clicked = False
+        for selector in [
+            'a:has-text("Nuevo Cliente")',
+            'button:has-text("Nuevo Cliente")',
+            'a:has-text("Nuevo")',
+            'button:has-text("Nuevo")',
+            '[onclick*="nuevo_cliente"]',
+            '[onclick*="NuevoCliente"]',
+            'a.btn-success',
+            'button.btn-success',
+        ]:
+            try:
+                el = _page.locator(selector).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    clicked = True
+                    print(f"[PW] [CLIENTES] Click via '{selector}' ✓")
+                    break
+            except Exception:
+                continue
+
+        if not clicked:
+            await _page.evaluate("""
+                const all = [...document.querySelectorAll('a, button')];
+                const btn = all.find(e => {
+                    const t = (e.textContent || '').trim().toLowerCase();
+                    return t.includes('nuevo') || t.includes('alta');
+                });
+                if (btn) btn.click();
+            """)
+            print("[PW] [CLIENTES] Click via JS fallback")
+
+        await asyncio.sleep(3.0)
+        await snap()  # formulario de nuevo cliente (cargado vía AJAX)
+        print("[PW] [CLIENTES] ✓ Formulario visible")
+        return True
+
+    except Exception as e:
+        import traceback
+        print(f"[PW] [CLIENTES] Error: {e}")
+        traceback.print_exc()
+        await snap()
+        return False
+
+
+# ── STOCK: mostrar existencias con botón Todos ────────────────────────────────
+
+async def demo_stock_existencias(on_screenshot=None) -> bool:
+    """
+    Navega a Stock > Existencias en Playwright, aprieta el botón Todos
+    y toma screenshots de la tabla completa para mostrar en la reunión.
+    """
+    if _page is None:
+        return False
+
+    base = MGW_URL.rstrip("/")
+
+    async def snap(delay: float = 0.0):
+        await _snap(on_screenshot, delay)
+
+    try:
+        print("[PW] [STOCK] Navegando a Existencias...")
+        await _page.goto(
+            f"{base}/stock_existencia_2.php",
+            wait_until="domcontentloaded",
+            timeout=20000,
+        )
+        await asyncio.sleep(2.0)
+        await snap()  # vista inicial antes de filtrar
+
+        print("[PW] [STOCK] Haciendo clic en botón Todos...")
+        todos_btn = _page.locator("#boton_grupo_todos")
+        if await todos_btn.count() > 0 and await todos_btn.is_visible():
+            await todos_btn.click()
+            print("[PW] [STOCK] Clic en #boton_grupo_todos ✓")
+        else:
+            await _page.evaluate("""
+                const btn = document.getElementById('boton_grupo_todos');
+                if (btn) btn.click();
+            """)
+            print("[PW] [STOCK] Clic via JS fallback ✓")
+
+        await asyncio.sleep(3.0)
+        await snap()  # tabla completa con todas las existencias
+
+        print("[PW] [STOCK] Demo existencias ✓")
+        return True
+
+    except Exception as e:
+        import traceback
+        print(f"[PW] [STOCK] Error: {e}")
+        traceback.print_exc()
+        await snap()
+        return False
+
+
+# ── PROVEEDORES: demo completa de compra e ingreso de stock ───────────────────
+
 async def _demo_proveedores(
     decir_frase,
     on_screenshot=None,
@@ -859,20 +982,50 @@ async def _demo_proveedores(
         return False
 
 
-async def _demo_modulos_restantes(
-    decir_frase,
-    navigate_fn=None,
-    on_screenshot=None,
-    on_screenshot_end=None,
-) -> None:
-    """Recorre los módulos post-caja.
-    Clientes (iframe) → Proveedores (Playwright) → resto (iframe simple)."""
+
+async def _demo_modulos_restantes(decir_frase, navigate_fn=None, on_screenshot=None, on_screenshot_end=None) -> None:
+    """Recorre los módulos post-caja. Clientes y Proveedores usan Playwright;
+    el resto navega el iframe con frases pre-escritas."""
 
     async def nav(path: str):
         if navigate_fn:
             await navigate_fn(path)
 
-    # ── Usuarios ──────────────────────────────────────────────────────────────
+    async def snap_end():
+        if on_screenshot_end:
+            await on_screenshot_end()
+
+    # ── CLIENTES ───────────────────────────────────────────────────────────────
+    await nav("/clientes.php")
+    await asyncio.sleep(1.5)
+    await decir_frase(
+        "Ahora te muestro el módulo de Clientes. "
+        "Acá podés guardar los datos de tus clientes para que el nombre se autocomplete en la caja al momento de vender. "
+        "Muy práctico para no tipear todo de vuelta y para tener el historial de compras de cada uno."
+    )
+    await asyncio.sleep(0.5)
+    await _demo_clientes_abrir_formulario(on_screenshot=on_screenshot)
+    await decir_frase(
+        "Y lo bueno es que a cada cliente le podés asignar una lista de precios diferente. "
+        "Si tenés un mayorista o alguien a quien le hacés precio especial, "
+        "le ponés la lista mayorista, al costo, o la que vos quieras, en lugar del precio de mostrador. "
+        "Acá ven la pantalla para dar de alta un nuevo cliente, donde se configuran todos esos datos."
+    )
+    await snap_end()
+    await asyncio.sleep(0.5)
+
+    # ── PROVEEDORES ────────────────────────────────────────────────────────────
+    await _demo_proveedores(
+        decir_frase=decir_frase,
+        on_screenshot=on_screenshot,
+        on_screenshot_end=on_screenshot_end,
+        navigate_fn=navigate_fn,
+    )
+    await asyncio.sleep(0.5)
+
+    # ── RESTO (iframe simple) ──────────────────────────────────────────────────
+
+    # Usuarios
     await nav("/configuracion_usuarios.php")
     await asyncio.sleep(1.5)
     await decir_frase(
@@ -883,89 +1036,33 @@ async def _demo_modulos_restantes(
     )
     await asyncio.sleep(0.5)
 
-    # ── Clientes (iframe + formulario nuevo cliente) ─────────────────────────
-    await nav("/clientes.php")
-    await asyncio.sleep(1.5)
-    await decir_frase(
-        "Acá está el módulo de Clientes. "
-        "Pueden cargar listas de precios diferenciadas: precio de mostrador, mayorista, o especial. "
-        "El sistema aplica el precio correcto según el cliente de forma automática en la caja."
-    )
-    await asyncio.sleep(0.5)
-
-    # Abrir formulario de nuevo cliente desde clientes.php (modal con JS)
-    if _page is not None:
-        try:
-            base_url = MGW_URL.rstrip("/")
-            await _page.goto(f"{base_url}/clientes.php", wait_until="domcontentloaded", timeout=15000)
-            await asyncio.sleep(2.5)
-
-            nuevo_clicked = False
-            for sel in [
-                'a:has-text("Nuevo Cliente")',
-                'button:has-text("Nuevo Cliente")',
-                'a:has-text("+ Cliente")',
-                'button:has-text("+ Cliente")',
-                '[onclick*="nuevo_cliente"]',
-                '[onclick*="clientes_nuevo"]',
-                '[href*="nuevo_cliente"]',
-            ]:
-                try:
-                    el = _page.locator(sel).first
-                    if await el.count() > 0 and await el.is_visible():
-                        await el.click()
-                        nuevo_clicked = True
-                        print(f"[PW] [CLIENTES] Nuevo Cliente via '{sel}' ✓")
-                        break
-                except Exception:
-                    continue
-
-            if not nuevo_clicked:
-                await _page.evaluate("""
-                    const all = [...document.querySelectorAll('a, button, [onclick]')];
-                    const btn = all.find(e => {
-                        const t = (e.textContent || '').toLowerCase();
-                        const oc = (e.getAttribute('onclick') || '').toLowerCase();
-                        return t.includes('nuevo') || oc.includes('nuevo_cliente');
-                    });
-                    if (btn) { btn.click(); }
-                """)
-                print("[PW] [CLIENTES] Nuevo Cliente via JS ✓")
-
-            await asyncio.sleep(2.5)
-            if on_screenshot:
-                b64 = await _screenshot_b64()
-                if b64:
-                    await on_screenshot(b64)
-            await decir_frase(
-                "Este es el formulario para crear un nuevo cliente. "
-                "Acá indicamos el nombre, el CUIT, y lo más importante: "
-                "qué lista de precios le asignamos — puede ser mostrador, mayorista o especial."
-            )
-            await asyncio.sleep(0.5)
-        except Exception as _e:
-            print(f"[PW] [CLIENTES] Error abriendo form nuevo cliente: {_e}")
-
-    # ── Proveedores (Playwright completo) ─────────────────────────────────────
-    await _demo_proveedores(
-        decir_frase=decir_frase,
-        on_screenshot=on_screenshot,
-        on_screenshot_end=on_screenshot_end,
-        navigate_fn=navigate_fn,
-    )
-    await asyncio.sleep(0.5)
-
-    # ── Stock (iframe) ────────────────────────────────────────────────────────
+    # Stock > Existencias — con Playwright + screenshots
     await nav("/stock_existencia_2.php")
-    await asyncio.sleep(1.5)
+    await asyncio.sleep(1.0)
     await decir_frase(
-        "En Stock pueden ver el movimiento completo de cada producto: ingresos, ventas y egresos. "
-        "El stock se actualiza solo con cada venta desde la caja. "
-        "También pueden hacer ajustes manuales o ingresar mercadería por compras a proveedores."
+        "Ahora vemos Stock, específicamente la sección de Existencias. "
+        "Esta pantalla te da el panorama completo de tu inventario. "
+        "Podés filtrar por grupo de productos, o apretar el botón Todos para ver todo junto de una."
     )
+    await demo_stock_existencias(on_screenshot)
+    await decir_frase(
+        "La tabla tiene varias columnas. "
+        "Producto muestra todos los artículos del local. "
+        "Stock es lo que registraste que tenés físicamente. "
+        "Ingresos son las compras a proveedores que cargaste en el sistema."
+    )
+    await decir_frase(
+        "Ventas son las operaciones que se hicieron desde caja. "
+        "Envío entre sucursales aplica si tenés más de un local y mandás mercadería de una a la otra. "
+        "Egresos son salidas de stock sin venta. "
+        "Producción es lo que elaborás vos: si comprás una media res y la despostás, acá se refleja lo despostado. "
+        "Y la columna Existencia es el cálculo automático del sistema: lo que ingresó menos lo que vendiste, "
+        "así siempre sabés cuánto deberías tener en el local."
+    )
+    await snap_end()
     await asyncio.sleep(0.5)
 
-    # ── Estadísticas (iframe) ─────────────────────────────────────────────────
+    # Estadísticas
     await nav("/estadisticas_ventas.php")
     await asyncio.sleep(1.5)
     await decir_frase(
@@ -975,7 +1072,7 @@ async def _demo_modulos_restantes(
     )
     await asyncio.sleep(0.5)
 
-    # ── Cierres (iframe) ──────────────────────────────────────────────────────
+    # Cierres
     await nav("/caja_cierre.php")
     await asyncio.sleep(1.5)
     await decir_frase(
@@ -1089,10 +1186,16 @@ async def run_demo_mgw(
         await decir_frase(
             "Muy bien, ya estamos adentro. Esta es la pantalla de inicio del sistema. "
             "Acá aparecen las novedades y en el menú de la izquierda están todos los módulos disponibles. "
-            "Desde acá manejan todo: caja, clientes, stock, estadísticas, y más."
+            "También desde acá los empleados pueden fichar su entrada y salida ingresando su DNI, "
+            "sin necesidad de ningún hardware extra."
         )
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(0.5)
         await snap()
+
+        await decir_frase(
+            "Y en esta pantalla también aparece un video sobre la nueva balanza todo en uno "
+            "que ofrecemos junto con el sistema."
+        )
 
         # ── 3. CAJA — navegación y limpieza de estado ─────────────────────────
         if not _ok():
@@ -1137,9 +1240,9 @@ async def run_demo_mgw(
         await decir_frase(
             "Acá está el ticket de caja vacío. "
             "Para registrar una venta busco el producto en el campo de arriba. "
-            "Escribo 'Huevos' y el sistema me muestra el producto con el código 10 — "
-            "ese es el código interno con el que el sistema lo identifica cuando escribimos el nombre. "
-            "Lo selecciono, indico la cantidad y aprieto Agregar."
+            "Escribo 'Huevos' y selecciono la sugerencia. "
+            "El número 10 que aparece es el código interno del producto en el sistema. "
+            "Indico la cantidad y aprieto Agregar."
         )
 
         campo = _page.locator('input#producto, input[name="producto"]').first
@@ -1193,8 +1296,7 @@ async def run_demo_mgw(
         await decir_frase(
             "El sistema tiene varios métodos de pago disponibles: "
             "efectivo, Mercado Pago, Cuenta DNI, y tarjeta con recargo automático. "
-            "En efectivo completamos el campo 'Paga con' con el importe que entrega el cliente "
-            "y el sistema calcula el vuelto automáticamente."
+            "En efectivo solo indicás con cuánto paga el cliente y el sistema calcula el vuelto solo."
         )
 
         # Seleccionar Efectivo — intentos en orden de prioridad
@@ -1247,24 +1349,28 @@ async def run_demo_mgw(
 
         await asyncio.sleep(2.0)
 
-        # Llenar campo "Paga con" para mostrar el cálculo de vuelto
+        # Tipear monto en efectivo para que el sistema muestre el vuelto
+        print("[PW] [CAJA] Ingresando monto en efectivo...")
         for sel in [
-            'input[name="paga_con"]', 'input[name="pagacon"]',
-            'input[placeholder*="Paga con"]', 'input[placeholder*="paga con"]',
-            'input[placeholder*="paga"]', '#paga_con', 'input[name="pago"]',
+            'input[placeholder*="Paga con"]',
+            'input[placeholder*="paga con"]',
+            'input[name="efectivo"]', 'input[name="monto_efectivo"]',
+            'input[name="recibe"]', 'input[name="monto"]',
         ]:
             try:
                 el = _page.locator(sel).first
                 if await el.count() > 0 and await el.is_visible():
                     await el.click()
-                    await el.fill("500")
+                    await el.fill("")
+                    await el.type("2000", delay=150)
+                    print(f"[PW] [CAJA] Monto efectivo via '{sel}' ✓")
+                    # Disparar evento para que calcule el vuelto
                     await el.press("Tab")
-                    print(f"[PW] [CAJA] 'Paga con' via '{sel}' ✓")
                     break
             except Exception:
                 continue
 
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(2.0)
         await snap()  # ⑨ panel de pago con vuelto calculado
 
         # ── 6. BOTONES DE CIERRE + PRESUPUESTO ───────────────────────────────
@@ -1319,8 +1425,7 @@ async def run_demo_mgw(
         # ── 7. MÓDULOS RESTANTES ──────────────────────────────────────────────
         if _ok():
             await _demo_modulos_restantes(
-                decir_frase,
-                navigate_fn,
+                decir_frase, navigate_fn,
                 on_screenshot=on_screenshot,
                 on_screenshot_end=on_screenshot_end,
             )
