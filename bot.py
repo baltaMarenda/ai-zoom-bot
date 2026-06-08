@@ -114,6 +114,7 @@ DEMO_MODULE_PATHS = {
     "VENTAS":           "/venta.php",
     "CLIENTES":         "/clientes.php",
     "CIERRES":          "/caja_cierre.php",
+    "CAJA MAYOR":       "/caja_administracion_caja.php",
     "PROVEEDORES":      "/compras.php",
     "STOCK":            "/stock_existencia_2.php",
     "ESTADÍSTICAS":     "/estadisticas_ventas.php",
@@ -1071,7 +1072,20 @@ async def deepgram_pipeline(audio_source: asyncio.Queue):
 # ── WebSocket handler ─────────────────────────────────────────────────────────
 
 async def handle_recall_audio(websocket):
+    global conv_state, _demo_loop_started
     print("[WS] Recall.ai conectado ✓")
+
+    if TEST_MODE and not _demo_loop_started:
+        print("[WS] TEST_MODE — arrancando demo automáticamente al conectar")
+        conv_state.lead_name = "Tester"
+        conv_state.negocio   = "negocio de prueba"
+        # Avanzar INTRO → CALIFICACION → DEMO
+        while conv_state.stage != Stage.DEMO:
+            conv_state.advance()
+        print(f"→ Estado: {conv_state.stage} [TEST MODE auto-start]")
+        _demo_loop_started = True
+        asyncio.create_task(_start_demo())
+
     audio_queue = asyncio.Queue()
 
     async def receive_from_recall():

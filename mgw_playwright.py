@@ -1837,6 +1837,136 @@ async def _demo_balanza(
         return False
 
 
+async def _demo_caja_mayor(
+    decir_frase,
+    on_screenshot=None,
+    on_screenshot_end=None,
+    navigate_fn=None,
+) -> bool:
+    """
+    Demo de Caja Mayor (tesorería del negocio):
+    caja_administracion_caja.php → overview de movimientos → click Nuevo arqueo → modal.
+    """
+    if _page is None:
+        return False
+
+    base = MGW_URL.rstrip("/")
+
+    async def snap():
+        b64 = await _screenshot_b64()
+        if b64 and on_screenshot:
+            await on_screenshot(b64)
+
+    async def snap_end():
+        if on_screenshot_end:
+            await on_screenshot_end()
+
+    async def nav(path: str):
+        if navigate_fn:
+            await navigate_fn(path)
+
+    async def click_first(selectors: list, label: str) -> bool:
+        for selector in selectors:
+            try:
+                el = _page.locator(selector).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    print(f"[PW] [CAJA MAYOR] {label} via '{selector}' ✓")
+                    return True
+            except Exception:
+                continue
+        return False
+
+    try:
+        # ── PASO 1: Anunciar, navegar, luego explicar ─────────────────────────
+        await decir_frase("Ahora te muestro la Caja Mayor.")
+
+        await nav("/caja_administracion_caja.php")
+        print("[PW] [CAJA MAYOR] Navegando a caja_administracion_caja.php...")
+        await _page.goto(f"{base}/caja_administracion_caja.php",
+                         wait_until="domcontentloaded", timeout=20000)
+        await asyncio.sleep(1.5)
+        await snap()  # vista general con tabla de movimientos
+
+        await decir_frase(
+            "Esta es la tesorería del negocio. "
+            "Acá se registran todos los movimientos de dinero: "
+            "ingresos en efectivo o por Mercado Pago o transferencia, "
+            "retiros de administración, y retiros entre sucursales si tenés más de una. "
+            "También desde acá se hacen los arqueos de caja mayor."
+        )
+
+        # ── PASO 2: Explicar la tabla de movimientos ──────────────────────────
+        await decir_frase(
+            "En la tabla de abajo aparecen todos los movimientos que fuimos haciendo: "
+            "ingresos, retiros y arqueos, con fecha, importe y tipo de movimiento. "
+            "También podés exportar todo a Excel y ver los movimientos que fueron anulados."
+        )
+
+        await asyncio.sleep(1.5)
+        await snap()  # tabla de movimientos
+
+        # ── PASO 3: Mostrar Nuevo Arqueo ──────────────────────────────────────
+        await decir_frase(
+            "Una función clave es el Nuevo Arqueo. "
+            "Desde acá hacemos el arqueo de caja mayor para controlar cuánto dinero hay. "
+            "Apretamos el botón Nuevo Arqueo para abrirlo."
+        )
+
+        clicked = await click_first([
+            'a[href="#nuevo_arqueo_id"]',
+            '[onclick*="caja_administracion_nuevo_arqueo"]',
+            'a:has-text("Nuevo arqueo")',
+            'button:has-text("Nuevo arqueo")',
+            '.btn-danger:has-text("Nuevo arqueo")',
+            '.btn-danger:has-text("arqueo")',
+        ], "Nuevo arqueo")
+
+        if not clicked:
+            await _page.evaluate("""
+                const btn = [...document.querySelectorAll('a, button, [onclick]')].find(e => {
+                    const oc = (e.getAttribute('onclick') || '').toLowerCase();
+                    const t  = (e.textContent || '').trim().toLowerCase();
+                    return oc.includes('nuevo_arqueo') || t.includes('nuevo arqueo');
+                });
+                if (btn) btn.click();
+            """)
+            print("[PW] [CAJA MAYOR] Nuevo arqueo via JS ✓")
+
+        await asyncio.sleep(2.5)
+        await snap()  # modal de nuevo arqueo abierto
+
+        await decir_frase(
+            "Acá en el arqueo registramos cuánto efectivo hay en caja, "
+            "cuánto entramos por Mercado Pago, transferencia u otros medios. "
+            "Eso queda registrado en el historial de arqueos de la Caja Mayor para el control diario."
+        )
+
+        await asyncio.sleep(1.5)
+        await snap()  # modal completo visible
+
+        # Cerrar el modal con Escape para no dejar estado sucio
+        try:
+            await _page.keyboard.press("Escape")
+            print("[PW] [CAJA MAYOR] Modal cerrado con Escape ✓")
+        except Exception:
+            pass
+
+        await asyncio.sleep(1.0)
+        await snap_end()
+        print("[PW] [CAJA MAYOR] ✓ Demo de Caja Mayor completa")
+        return True
+
+    except Exception as e:
+        import traceback
+        print(f"[PW] [CAJA MAYOR] Error: {e}")
+        traceback.print_exc()
+        b64 = await _screenshot_b64()
+        if b64 and on_screenshot:
+            await on_screenshot(b64)
+        return False
+
+
 async def _demo_modulos_restantes(decir_frase, navigate_fn=None, on_screenshot=None, on_screenshot_end=None, wait_for_input_fn=None) -> None:
     """Recorre los módulos post-caja. Clientes y Proveedores usan Playwright;
     el resto navega el iframe con frases pre-escritas."""
@@ -1972,6 +2102,7 @@ async def _demo_modulos_restantes(decir_frase, navigate_fn=None, on_screenshot=N
     await asyncio.sleep(0.5)
 
 
+
 async def run_demo_mgw(
     decir_frase,
     on_screenshot,
@@ -2065,10 +2196,21 @@ async def run_demo_mgw(
         await _page.wait_for_url("**/home.php", timeout=20000)
         print("[PW] [LOGIN] Sesión establecida ✓")
 
-        # TEST_MODE: saltar directamente a balanza omitiendo Home y Caja
+        # TEST_MODE: Home + Caja Mayor (omite Caja y Balanza)
         if TEST_MODE:
-            print("[PW] [DEMO] TEST_MODE activo — saltando a Balanza directamente")
-            await _demo_balanza(
+            print("[PW] [DEMO] TEST_MODE activo — Home + Caja Mayor")
+            await asyncio.sleep(1.5)
+            await nav("/home.php")
+            await snap()
+            await decir_frase(
+                "Muy bien, ya estamos adentro. Esta es la pantalla de inicio del sistema. "
+                "Acá aparecen las novedades y en el menú de la izquierda están todos los módulos disponibles. "
+                "También desde acá los empleados pueden fichar su entrada y salida ingresando su DNI, "
+                "sin necesidad de ningún hardware extra."
+            )
+            await asyncio.sleep(0.5)
+            await snap()
+            await _demo_caja_mayor(
                 decir_frase,
                 on_screenshot=on_screenshot,
                 on_screenshot_end=on_screenshot_end,
@@ -2331,7 +2473,16 @@ async def run_demo_mgw(
                 navigate_fn=navigate_fn,
             )
 
-        # ── 8. MÓDULOS RESTANTES ──────────────────────────────────────────────
+        # ── 8. CAJA MAYOR ─────────────────────────────────────────────────────
+        if _ok():
+            await _demo_caja_mayor(
+                decir_frase,
+                on_screenshot=on_screenshot,
+                on_screenshot_end=on_screenshot_end,
+                navigate_fn=navigate_fn,
+            )
+
+        # ── 9. MÓDULOS RESTANTES ──────────────────────────────────────────────
         if _ok():
             await _demo_modulos_restantes(
                 decir_frase, navigate_fn,
