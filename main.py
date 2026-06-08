@@ -57,6 +57,16 @@ async def health():
     return {"status": "ok"}
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return FileResponse("app/static/malena2.png", media_type="image/png")
+
+
+@app.get("/avatar.png", include_in_schema=False)
+async def avatar():
+    return FileResponse("app/static/malena2.png", media_type="image/png")
+
+
 @app.get("/agent")
 async def agent_page():
     """
