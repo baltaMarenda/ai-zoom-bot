@@ -7,7 +7,7 @@ import asyncio
 import base64
 from playwright.async_api import async_playwright, Page
 
-from config import MGW_URL, MGW_USER, MGW_EMPRESA, MGW_PASSWORD
+from config import MGW_URL, MGW_USER, MGW_EMPRESA, MGW_PASSWORD, TEST_MODE
 
 # Producto demo — ID numérico del array JS de caja.php
 DEMO_PRODUCTO_NOMBRE = "Huevos"
@@ -1725,34 +1725,49 @@ async def _demo_balanza(
 
         await nav("/caja.php")
         print("[PW] [BALANZA] Navegando a caja.php...")
+
+        # Aceptar automáticamente cualquier dialog nativo (alert/confirm) que bloquearía Playwright
+        async def _auto_accept_dialog(dialog):
+            print(f"[PW] [BALANZA] Dialog detectado: '{dialog.message[:60]}' — aceptando")
+            await dialog.accept()
+        _page.on("dialog", _auto_accept_dialog)
+
         await _page.goto(f"{base}/caja.php", wait_until="domcontentloaded", timeout=30000)
         await asyncio.sleep(6.0)
+        _page.remove_listener("dialog", _auto_accept_dialog)
         await _manejar_arqueo(on_screenshot=on_screenshot)
         await asyncio.sleep(2.0)
         await snap()
 
         # ── PASO 8: CF → lupa → botón verde ──────────────────────────────────────
+        # Esperar a que el AJAX de balanza_tickets_pendientes pueble el contador CF
+        print("[PW] [BALANZA] Esperando elemento CF en DOM...")
+        try:
+            await _page.wait_for_selector(
+                '[onclick*="mostrar_tickets_balanza_pendientes"]',
+                state="attached", timeout=8000,
+            )
+            print("[PW] [BALANZA] Elemento CF encontrado en DOM ✓")
+        except Exception:
+            print("[PW] [BALANZA] wait_for_selector CF timeout — intentando igual")
+
         await decir_frase(
             "La venta va a aparecer donde dice CF a la derecha de donde agregamos los productos. "
             "Para cerrarla presionamos sobre donde dice CF."
         )
 
-        clicked = await click_first([
-            """[onclick*="mostrar_tickets_balanza_pendientes('cf')"]""",
-            '[onclick*="mostrar_tickets_balanza_pendientes"]',
-            '[data-tipo="cf"]',
-            '.mgw-balanza-numero[data-tipo="cf"]',
-        ], "CF balanza pendientes")
-        if not clicked:
-            await _page.evaluate("""
-                const btn = [...document.querySelectorAll('[onclick]')].find(e =>
-                    (e.getAttribute('onclick') || '').includes('mostrar_tickets_balanza_pendientes')
-                );
-                if (btn) btn.click();
-            """)
-            print("[PW] [BALANZA] CF via JS ✓")
+        # Click via JS directo (IIFE) para evitar que el tooltip de Bootstrap bloquee Playwright
+        cf_clicked = await _page.evaluate("""(() => {
+            const btn = document.querySelector('[data-tipo="cf"]')
+                     || [...document.querySelectorAll('span[onclick]')].find(e =>
+                            (e.getAttribute('onclick') || '').includes('mostrar_tickets_balanza_pendientes')
+                        );
+            if (btn) { btn.click(); return true; }
+            return false;
+        })()""")
+        print(f"[PW] [BALANZA] CF click via JS {'✓' if cf_clicked else '— elemento no encontrado'}")
 
-        await asyncio.sleep(2.0)
+        await asyncio.sleep(3.0)
         await snap()
 
         await decir_frase(
@@ -1760,36 +1775,28 @@ async def _demo_balanza(
             "y también podemos cerrar la venta apretando sobre el botón verde."
         )
 
-        clicked = await click_first([
-            '[onclick*="ver_ticket_balanza_pendiente"]',
-            'a.btn-teal[onclick*="ver_ticket"]',
-        ], "Ver detalle (lupa)")
-        if not clicked:
-            await _page.evaluate("""
-                const btn = [...document.querySelectorAll('[onclick]')].find(e =>
-                    (e.getAttribute('onclick') || '').includes('ver_ticket_balanza_pendiente')
-                );
-                if (btn) btn.click();
-            """)
-            print("[PW] [BALANZA] Lupa via JS ✓")
-
-        await asyncio.sleep(1.5)
-        await snap()
-
-        clicked = await click_first([
-            '[onclick*="ingresar_ticket_balanza"]',
-            'a.btn-success[onclick*="ingresar_ticket"]',
-        ], "Ingresar a la venta (verde)")
-        if not clicked:
-            await _page.evaluate("""
-                const btn = [...document.querySelectorAll('[onclick]')].find(e =>
-                    (e.getAttribute('onclick') || '').includes('ingresar_ticket_balanza')
-                );
-                if (btn) btn.click();
-            """)
-            print("[PW] [BALANZA] Ingresar ticket via JS ✓")
+        lupa_clicked = await _page.evaluate("""(() => {
+            const btn = [...document.querySelectorAll('[onclick]')].find(e =>
+                (e.getAttribute('onclick') || '').includes('ver_ticket_balanza_pendiente')
+            );
+            if (btn) { btn.click(); return true; }
+            return false;
+        })()""")
+        print(f"[PW] [BALANZA] Lupa click via JS {'✓' if lupa_clicked else '— elemento no encontrado'}")
 
         await asyncio.sleep(2.0)
+        await snap()
+
+        verde_clicked = await _page.evaluate("""(() => {
+            const btn = [...document.querySelectorAll('[onclick]')].find(e =>
+                (e.getAttribute('onclick') || '').includes('ingresar_ticket_balanza')
+            );
+            if (btn) { btn.click(); return true; }
+            return false;
+        })()""")
+        print(f"[PW] [BALANZA] Verde (ingresar ticket) via JS {'✓' if verde_clicked else '— elemento no encontrado'}")
+
+        await asyncio.sleep(3.0)
         await snap()
 
         # ── PASO 9: Presupuesto F8 ────────────────────────────────────────────────
@@ -1800,34 +1807,16 @@ async def _demo_balanza(
             "fue comenzada por el operario de balanza y cerrada por la cajera."
         )
 
-        cerrado = False
-        for selector in [
-            '#boton_caja_finalizar_venta',
-            'a.btn-primary:has-text("Presupuestar")',
-            'button:has-text("Presupuestar")',
-            '[onclick*="factura=3"]',
-            '[onclick*="presupuest"]',
-        ]:
-            try:
-                el = _page.locator(selector).first
-                if await el.count() > 0 and await el.is_visible():
-                    await el.click()
-                    cerrado = True
-                    print(f"[PW] [BALANZA] Presupuesto via '{selector}' ✓")
-                    break
-            except Exception:
-                continue
-
-        if not cerrado:
-            await _page.evaluate("""
-                const btn = document.getElementById('boton_caja_finalizar_venta')
-                    || [...document.querySelectorAll('[onclick]')].find(e => {
-                        const oc = e.getAttribute('onclick') || '';
-                        return oc.includes('finalizar_factura') || oc.includes('presupuest') || oc.includes('factura=3');
-                    });
-                if (btn) btn.click();
-            """)
-            print("[PW] [BALANZA] Presupuesto via JS ✓")
+        presup_clicked = await _page.evaluate("""(() => {
+            const btn = document.getElementById('boton_caja_finalizar_venta')
+                     || [...document.querySelectorAll('[onclick]')].find(e => {
+                            const oc = e.getAttribute('onclick') || '';
+                            return oc.includes('finalizar_factura') || oc.includes('presupuest') || oc.includes('factura=3');
+                        });
+            if (btn) { btn.click(); return true; }
+            return false;
+        })()""")
+        print(f"[PW] [BALANZA] Presupuesto via JS {'✓' if presup_clicked else '— elemento no encontrado'}")
 
         await asyncio.sleep(3.0)
         await snap()
@@ -2075,6 +2064,17 @@ async def run_demo_mgw(
         ).first.click()
         await _page.wait_for_url("**/home.php", timeout=20000)
         print("[PW] [LOGIN] Sesión establecida ✓")
+
+        # TEST_MODE: saltar directamente a balanza omitiendo Home y Caja
+        if TEST_MODE:
+            print("[PW] [DEMO] TEST_MODE activo — saltando a Balanza directamente")
+            await _demo_balanza(
+                decir_frase,
+                on_screenshot=on_screenshot,
+                on_screenshot_end=on_screenshot_end,
+                navigate_fn=navigate_fn,
+            )
+            return True
 
         # ── 2. HOME ───────────────────────────────────────────────────────────
         if not _ok():

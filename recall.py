@@ -58,6 +58,8 @@ def create_bot(meeting_url: str, bot_name: str = BOT_NAME) -> dict:
         json=payload,
         timeout=15,
     )
+    if not response.ok:
+        print(f"[Recall] Error {response.status_code}: {response.text}")
     response.raise_for_status()
     data = response.json()
     current_bot_id = data["id"]
