@@ -73,6 +73,10 @@ _turns_completed = 0
 barge_in_event = asyncio.Event()
 barge_in_text: str = ""
 
+# ── VAD (SpeechStarted de Deepgram) ───────────────────────────────────────────
+_vad_event = asyncio.Event()  # Se setea cuando Deepgram detecta inicio de habla
+_vad_confirm_task: asyncio.Task | None = None  # Timer para confirmar que el VAD es voz real
+
 # ── Sincronización entre módulos ──────────────────────────────────────────────
 # Se setea cuando demo_acceso_login() termina; _run_caja_fase1_inner() espera esto
 # para no navegar a caja.php antes de que el browser tenga sesión activa.
@@ -155,8 +159,22 @@ async def _send_reset():
     await _send_to_agent({"type": "reset"})
 
 
+async def _send_stop_audio():
+    await _send_to_agent({"type": "stop_audio"})
+
+
 async def _send_logged_in():
     await _send_to_agent({"type": "logged_in"})
+
+
+# ── VAD: confirmación diferida ───────────────────────────────────────────────
+
+async def _vad_delayed_stop():
+    """Espera 250ms después de SpeechStarted. Si llega aquí sin cancelación,
+    fue un falso positivo (chasquido, ruido) — no hace nada y el audio sigue.
+    Si un transcript interim llega antes, esta tarea se cancela y el audio
+    se detiene en ese momento."""
+    await asyncio.sleep(0.25)
 
 
 # ── Audio: reproducir y esperar ───────────────────────────────────────────────
@@ -179,21 +197,28 @@ def estimate_mp3_duration(mp3_bytes: bytes) -> float:
         return 3.0
 
 
-async def _speak_and_wait(mp3_bytes: bytes) -> bool:
+async def _speak_and_wait(mp3_bytes: bytes) -> str:
+    """Envía el MP3 y espera a que termine. Retorna:
+      'done'     — reproducción normal completada
+      'barge_in' — usuario interrumpió (barge_in_event disparado por speech_final)
+      'vad'      — Deepgram detectó inicio de habla (SpeechStarted), audio detenido
+    """
     duration = estimate_mp3_duration(mp3_bytes)
 
     async with _audio_lock:
         _audio_done_event.clear()
+        _vad_event.clear()
         await _send_audio(mp3_bytes)
 
         wait_task    = asyncio.ensure_future(_audio_done_event.wait())
         barge_task   = asyncio.ensure_future(barge_in_event.wait())
+        vad_task     = asyncio.ensure_future(_vad_event.wait())
         timeout_task = asyncio.ensure_future(
             asyncio.sleep(duration + SPEAKING_COOLDOWN_EXTRA + 2.0)
         )
 
         done, pending = await asyncio.wait(
-            [wait_task, barge_task, timeout_task],
+            [wait_task, barge_task, vad_task, timeout_task],
             return_when=asyncio.FIRST_COMPLETED,
         )
         for t in pending:
@@ -203,7 +228,13 @@ async def _speak_and_wait(mp3_bytes: bytes) -> bool:
             except (asyncio.CancelledError, Exception):
                 pass
 
-    return barge_in_event.is_set()
+    if barge_in_event.is_set():
+        await _send_stop_audio()
+        return "barge_in"
+    if _vad_event.is_set():
+        # receive_transcript ya envió stop_audio al browser
+        return "vad"
+    return "done"
 
 
 # ── Navegación MGW ────────────────────────────────────────────────────────────
@@ -216,24 +247,73 @@ async def _on_screenshot_end():
     await _send_to_agent({"type": "screenshot_end"})
 
 
+async def _resolve_barge_in() -> None:
+    """Espera que el barge-in en curso se resuelva completamente."""
+    while handling_barge_in or waiting_for_question or _audio_lock.locked():
+        await asyncio.sleep(0.1)
+
+
 async def decir_frase(texto: str):
     """Genera TTS para 'texto', lo envía al agente y espera que termine.
-    Si hay barge-in durante la reproducción, lo maneja y espera que se resuelva antes de retornar.
+    Si hay barge-in, lo resuelve y re-habla la frase (hasta 5 intentos)
+    para garantizar que la explicación siempre se entrega completa antes
+    de que el caller ejecute la acción Playwright siguiente.
     """
     global is_speaking
+
+    # Si el usuario preguntó algo entre frases, manejarlo antes de hablar
+    if barge_in_event.is_set() and barge_in_text:
+        await _handle_barge_in()
+        await _resolve_barge_in()
+
     loop = asyncio.get_event_loop()
     print(f"  🗣️  '{texto[:70]}...'")
     is_speaking = True
     barge_in_event.clear()
     try:
         mp3 = await loop.run_in_executor(None, text_to_speech, texto)
-        barge_in = await _speak_and_wait(mp3)
-        if barge_in:
+
+        for _intento in range(5):
+            result = await _speak_and_wait(mp3)
+
+            if result == "done":
+                break  # Reproducción completa — continuar normalmente
+
+            # ── Interrumpido: resolver y luego re-hablar ─────────────────────
             is_speaking = False
+
+            if result == "barge_in":
+                barge_in_event.clear()
+                await _handle_barge_in()
+                await _resolve_barge_in()
+
+            elif result == "vad":
+                print("🤫 [VAD] Esperando transcript del usuario...")
+                # Esperar a que el habla real termine y el speech_final llegue.
+                # 4s cubre utterances de hasta ~2.8s (+ 1.2s silence de Deepgram).
+                # Si no hay transcripción acumulada al cabo de ese tiempo → falso
+                # positivo (eco, ruido de fondo) y retomamos sin esperar más.
+                await asyncio.sleep(4.0)
+                debounce_pending = _debounce_task and not _debounce_task.done()
+                if _accumulated_transcript.strip() or barge_in_event.is_set() or debounce_pending:
+                    # Hay habla real (o clasificación en curso) — esperar resultado
+                    if not barge_in_event.is_set():
+                        try:
+                            await asyncio.wait_for(barge_in_event.wait(), timeout=7.0)
+                        except asyncio.TimeoutError:
+                            pass
+                    if barge_in_event.is_set():
+                        barge_in_event.clear()
+                        await _handle_barge_in()
+                        await _resolve_barge_in()
+                    # Si no hubo barge_in después de todo (backchannel) → retomar
+                else:
+                    print("🤫 [VAD] Sin transcripción — falso positivo, retomando")
+
+            print("🔄 [RETOMA] Retomando frase")
+            is_speaking = True
             barge_in_event.clear()
-            await _handle_barge_in()
-            while handling_barge_in or waiting_for_question or _audio_lock.locked():
-                await asyncio.sleep(0.1)
+
     finally:
         is_speaking = False
         barge_in_event.clear()
@@ -471,15 +551,14 @@ def _maybe_advance_stage(user_text: str, malena_reply: str):
     elif stage == Stage.CALIFICACION:
         _extract_lead_info(user_text)
         if conv_state.ready_for_demo():
-            usuario_confirmo = any(w in user_lower for w in [
-                "dale", "sí", "si", "bueno", "vamos", "perfecto", "claro",
-                "ok", "va", "arrancá", "arranca", "mostrá", "muestra",
-            ])
+            # Solo avanzar cuando Malena misma decide arrancar la demo.
+            # No usar señales del usuario (dale/sí) porque pueden aparecer en
+            # respuestas a preguntas de calificación y avanzar prematuramente.
             malena_invito = any(w in malena_reply.lower() for w in [
                 "te muestro", "arranquemos", "empecemos", "arrancamos",
                 "vamos a ver", "voy a mostrar", "vamos a arrancar",
             ])
-            if usuario_confirmo or malena_invito:
+            if malena_invito:
                 conv_state.advance()
                 print(f"→ Estado: {conv_state.stage}")
                 print(f"📋 Lead: {conv_state.summary()}")
@@ -558,7 +637,7 @@ async def _start_demo():
 # ── Pipeline principal (INTRO / CALIFICACION / CIERRE) ────────────────────────
 
 async def process_transcript(transcript: str):
-    global is_speaking, pending_speech, waiting_for_question
+    global is_speaking, pending_speech, waiting_for_question, barge_in_text
 
     if not transcript.strip():
         return
@@ -569,10 +648,31 @@ async def process_transcript(transcript: str):
         return
 
     if conv_state.stage == Stage.DEMO:
-        if not is_speaking:
-            demo_continue_event.set()
-            _pending_user_input.append(transcript)
-            print(f"[DEMO] Input encolado: '{transcript}'")
+        _loop = asyncio.get_event_loop()
+        if is_speaking:
+            # Debounce tardío llegó mientras habla — tratar como barge-in si es pregunta
+            if not handling_barge_in and _sequential_demo_active:
+                kind = await _loop.run_in_executor(None, classify_interruption, transcript)
+                if kind not in ("noise", "backchannel"):
+                    print(f"[DEMO] Barge-in tardío [{kind}]: '{transcript}'")
+                    barge_in_text = transcript
+                    barge_in_event.set()
+                else:
+                    print(f"[DEMO] Input tardío ignorado ({kind}): '{transcript}'")
+        else:
+            if _sequential_demo_active:
+                # Entre frases: clasificar y setear barge-in si es pregunta
+                kind = await _loop.run_in_executor(None, classify_interruption, transcript)
+                if kind not in ("noise", "backchannel"):
+                    print(f"[DEMO] Pregunta entre frases [{kind}]: '{transcript}'")
+                    barge_in_text = transcript
+                    barge_in_event.set()
+                else:
+                    print(f"[DEMO] Input entre frases ignorado ({kind}): '{transcript}'")
+            else:
+                demo_continue_event.set()
+                _pending_user_input.append(transcript)
+                print(f"[DEMO] Input encolado: '{transcript}'")
         return
 
     if is_speaking:
@@ -599,10 +699,24 @@ async def process_transcript(transcript: str):
             await _handle_barge_in()
             return
 
-        barge_in = await _speak_and_wait(mp3_bytes)
+        speak_result = await _speak_and_wait(mp3_bytes)
 
-        if barge_in:
+        if speak_result == "barge_in":
             await _handle_barge_in()
+        elif speak_result == "vad":
+            # Esperar a que speech_final clasifique el habla detectada
+            try:
+                await asyncio.wait_for(barge_in_event.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                pass
+            if barge_in_event.is_set():
+                barge_in_event.clear()
+                await _handle_barge_in()
+            else:
+                # Backchannel/falso positivo — retomar la frase
+                speak_result2 = await _speak_and_wait(mp3_bytes)
+                if speak_result2 == "barge_in":
+                    await _handle_barge_in()
 
     except Exception as e:
         print(f"[ERROR] process_transcript: {e}")
@@ -727,8 +841,8 @@ async def run_demo_loop():
                     asyncio.create_task(_run_caja_fase2_con_prerequisito())
 
                 # Reproducir esta oración y esperar que termine (o barge-in)
-                barge_in = await _speak_and_wait(mp3_bytes)
-                if barge_in:
+                speak_result = await _speak_and_wait(mp3_bytes)
+                if speak_result != "done":
                     barge_in_occurred = True
                     break
 
@@ -778,7 +892,7 @@ async def run_demo_loop():
             if demo_continue_event.is_set() and _pending_user_input:
                 user_said = " ".join(_pending_user_input).strip()
                 print(f"[DEMO LOOP] Usuario: '{user_said}'")
-                kind = classify_interruption(user_said)
+                kind = await loop.run_in_executor(None, classify_interruption, user_said)
                 print(f"[DEMO LOOP] Clasificación: {kind}")
 
                 cierre_words = [
@@ -857,6 +971,7 @@ async def run_demo_loop():
 
 async def _handle_barge_in():
     global barge_in_text, pending_speech, handling_barge_in, interrupted_context, waiting_for_question
+    global _debounce_task, _accumulated_transcript
 
     if handling_barge_in:
         barge_in_event.clear()
@@ -864,19 +979,44 @@ async def _handle_barge_in():
 
     handling_barge_in = True
     interruption = barge_in_text
-    kind = classify_interruption(interruption)
+
+    # Falso positivo VAD: no hay contenido real que procesar
+    if not interruption.strip():
+        print("⚡ Barge-in ignorado (sin contenido — falso positivo VAD)")
+        handling_barge_in = False
+        barge_in_event.clear()
+        barge_in_text = ""
+        return
+
+    loop = asyncio.get_event_loop()
+    kind = await loop.run_in_executor(None, classify_interruption, interruption)
     print(f"⚡ Barge-in [{kind}]: '{interruption}'")
 
     barge_in_event.clear()
     barge_in_text = ""
-    loop = asyncio.get_event_loop()
 
     try:
         interrupted_context = pending_speech
 
         if _is_complete_question(interruption):
-            print("❓ Pregunta completa, respondiendo directo...")
-            await _answer_question(interruption)
+            # No responder de inmediato — el usuario puede continuar hablando.
+            # Si ya hay texto en _accumulated_transcript, es la continuación de
+            # la oración (llegó como backchannel justo antes de este handler):
+            #   interruption = "Estaría bueno eso de"
+            #   _accumulated_transcript = "ocurra."
+            #   → full = "Estaría bueno eso de ocurra."
+            # Si está vacío, semillar con interruption y esperar más silencio.
+            print("❓ Pregunta completa — acumulando por si el usuario continúa...")
+            if _accumulated_transcript.strip() and interruption not in _accumulated_transcript:
+                _accumulated_transcript = (interruption + " " + _accumulated_transcript).strip()
+            else:
+                _accumulated_transcript = interruption
+            if _debounce_task and not _debounce_task.done():
+                _debounce_task.cancel()
+            _debounce_task = asyncio.create_task(_debounced_process(_accumulated_transcript))
+            waiting_for_question = True
+            # handling_barge_in permanece True; _answer_question (vía debounce) lo resetea.
+            return
         else:
             ack_prompt = (
                 "El usuario te interrumpió en medio de la demo. "
@@ -912,10 +1052,26 @@ def _is_complete_question(text: str) -> bool:
         "una pregunta", "tengo una pregunta", "una duda", "tengo una duda",
         "espera", "esperá", "momento", "un momento",
         "ya", "ya sí", "ya, una pregunta",
+        # Preámbulos: anuncian que van a preguntar pero no dicen la pregunta aún
+        "discúlpame una pregunta", "discúlpame, una pregunta",
+        "disculpame una pregunta", "disculpa una pregunta",
+        "tengo una consulta", "tengo una pregunta rápida",
+        "quiero preguntarte algo", "te quiero preguntar algo",
+        "quiero hacerte una pregunta", "quiero hacerte una consulta",
+        "discúlpame tengo una pregunta", "discúlpame tengo una duda",
     }
     if text_lower in solo_senal:
         return False
-    if len(text.split()) > 4:
+    # Frases que CONTIENEN señal de preámbulo en cualquier posición
+    # (ej: "Una pregunta, Malena", "Malena, una pregunta", "quiero preguntar algo")
+    preamble_contains = [
+        "una pregunta", "una duda", "una consulta", "una preguntita",
+        "preguntar algo", "preguntarte algo", "hacerte una pregunta",
+        "hacerte una consulta", "tengo algo para preguntarte",
+    ]
+    if any(p in text_lower for p in preamble_contains):
+        return False
+    if len(text.split()) >= 3:
         return True
     interrogativas = ["qué", "que", "cómo", "como", "cuánto", "cuanto",
                       "cuándo", "cuando", "dónde", "donde", "cuál", "cual",
@@ -931,7 +1087,7 @@ async def _answer_question(question: str):
     loop = asyncio.get_event_loop()
 
     try:
-        kind = classify_interruption(question)
+        kind = await loop.run_in_executor(None, classify_interruption, question)
         print(f"💬 Post-barge-in [{kind}]: '{question}'")
 
         context_hint = (
@@ -941,19 +1097,19 @@ async def _answer_question(question: str):
 
         if kind in ("noise", "backchannel"):
             resume_prompt = (
-                f"El usuario te había interrumpido pero dice '{question}' — no tiene pregunta real.{context_hint} "
-                f"Retomá naturalmente en 1-2 oraciones."
+                f"El usuario interrumpió pero no tiene pregunta real (dijo: '{question}').{context_hint} "
+                f"Decí SOLO una frase muy breve para retomar (ej: 'Bueno, seguimos.')."
                 if interrupted_context else
-                f"El usuario dice '{question}'. Continuá con la demo."
+                f"El usuario dijo '{question}', sin pregunta. Continuá la demo en 1 oración."
             )
         else:
             resume_prompt = (
-                f"El usuario te preguntó: '{question}'.{context_hint} "
-                f"Respondé en 1-2 oraciones y retomá la demo donde estabas."
+                f"El usuario preguntó o comentó: '{question}'.{context_hint} "
+                f"Respondé SOLO eso en 1-2 oraciones. NO retomes la demo todavía."
             )
 
         reply = await loop.run_in_executor(None, ask_ai, resume_prompt, conv_state.stage)
-        print(f"🤖 Malena (respuesta + retoma): {reply}")
+        print(f"🤖 Malena (respuesta): {reply}")
 
         await _mgw_hook(reply)
 
@@ -966,14 +1122,33 @@ async def _answer_question(question: str):
             await _send_audio(mp3)
             await asyncio.sleep(duration + SPEAKING_COOLDOWN_EXTRA)
 
+        # Si Malena respondió con una pregunta de vuelta ("¿qué querés saber?" etc.)
+        # esperar a que el usuario diga la pregunta real antes de retomar la demo.
+        malena_pregunta_de_vuelta = "?" in reply and kind == "question"
+        if malena_pregunta_de_vuelta:
+            print("👂 [POST-ANSWER] Malena preguntó de vuelta — esperando pregunta real...")
+            waiting_for_question = True
+
     except Exception as e:
         print(f"[ERROR] _answer_question: {e}")
         traceback.print_exc()
     finally:
         handling_barge_in = False
+        is_speaking = False
+        # Esperar a que se resuelva cualquier debounce en vuelo (preguntas de seguimiento).
+        # Hasta que no haya más, mantener waiting_for_question=True para que la demo no avance.
+        current_task = asyncio.current_task()
+        for _ in range(3):
+            pending_task = _debounce_task
+            if pending_task is None or pending_task.done() or pending_task is current_task:
+                break
+            print("👂 [POST-ANSWER] Esperando pregunta de seguimiento...")
+            try:
+                await asyncio.wait_for(asyncio.shield(pending_task), timeout=TRANSCRIPT_DEBOUNCE + 0.5)
+            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                break
         waiting_for_question = False
         interrupted_context = ""
-        is_speaking = False
 
 
 # ── Debounce de transcripts ───────────────────────────────────────────────────
@@ -1024,9 +1199,34 @@ async def deepgram_pipeline(audio_source: asyncio.Queue):
 
             async for message in ws:
                 result = json.loads(message)
-                if result.get("type") != "Results":
+                msg_type = result.get("type")
+
+                # ── SpeechStarted: esperar 250ms antes de detener audio ──────
+                if msg_type == "SpeechStarted":
+                    if is_speaking and not handling_barge_in and not _vad_event.is_set():
+                        global _vad_confirm_task
+                        if not (_vad_confirm_task and not _vad_confirm_task.done()):
+                            print("[VAD] SpeechStarted — esperando confirmación...")
+                            _vad_confirm_task = asyncio.create_task(_vad_delayed_stop())
                     continue
+
+                if msg_type != "Results":
+                    continue
+
+                # ── Interim / is_final sin speech_final ──────────────────────
                 if not result.get("speech_final"):
+                    interim_text = result.get("channel", {}).get("alternatives", [{}])[0].get("transcript", "")
+                    if interim_text.strip() and is_speaking and not handling_barge_in and not _vad_event.is_set():
+                        if _vad_confirm_task and not _vad_confirm_task.done():
+                            _vad_confirm_task.cancel()
+                        print("[VAD] Transcript interim — deteniendo audio")
+                        _vad_event.set()
+                        await _send_stop_audio()
+                    # is_final=True sin speech_final: Deepgram finalizó la primera
+                    # parte de una oración larga. Acumular para no perder el inicio.
+                    if result.get("is_final") and interim_text.strip() and not waiting_for_question:
+                        _accumulated_transcript = (_accumulated_transcript + " " + interim_text).strip()
+                        print(f"[Acum] '{_accumulated_transcript}'")
                     continue
 
                 transcript = result["channel"]["alternatives"][0]["transcript"]
@@ -1047,13 +1247,37 @@ async def deepgram_pipeline(audio_source: asyncio.Queue):
 
                 if is_speaking:
                     if handling_barge_in:
+                        # Acumular partes adicionales antes de que waiting_for_question se active
+                        if transcript.strip() and not waiting_for_question:
+                            _accumulated_transcript = (
+                                (_accumulated_transcript + " " + transcript).strip()
+                            )
+                            print(f"[BARGE-IN] Acumulando continuación: '{_accumulated_transcript}'")
+                            if _debounce_task and not _debounce_task.done():
+                                _debounce_task.cancel()
+                            _debounce_task = asyncio.create_task(
+                                _debounced_process(_accumulated_transcript)
+                            )
                         continue
-                    kind = classify_interruption(transcript)
-                    if kind in ("noise", "backchannel"):
-                        print(f"[BARGE-IN] Ignorado ({kind}): '{transcript}'")
+                    # Combinar fragmentos is_final previos con este speech_final
+                    full_transcript = (_accumulated_transcript + " " + transcript).strip() if _accumulated_transcript else transcript
+                    _accumulated_transcript = ""
+                    _recv_loop = asyncio.get_event_loop()
+                    kind = await _recv_loop.run_in_executor(None, classify_interruption, full_transcript)
+                    if kind == "noise":
+                        print(f"[BARGE-IN] Ruido ignorado: '{full_transcript}'")
                         continue
-                    print(f"[BARGE-IN] Pregunta: '{transcript}'")
-                    barge_in_text = transcript
+                    if kind == "backchannel":
+                        print(f"[BARGE-IN] Acumulando inicio (backchannel): '{full_transcript}'")
+                        _accumulated_transcript = full_transcript
+                        if _debounce_task and not _debounce_task.done():
+                            _debounce_task.cancel()
+                        _debounce_task = asyncio.create_task(
+                            _debounced_process(_accumulated_transcript)
+                        )
+                        continue
+                    print(f"[BARGE-IN] Pregunta: '{full_transcript}'")
+                    barge_in_text = full_transcript
                     barge_in_event.set()
                 else:
                     _accumulated_transcript = (
@@ -1115,11 +1339,15 @@ async def handle_recall_audio(websocket):
 
     async def run_deepgram():
         print("[DEEPGRAM] Task iniciado")
-        try:
-            await deepgram_pipeline(audio_queue)
-        except Exception as e:
-            print(f"[ERROR DEEPGRAM] {type(e).__name__}: {e}")
-            traceback.print_exc()
+        while True:
+            try:
+                await deepgram_pipeline(audio_queue)
+                break  # Salida limpia: audio_queue recibió None (Recall.ai desconectó)
+            except Exception as e:
+                print(f"[ERROR DEEPGRAM] {type(e).__name__}: {e}")
+                traceback.print_exc()
+                print("[DEEPGRAM] Reconectando en 3s...")
+                await asyncio.sleep(3)
         print("[DEEPGRAM] Task terminado")
 
     await asyncio.gather(receive_from_recall(), run_deepgram())
