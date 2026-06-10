@@ -157,21 +157,24 @@ def classify_with_ai(text: str) -> str:
             model="gpt-4.1-mini",
             max_output_tokens=16,
             instructions="""Sos un clasificador de interrupciones en una demo de ventas por videollamada en Argentina.
-El bot (Malena) está hablando y el usuario interrumpe. Clasificá en UNA categoría:
+El bot (Malena) está hablando (o acaba de hablar) y el usuario dice algo. Clasificá en UNA categoría:
 
-- noise: ruido, onomatopeya sin contenido ("eh", "mm", "ah"), o transcripción del propio audio del bot
-- backchannel: reacción natural mientras escucha, sin pregunta ("bueno", "dale", "ah bueno", "sí", "ok", "claro", "perfecto", "entiendo", "re bien")
-- question: el usuario hace una pregunta genuina que necesita respuesta, pide aclaración, o dice que no entendió algo
+- noise: ruido o sílabas sin contenido ("eh", "mm", "ah", "mmm", "a")
+- backchannel: acompañamiento mínimo SIN información — solo 1 a 3 palabras de reacción pura ("bueno", "dale", "ok", "claro", "perfecto", "entiendo", "re bien", "sí sí", "está bien", "de acuerdo", "ya"). Si empieza con "sí"/"no" pero agrega cualquier otro contenido → NO es backchannel.
+- question: todo lo demás — preguntas, respuestas con información ("sí, hacemos X", "no, usamos Y", "tenemos una carnicería"), comentarios, pedidos de aclaración, o cualquier texto con contenido real más allá del acompañamiento.
 
 Ejemplos:
-"Bueno," → backchannel
-"Ah, bueno." → backchannel  
+"Sí" → backchannel
 "Dale." → backchannel
+"Claro, claro." → backchannel
+"Sí, hacemos milanesas." → question (tiene información)
+"No, no tenemos sistema." → question (tiene información)
 "¿Y eso cómo funciona?" → question
-"No entendí bien eso." → question
-"¿Cuánto cuesta?" → question
+"Ah, buenísimo." → backchannel
 "Mmm" → noise
+"Eh" → noise
 
+REGLA CLAVE: si el texto contiene información concreta más allá de una sola reacción de acompañamiento, siempre es question.
 Respondé SOLO con una palabra: noise, backchannel, o question.""",
             input=[{"role": "user", "content": text}],
         )

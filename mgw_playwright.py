@@ -458,35 +458,10 @@ async def _reset_caja_items() -> None:
 async def _manejar_arqueo(on_screenshot=None) -> None:
     """
     Detecta la UI de apertura/arqueo de caja y la confirma.
-    El caller ya esperó el tiempo suficiente para que el AJAX de arqueo haya disparado.
-    Loggea todos los elementos visibles para facilitar el debug si falla.
     """
     if _page is None:
         return
     try:
-        # Dump de todos los elementos interactivos visibles — clave para debug
-        elementos = await _page.evaluate("""() => {
-            return [...document.querySelectorAll('input, button, a, [onclick]')]
-                .filter(el => {
-                    const r = el.getBoundingClientRect();
-                    return r.width > 0 && r.height > 0;
-                })
-                .slice(0, 20)
-                .map(el => ({
-                    tag:     el.tagName,
-                    id:      el.id || '',
-                    name:    el.getAttribute('name') || '',
-                    type:    el.getAttribute('type') || '',
-                    value:   el.value || el.getAttribute('value') || '',
-                    text:    el.textContent?.trim().slice(0, 40) || '',
-                    onclick: (el.getAttribute('onclick') || '').slice(0, 60),
-                    class:   el.className?.slice(0, 60) || ''
-                }));
-        }""")
-        print(f"[PW] [ARQUEO] Elementos visibles en caja ({len(elementos)}):")
-        for el in elementos:
-            print(f"  {el}")
-
         # Buscar y hacer clic en el botón de confirmación del arqueo
         for selector in [
             'button:has-text("Iniciar")',

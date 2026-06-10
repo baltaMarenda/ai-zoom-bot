@@ -266,9 +266,10 @@ frame.addEventListener('load', () => {
 });
 
 // ── Audio ─────────────────────────────────────────────────────────────────────
-let audioContext  = null;
-let audioQueue    = [];
+let audioContext   = null;
+let audioQueue     = [];
 let isPlayingAudio = false;
+let currentSource  = null;
 
 function getAudioContext() {
   if (!audioContext) {
@@ -289,12 +290,23 @@ async function playMp3(base64Data) {
       const source = ctx.createBufferSource();
       source.buffer = audioBuffer;
       source.connect(ctx.destination);
-      source.onended = resolve;
+      currentSource = source;
+      source.onended = () => { currentSource = null; resolve(); };
       source.start(0);
     });
   } catch (e) {
     console.error('[AUDIO] Error:', e);
   }
+}
+
+function stopAudioNow() {
+  audioQueue = [];
+  if (currentSource) {
+    try { currentSource.stop(); } catch (e) {}
+    currentSource = null;
+  }
+  isPlayingAudio = false;
+  setStatus('listening', 'Escuchando...');
 }
 
 async function processAudioQueue() {
@@ -305,6 +317,8 @@ async function processAudioQueue() {
   while (audioQueue.length > 0) {
     const b64 = audioQueue.shift();
     await playMp3(b64);
+    // If stopped mid-queue, exit early
+    if (!isPlayingAudio) return;
   }
 
   isPlayingAudio = false;
@@ -359,6 +373,10 @@ function connect() {
       case 'audio':
         audioQueue.push(msg.data);
         processAudioQueue();
+        break;
+
+      case 'stop_audio':
+        stopAudioNow();
         break;
 
       case 'navigate':

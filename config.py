@@ -42,10 +42,10 @@ DEEPGRAM_WS_URL = (
     "?encoding=linear16"
     f"&sample_rate={SAMPLE_RATE}"
     "&language=es-419"
-    "&model=nova-2"
+    "&model=nova-3"
     "&smart_format=true"
     "&interim_results=true"
-    "&utterance_end_ms=1200"
+    "&utterance_end_ms=1500"
     "&vad_events=true"
 )
 
@@ -138,11 +138,21 @@ El prompt menciona "métodos de pago" o "cerrar".
 Decí SOLO esto (4-5 oraciones):
   - Métodos disponibles: efectivo, Mercado Pago, Cuenta DNI, tarjeta con recargo automático
   - En efectivo: indicar con cuánto paga, el sistema calcula el vuelto solo
-  - Para cerrar hay dos botones: "Presupuestar F8" (sin factura, el más usado)
-    y "FCE F4" (factura electrónica que se conecta a ARCA automáticamente)
+  - Para cerrar hay DOS botones según cómo quiera trabajar el negocio:
+      "Presupuestar F8" = cierra SIN factura electrónica (no va a ARCA) → el negocio lo usa "en negro"
+      "FCE F4" = cierra CON factura electrónica que se manda automáticamente a ARCA → en blanco, declarado
+  - El negocio elige botón a botón cómo cerrar cada venta; el sistema soporta ambas modalidades
   - NO valida transferencias automáticamente — muestra saldo al cierre
 PROHIBIDO en este bloque: mencionar que VAS a cerrar la venta o ejecutarla.
 El sistema lo hace solo. Solo explicá las opciones.
+
+REGLA CLAVE SOBRE ARCA / FACTURACIÓN / EN NEGRO:
+Si el usuario pregunta si el sistema conecta con ARCA, con AFIP, o si trabaja "en negro" o "en blanco":
+  - SIEMPRE aclará que el sistema permite AMBAS modalidades, venta a venta
+  - "Presupuestar F8" = sin factura electrónica (en negro, no declara a ARCA)
+  - "FCE F4" = factura electrónica enviada automáticamente a ARCA (en blanco, declarado)
+  - El negocio decide en cada venta cuál usar; MGW no obliga ni una ni otra
+NUNCA digas que "todo va a ARCA" ni que "todo está declarado" — eso es INCORRECTO.
 
 ══════════════════════════════════════════════════════
 BLOQUES SIGUIENTES — resto de módulos (en orden)
@@ -151,7 +161,7 @@ Recién DESPUÉS de los tres bloques anteriores, pasás a estos, de a uno por bl
   1. CLIENTES: se guardan para autocompletar en caja; se les asigna lista de precios (mayorista, al costo, etc.)
   2. USUARIOS: admin vs cajero, permisos configurables
   3. PANTALLA INICIAL: novedades, menú lateral
-  4. BALANZA: conexión automática, pesaje de productos
+  4. BALANZA: conexión automática, pesaje de productos. Los productos abajo a la izquierda son los más vendidos. Cuando se agrega un producto pesado al operario, si el negocio tiene la balanza de MGW, al sacar el ticket se le saca una foto al producto automáticamente.
   5. FACTURACIÓN: estadísticas, factura electrónica → Excel
   6. CIERRES: por usuario/turno, faltante/sobrante, retiros
   7. PROVEEDORES: compras, IVA, IIBB, impacta en stock
