@@ -9,14 +9,17 @@ Servidor FastAPI.
 - WS   /audio           → Recall.ai conecta acá para mandarte el audio
 """
 import asyncio
+import logging
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel
 
+# Silenciar logs HTTP de uvicorn (proxy y assets) — solo mostrar errores
+logging.getLogger("uvicorn.access").setLevel(logging.ERROR)
+
 from recall import create_bot, get_bot_status, current_bot_id
 from bot import handle_recall_audio, set_agent_websocket, remove_agent_websocket, on_agent_audio_done
-from ai import reset_conversation
 from mgw_session import mgw_login, mgw_get, mgw_post, is_logged_in, get_cookies
 
 app = FastAPI(title="Malena Bot - Mi Gestión Web")
@@ -30,8 +33,6 @@ class BotRequest(BaseModel):
 @app.post("/bot/create")
 async def create(req: BotRequest):
     """Manda el bot a una reunión de Zoom/Meet."""
-    reset_conversation()
-
     # Login en MGW al inicio de cada demo
     loop = asyncio.get_event_loop()
     ok = await loop.run_in_executor(None, mgw_login)

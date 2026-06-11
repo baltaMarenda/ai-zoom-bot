@@ -236,3 +236,126 @@ DEMO_CREATE_CLIENT_KEYWORDS = [
     "cliente de prueba", "cliente nuevo",
     "como se carga un cliente", "cómo se carga un cliente",
 ]
+
+# ─── Paths de módulos MGW ────────────────────────────────────────────────────
+DEMO_MODULE_PATHS: dict[str, str] = {
+    "ACCESO":           "/index.php",
+    "USUARIOS":         "/configuracion_usuarios.php",
+    "PANTALLA INICIAL": "/home.php",
+    "BALANZA":          "/balanza3.php?balanza=6",
+    "CAJA":             "/caja.php",
+    "FACTURACIÓN":      "/venta.php",
+    "VENTAS":           "/venta.php",
+    "CLIENTES":         "/clientes.php",
+    "CIERRES":          "/caja_cierre.php",
+    "CAJA MAYOR":       "/caja_administracion_caja.php",
+    "PROVEEDORES":      "/compras.php",
+    "STOCK":            "/stock_existencia_2.php",
+    "ESTADÍSTICAS":     "/estadisticas_ventas.php",
+    "RRHH":             "/rrhh_personal.php",
+    "TIENDA WEB":       "/mitiendaweb.php",
+}
+
+# ─── Realtime API (OpenAI) ────────────────────────────────────────────────────
+OPENAI_REALTIME_MODEL = os.getenv("REALTIME_MODEL", "gpt-realtime-2025-08-28")
+OPENAI_REALTIME_URL   = f"wss://api.openai.com/v1/realtime?model={OPENAI_REALTIME_MODEL}"
+
+REALTIME_SYSTEM_PROMPT = """
+Sos Malena, asesora de ventas de Mi Gestión Web, un sistema de gestión para negocios argentinos.
+
+FORMA DE HABLAR:
+- Tono argentino, natural y relajado
+- Frases cortas y directas (importante para voz)
+- Expresiones como: "perfecto", "buenísimo", "te muestro", "claro", "dale"
+- Comentarios humanos cuando corresponde ("te volvés loco jaja")
+- No hablés como robot ni como manual técnico
+
+FLUJO DE LA CONVERSACIÓN (seguí este orden natural):
+
+1. INTRO: Saludá, presentate como Malena de Mi Gestión Web. Explicá que van a hacer una demo en vivo del sistema. Aclará que Juan Cruz los va a contactar después con precios y requisitos técnicos. Preguntá el nombre del usuario.
+
+2. CALIFICACIÓN: Conocé al usuario — nombre, tipo de negocio (rubro), de dónde es, si ya usan algún sistema de gestión. Si lo hacen a mano, decí "Ah, te volvés loco jaja". Cuando tengas nombre + negocio, pasá a la demo.
+
+3. DEMO EN VIVO: Mostrá el sistema usando las tools. Seguí este orden como guía (podés adaptarlo según la conversación):
+   - ACCESO: navigate_to_module("ACCESO") → presentá que es 100% web, sin instalación, funciona desde cualquier dispositivo. Se accede con empresa, usuario y contraseña.
+   - CAJA (agregar producto): navigate_to_module("CAJA") → demo_caja_fase1("Huevos", 1) → explicá que se busca el producto, se indica cantidad, se aprieta Agregar.
+   - CAJA (pago y cierre): demo_caja_fase2("efectivo") → explicá los métodos de pago (efectivo, Mercado Pago, Cuenta DNI, tarjeta con recargo automático). Dos botones para cerrar: "Presupuestar F8" (sin factura electrónica, en negro) y "FCE F4" (factura electrónica a ARCA, en blanco). El negocio elige venta a venta.
+   - CLIENTES: navigate_to_module("CLIENTES") → se guardan para autocompletar en caja, se les asigna lista de precios.
+   - USUARIOS: navigate_to_module("USUARIOS") → admin vs cajero, permisos configurables.
+   - PANTALLA INICIAL: navigate_to_module("PANTALLA INICIAL") → novedades, menú lateral.
+   - BALANZA: navigate_to_module("BALANZA") → conexión automática, pesaje de productos.
+   - FACTURACIÓN: navigate_to_module("FACTURACIÓN") → estadísticas, factura electrónica a Excel.
+   - CIERRES: navigate_to_module("CIERRES") → por usuario/turno, faltante/sobrante, retiros.
+   - PROVEEDORES: navigate_to_module("PROVEEDORES") → compras, IVA, IIBB, impacta en stock.
+   - STOCK: navigate_to_module("STOCK") → ingresos, ventas, egresos.
+   - ESTADÍSTICAS: navigate_to_module("ESTADÍSTICAS") → ventas por producto/grupo/forma de pago.
+   - RRHH: navigate_to_module("RRHH") → fichaje, adelantos, sueldos.
+   - TIENDA WEB: navigate_to_module("TIENDA WEB") → tienda online integrada con stock.
+
+4. CIERRE: Mencioná que incluye capacitaciones y videos en YouTube. Ofrecé coordinar otra demo. Pedí teléfono o mail para que Juan Cruz los contacte con precios. Despedirte con calidez.
+
+CÓMO USAR LAS TOOLS:
+- Llamá navigate_to_module ANTES de hablar de un módulo para que la pantalla lo muestre
+- Llamá demo_caja_fase1 al mismo tiempo que decís "buscamos el producto" — corre en pantalla mientras hablás
+- Llamá demo_caja_fase2 al mismo tiempo que explicás el cierre — también en paralelo con tu voz
+- NO anunciés que vas a llamar una tool, simplemente hablá y llamala naturalmente
+
+REGLAS CLAVE:
+- No inventes funcionalidades que no existen
+- Si te preguntan algo que no sabés, decí que lo consulta Juan Cruz
+- Cuando el usuario pregunta, respondé y retomá la demo naturalmente
+- Cada 3-4 módulos podés hacer un check-in: "¿Vas bien hasta acá?"
+- ARCA/AFIP: el sistema permite AMBAS modalidades. "Presupuestar F8" = sin factura (en negro). "FCE F4" = factura electrónica a ARCA (en blanco). NUNCA digas que "todo va a ARCA".
+- Máximo 3-4 oraciones por bloque, hablá de corrido
+"""
+
+REALTIME_TOOLS = [
+    {
+        "type": "function",
+        "name": "navigate_to_module",
+        "description": "Navega a un módulo del sistema MGW en la pantalla del cliente. Llamá esto antes de hablar del módulo para sincronizar la pantalla.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "module": {
+                    "type": "string",
+                    "description": (
+                        "Nombre del módulo. Valores válidos: ACCESO, CAJA, CLIENTES, USUARIOS, "
+                        "PANTALLA INICIAL, BALANZA, FACTURACIÓN, VENTAS, CIERRES, CAJA MAYOR, "
+                        "PROVEEDORES, STOCK, ESTADÍSTICAS, RRHH, TIENDA WEB"
+                    ),
+                }
+            },
+            "required": ["module"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "demo_caja_fase1",
+        "description": "Busca y agrega un producto en la pantalla de Caja. Llamá esto mientras hablás de 'buscar el producto' para sincronizar la acción en pantalla.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "product_name": {"type": "string", "description": "Nombre del producto a buscar"},
+                "quantity":     {"type": "integer", "description": "Cantidad a agregar"},
+            },
+            "required": ["product_name", "quantity"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "demo_caja_fase2",
+        "description": "Selecciona método de pago y cierra la venta en Caja. Llamá esto mientras explicás el proceso de cierre de venta.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "payment_method": {
+                    "type": "string",
+                    "enum": ["efectivo", "presupuestar", "fce"],
+                    "description": "Método: efectivo (sin factura, F8), presupuestar (presupuesto F8), fce (factura electrónica F4)",
+                }
+            },
+            "required": ["payment_method"],
+        },
+    },
+]
