@@ -265,11 +265,11 @@ frame.addEventListener('load', () => {
   }
 });
 
-// ── Audio ─────────────────────────────────────────────────────────────────────
-let audioContext   = null;
-let audioQueue     = [];
-let isPlayingAudio = false;
-let currentSource  = null;
+// ── Audio PCM16 streaming ─────────────────────────────────────────────────────
+let audioContext     = null;
+let nextStartTime    = 0;
+let scheduledSources = [];
+let audioDoneSent    = true;  // true = no hay respuesta en curso
 
 function getAudioContext() {
   if (!audioContext) {
@@ -278,55 +278,52 @@ function getAudioContext() {
   return audioContext;
 }
 
-async function playMp3(base64Data) {
+function playPcmChunk(base64Data, sampleRate) {
   const ctx = getAudioContext();
-  const binary = atob(base64Data);
-  const bytes  = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-
-  try {
-    const audioBuffer = await ctx.decodeAudioData(bytes.buffer);
-    return new Promise((resolve) => {
-      const source = ctx.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(ctx.destination);
-      currentSource = source;
-      source.onended = () => { currentSource = null; resolve(); };
-      source.start(0);
-    });
-  } catch (e) {
-    console.error('[AUDIO] Error:', e);
+  const raw  = atob(base64Data);
+  const int16 = new Int16Array(raw.length / 2);
+  for (let i = 0; i < int16.length; i++) {
+    int16[i] = (raw.charCodeAt(i * 2)) | (raw.charCodeAt(i * 2 + 1) << 8);
   }
+  const f32 = new Float32Array(int16.length);
+  for (let i = 0; i < int16.length; i++) f32[i] = int16[i] / 32768;
+
+  const buf = ctx.createBuffer(1, f32.length, sampleRate || 24000);
+  buf.getChannelData(0).set(f32);
+
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.connect(ctx.destination);
+
+  // Scheduling: append después del último chunk para reproducción sin cortes
+  if (nextStartTime < ctx.currentTime) nextStartTime = ctx.currentTime + 0.02;
+  src.start(nextStartTime);
+  nextStartTime += buf.duration;
+  scheduledSources.push(src);
+}
+
+function onAudioStreamEnd() {
+  // audio_done se manda UNA SOLA VEZ cuando termina de reproducirse el último chunk
+  if (audioDoneSent) return;
+  const ctx = getAudioContext();
+  const remaining = Math.max(0, (nextStartTime - ctx.currentTime) * 1000) + 150;
+  setTimeout(() => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'audio_done' }));
+    }
+    audioDoneSent = true;
+    setStatus('listening', 'Escuchando...');
+    speakingRing.classList.remove('active');
+  }, remaining);
 }
 
 function stopAudioNow() {
-  audioQueue = [];
-  if (currentSource) {
-    try { currentSource.stop(); } catch (e) {}
-    currentSource = null;
-  }
-  isPlayingAudio = false;
+  nextStartTime = 0;
+  scheduledSources.forEach(s => { try { s.stop(); } catch (e) {} });
+  scheduledSources = [];
+  audioDoneSent = true;
   setStatus('listening', 'Escuchando...');
-}
-
-async function processAudioQueue() {
-  if (isPlayingAudio || audioQueue.length === 0) return;
-  isPlayingAudio = true;
-  setStatus('speaking', 'Hablando...');
-
-  while (audioQueue.length > 0) {
-    const b64 = audioQueue.shift();
-    await playMp3(b64);
-    // If stopped mid-queue, exit early
-    if (!isPlayingAudio) return;
-  }
-
-  isPlayingAudio = false;
-  setStatus('listening', 'Escuchando...');
-
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'audio_done' }));
-  }
+  speakingRing.classList.remove('active');
 }
 
 // ── Screenshot (demo de caja en vivo) ────────────────────────────────────────
@@ -366,13 +363,20 @@ function connect() {
         break;
 
       case 'screenshot_end':
-        // Demo terminó — volver al iframe normal
         setTimeout(hideScreenshot, 3000);
         break;
 
-      case 'audio':
-        audioQueue.push(msg.data);
-        processAudioQueue();
+      case 'audio_pcm':
+        // Chunk PCM16 de la Realtime API
+        audioDoneSent = false;
+        setStatus('speaking', 'Hablando...');
+        speakingRing.classList.add('active');
+        playPcmChunk(msg.data, msg.sampleRate || 24000);
+        break;
+
+      case 'audio_stream_end':
+        // Fin de la respuesta — mandar audio_done cuando termine de reproducirse
+        onAudioStreamEnd();
         break;
 
       case 'stop_audio':
@@ -384,15 +388,13 @@ function connect() {
         break;
 
       case 'logged_in':
-        // Login ya lo hizo el servidor — cargar home directo via proxy
         navigateTo('/home.php');
         break;
 
       case 'reset':
         frame.src = 'about:blank';
         loadingScreen.classList.remove('hidden');
-        audioQueue    = [];
-        isPlayingAudio = false;
+        stopAudioNow();
         setStatus('listening', 'Escuchando...');
         break;
     }
