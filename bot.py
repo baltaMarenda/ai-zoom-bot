@@ -15,7 +15,15 @@ from mgw_playwright import (
     pw_start, pw_stop,
     demo_acceso_login,
     demo_caja_fase1_agregar, demo_caja_fase2_pagar,
+    caja_step_buscar, caja_step_agregar,
+    caja_step_seleccionar_pago, caja_step_cerrar,
     reset_caja_fases,
+    run_demo_estadisticas, run_demo_stock, run_demo_clientes,
+    balanza_step_navegar, balanza_step_agregar_producto,
+    balanza_step_mostrar_tickets, balanza_step_ir_a_caja,
+    balanza_step_abrir_cf, balanza_step_cobrar_ticket,
+    proveedores_step_nueva_compra, proveedores_step_cargar_productos,
+    produccion_step_crear_plantilla, produccion_step_registrar,
 )
 
 # ── Referencia al WebSocket de la webpage del agente ──────────────────────────
@@ -47,11 +55,15 @@ def on_agent_audio_done():
 # ── Estado de conversación ────────────────────────────────────────────────────
 conv_state = ConversationState()
 
+# ── Sesión activa (evita puentes superpuestos en reconexión de Recall) ─────────
+_active_bridge = None
+
 # ── Sincronización entre módulos ──────────────────────────────────────────────
-_acceso_login_done = asyncio.Event()
+_acceso_login_done    = asyncio.Event()
+_fase1_complete_event = asyncio.Event()  # se setea cuando fase1 termina (ok o no)
 _fase2_complete_event = asyncio.Event()
-_fase2_press_f8 = asyncio.Event()
-_fase2_task_created = False
+_fase2_press_f8       = asyncio.Event()
+_fase2_task_created   = False
 
 # ── Navegación MGW ────────────────────────────────────────────────────────────
 _last_navigated_module: str = ""
@@ -135,11 +147,15 @@ async def _run_caja_fase1_inner() -> bool:
     ok = await demo_caja_fase1_agregar(on_screenshot=_on_screenshot)
     await _send_to_agent({"type": "screenshot_end"})
     print(f"[CAJA] Fase 1 {'✓' if ok else '✗'}")
+    _fase1_complete_event.set()
     return ok
 
 
 async def _run_caja_fase2_inner(initial_delay: float = 0.0) -> bool:
     print("[CAJA] Iniciando Fase 2 (pago + cierre)...")
+    # En el flujo Realtime, la señal de cierre la damos nosotros inmediatamente
+    # para que Playwright no espere los 40s de timeout.
+    _fase2_press_f8.set()
     ok = await demo_caja_fase2_pagar(
         on_screenshot=_on_screenshot,
         initial_delay=initial_delay,
@@ -152,48 +168,142 @@ async def _run_caja_fase2_inner(initial_delay: float = 0.0) -> bool:
 
 
 async def _run_caja_fase2_con_prerequisito() -> bool:
-    from mgw_playwright import _caja_fase1_done
+    from mgw_playwright import _caja_fase1_done, _caja_fase1_launched
     if not _caja_fase1_done:
-        ok1 = await _run_caja_fase1_inner()
-        if not ok1:
-            return False
+        if _caja_fase1_launched:
+            # Fase 1 ya arrancó pero no terminó — esperamos su señal en lugar de relanzarla
+            print("[CAJA] Esperando que Fase 1 termine antes de arrancar Fase 2...")
+            try:
+                await asyncio.wait_for(_fase1_complete_event.wait(), timeout=90.0)
+            except asyncio.TimeoutError:
+                print("[CAJA] Timeout esperando Fase 1 — continuando igual")
+        else:
+            ok1 = await _run_caja_fase1_inner()
+            if not ok1:
+                return False
         await asyncio.sleep(1.5)
     return await _run_caja_fase2_inner()
+
+
+# ── Wrappers paso a paso para Realtime API ───────────────────────────────────
+
+async def _caja_step_buscar(product_name: str) -> str:
+    return await caja_step_buscar(product_name, on_screenshot=_on_screenshot)
+
+async def _caja_step_agregar() -> str:
+    return await caja_step_agregar(on_screenshot=_on_screenshot)
+
+async def _caja_step_seleccionar_pago(method: str) -> str:
+    return await caja_step_seleccionar_pago(method, on_screenshot=_on_screenshot)
+
+async def _caja_step_cerrar(method: str) -> str:
+    return await caja_step_cerrar(method, on_screenshot=_on_screenshot)
+
+
+async def _run_estadisticas_demo() -> str:
+    return await run_demo_estadisticas(on_screenshot=_on_screenshot)
+
+async def _run_stock_demo() -> str:
+    return await run_demo_stock(on_screenshot=_on_screenshot)
+
+async def _run_clientes_demo() -> str:
+    return await run_demo_clientes(on_screenshot=_on_screenshot)
+
+async def _balanza_step_navegar() -> str:
+    return await balanza_step_navegar(on_screenshot=_on_screenshot)
+
+async def _balanza_step_agregar(operario_nombre: str, operario_id: str) -> str:
+    return await balanza_step_agregar_producto(operario_nombre, operario_id, on_screenshot=_on_screenshot)
+
+async def _balanza_step_mostrar_tickets() -> str:
+    return await balanza_step_mostrar_tickets(on_screenshot=_on_screenshot)
+
+async def _balanza_step_ir_a_caja() -> str:
+    return await balanza_step_ir_a_caja(on_screenshot=_on_screenshot)
+
+async def _balanza_step_abrir_cf() -> str:
+    return await balanza_step_abrir_cf(on_screenshot=_on_screenshot)
+
+async def _balanza_step_cobrar_ticket() -> str:
+    return await balanza_step_cobrar_ticket(on_screenshot=_on_screenshot)
+
+async def _proveedores_step_nueva(importe: str = "150000") -> str:
+    return await proveedores_step_nueva_compra(importe, on_screenshot=_on_screenshot)
+
+async def _proveedores_step_cargar() -> str:
+    return await proveedores_step_cargar_productos(on_screenshot=_on_screenshot)
+
+async def _produccion_step_plantilla() -> str:
+    return await produccion_step_crear_plantilla(on_screenshot=_on_screenshot)
+
+async def _produccion_step_registrar() -> str:
+    return await produccion_step_registrar(on_screenshot=_on_screenshot)
 
 
 # ── WebSocket handler ─────────────────────────────────────────────────────────
 
 async def handle_recall_audio(websocket):
-    global conv_state, _fase2_task_created
+    global conv_state, _fase2_task_created, _active_bridge
     print("[WS] Recall.ai conectado ✓")
+
+    # Cerrar sesión anterior si Recall reconectó sin que la vieja terminara
+    if _active_bridge is not None:
+        print("[BOT] Cerrando bridge anterior por reconexión de Recall...")
+        try:
+            await _active_bridge.close()
+        except Exception as e:
+            print(f"[BOT] Error cerrando bridge anterior: {e}")
+        _active_bridge = None
 
     # Reset para nueva sesión
     conv_state = ConversationState()
     _fase2_task_created = False
     reset_caja_fases()
     _acceso_login_done.clear()
+    _fase1_complete_event.clear()
     _fase2_complete_event.clear()
     _fase2_press_f8.clear()
 
     audio_queue: asyncio.Queue = asyncio.Queue()
 
+    # Limpiar el evento de audio para esta sesión
+    _audio_done_event.clear()
+
     from realtime_bridge import RealtimeBridge
     bridge = RealtimeBridge(
-        send_to_agent    = _send_to_agent,
-        send_navigate    = _send_navigate,
-        send_logged_in   = _send_logged_in,
-        send_stop_audio  = _send_stop_audio,
-        run_acceso_demo  = _run_acceso_demo,
-        run_caja_fase1   = _run_caja_fase1_inner,
-        run_caja_fase2   = _run_caja_fase2_con_prerequisito,
-        pw_start         = pw_start,
-        pw_stop          = pw_stop,
-        on_screenshot    = _on_screenshot,
-        on_screenshot_end = _on_screenshot_end,
-        acceso_login_done = _acceso_login_done,
-        fase2_press_f8   = _fase2_press_f8,
-        reset_caja_fases = reset_caja_fases,
-        conv_state       = conv_state,
+        send_to_agent          = _send_to_agent,
+        send_navigate          = _send_navigate,
+        send_logged_in         = _send_logged_in,
+        send_stop_audio        = _send_stop_audio,
+        run_acceso_demo        = _run_acceso_demo,
+        run_caja_fase1         = _run_caja_fase1_inner,
+        run_caja_fase2         = _run_caja_fase2_con_prerequisito,
+        caja_step_buscar       = _caja_step_buscar,
+        caja_step_agregar      = _caja_step_agregar,
+        caja_step_seleccionar  = _caja_step_seleccionar_pago,
+        caja_step_cerrar       = _caja_step_cerrar,
+        pw_start               = pw_start,
+        pw_stop                = pw_stop,
+        on_screenshot          = _on_screenshot,
+        on_screenshot_end      = _on_screenshot_end,
+        acceso_login_done      = _acceso_login_done,
+        fase2_press_f8         = _fase2_press_f8,
+        reset_caja_fases       = reset_caja_fases,
+        conv_state             = conv_state,
+        agent_audio_done_event = _audio_done_event,
+        demo_estadisticas           = _run_estadisticas_demo,
+        demo_stock                  = _run_stock_demo,
+        demo_clientes               = _run_clientes_demo,
+        balanza_navegar             = _balanza_step_navegar,
+        balanza_agregar_producto    = _balanza_step_agregar,
+        balanza_mostrar_tickets     = _balanza_step_mostrar_tickets,
+        balanza_ir_a_caja           = _balanza_step_ir_a_caja,
+        balanza_abrir_cf            = _balanza_step_abrir_cf,
+        balanza_cobrar_ticket       = _balanza_step_cobrar_ticket,
+        proveedores_nueva_compra    = _proveedores_step_nueva,
+        proveedores_cargar_productos = _proveedores_step_cargar,
+        produccion_crear_plantilla  = _produccion_step_plantilla,
+        produccion_registrar        = _produccion_step_registrar,
     )
 
     async def receive_from_recall():
@@ -221,12 +331,15 @@ async def handle_recall_audio(websocket):
         finally:
             await audio_queue.put(None)
 
+    _active_bridge = bridge
     try:
         await asyncio.gather(receive_from_recall(), bridge.run(audio_queue))
     except Exception as e:
         print(f"[BOT] Error en handle_recall_audio: {e}")
         traceback.print_exc()
     finally:
+        if _active_bridge is bridge:
+            _active_bridge = None
         await bridge.close()
         try:
             await pw_stop()
