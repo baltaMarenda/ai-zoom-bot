@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python *)"
+      "Bash(python *)",
+      "Bash(npm i *)",
+      "Bash(claude *)",
+      "Bash(npm update *)",
+      "Skill(claude-api)"
     ]
   }
 }

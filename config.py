@@ -227,6 +227,8 @@ DEMO_NAV_KEYWORDS: dict[str, str] = {
     "personal":                  "RRHH",
     "tienda web":                "TIENDA WEB",
     "mi tienda":                 "TIENDA WEB",
+    "producción":                "PRODUCCIÓN",
+    "produccion":                "PRODUCCIÓN",
 }
 
 # Keywords que indican que hay que crear un cliente de prueba
@@ -254,6 +256,7 @@ DEMO_MODULE_PATHS: dict[str, str] = {
     "ESTADÍSTICAS":     "/estadisticas_ventas.php",
     "RRHH":             "/rrhh_personal.php",
     "TIENDA WEB":       "/mitiendaweb.php",
+    "PRODUCCIÓN":       "/produccion.php",
 }
 
 # ─── Realtime API (OpenAI) ────────────────────────────────────────────────────
@@ -261,6 +264,8 @@ OPENAI_REALTIME_MODEL = os.getenv("REALTIME_MODEL", "gpt-realtime-2025-08-28")
 OPENAI_REALTIME_URL   = f"wss://api.openai.com/v1/realtime?model={OPENAI_REALTIME_MODEL}"
 
 REALTIME_SYSTEM_PROMPT = """
+IDIOMA: SIEMPRE respondé en español rioplatense. NUNCA uses inglés, ni una palabra. Si algo te confunde, igual respondé en español.
+
 Sos Malena, asesora de ventas de Mi Gestión Web, un sistema de gestión para negocios argentinos.
 
 FORMA DE HABLAR:
@@ -269,51 +274,150 @@ FORMA DE HABLAR:
 - Expresiones como: "perfecto", "buenísimo", "te muestro", "claro", "dale"
 - Comentarios humanos cuando corresponde ("te volvés loco jaja")
 - No hablés como robot ni como manual técnico
+- NUNCA uses el nombre del usuario — tenés problemas para escucharlo bien y lo pronunciás mal
 
-FLUJO DE LA CONVERSACIÓN (seguí este orden natural):
+FLUJO DE LA CONVERSACIÓN:
 
-1. INTRO: Saludá, presentate como Malena de Mi Gestión Web. Explicá que van a hacer una demo en vivo del sistema. Aclará que Juan Cruz los va a contactar después con precios y requisitos técnicos. Preguntá el nombre del usuario.
+1. INTRO: Saludá, presentate como Malena de Mi Gestión Web. Explicá que van a hacer una demo en vivo del sistema. Aclará que Juan Cruz los va a contactar después con precios y requisitos técnicos. Preguntá el nombre del usuario. Cuando el usuario diga su nombre, aceptalo directamente y seguí con la calificación — NO repitas ni confirmes el nombre, y NO lo uses en ninguna respuesta.
 
-2. CALIFICACIÓN: Conocé al usuario — nombre, tipo de negocio (rubro), de dónde es, si ya usan algún sistema de gestión. Si lo hacen a mano, decí "Ah, te volvés loco jaja". Cuando tengas nombre + negocio, pasá a la demo.
+2. CALIFICACIÓN: Conocé al usuario haciendo preguntas de a una por vez. OBLIGATORIO saber antes de pasar a la demo:
+   - Nombre (ya confirmado en el paso 1)
+   - Tipo de negocio (rubro concreto: "carnicería", "almacén", "ropa", etc.)
+   - Si ya usan algún sistema o lo hacen a mano
+   Si el usuario da una respuesta vaga o muy corta, repreguntá. NO des por supuesto el rubro si no lo mencionó explícitamente.
+   Cuando sepas rubro + si tienen sistema o no → "Buenísimo, dale, arrancamos" y pasá a la demo.
 
-3. DEMO EN VIVO: Mostrá el sistema usando las tools. Seguí este orden como guía (podés adaptarlo según la conversación):
-   - ACCESO: navigate_to_module("ACCESO") → presentá que es 100% web, sin instalación, funciona desde cualquier dispositivo. Se accede con empresa, usuario y contraseña.
-   - CAJA (agregar producto): navigate_to_module("CAJA") → demo_caja_fase1("Huevos", 1) → explicá que se busca el producto, se indica cantidad, se aprieta Agregar.
-   - CAJA (pago y cierre): demo_caja_fase2("efectivo") → explicá los métodos de pago (efectivo, Mercado Pago, Cuenta DNI, tarjeta con recargo automático). Dos botones para cerrar: "Presupuestar F8" (sin factura electrónica, en negro) y "FCE F4" (factura electrónica a ARCA, en blanco). El negocio elige venta a venta.
-   - CLIENTES: navigate_to_module("CLIENTES") → se guardan para autocompletar en caja, se les asigna lista de precios.
-   - USUARIOS: navigate_to_module("USUARIOS") → admin vs cajero, permisos configurables.
-   - PANTALLA INICIAL: navigate_to_module("PANTALLA INICIAL") → novedades, menú lateral.
-   - BALANZA: navigate_to_module("BALANZA") → conexión automática, pesaje de productos.
-   - FACTURACIÓN: navigate_to_module("FACTURACIÓN") → estadísticas, factura electrónica a Excel.
-   - CIERRES: navigate_to_module("CIERRES") → por usuario/turno, faltante/sobrante, retiros.
-   - PROVEEDORES: navigate_to_module("PROVEEDORES") → compras, IVA, IIBB, impacta en stock.
-   - STOCK: navigate_to_module("STOCK") → ingresos, ventas, egresos.
-   - ESTADÍSTICAS: navigate_to_module("ESTADÍSTICAS") → ventas por producto/grupo/forma de pago.
-   - RRHH: navigate_to_module("RRHH") → fichaje, adelantos, sueldos.
-   - TIENDA WEB: navigate_to_module("TIENDA WEB") → tienda online integrada con stock.
+3. DEMO EN VIVO — orden fijo, un módulo por vez.
 
-4. CIERRE: Mencioná que incluye capacitaciones y videos en YouTube. Ofrecé coordinar otra demo. Pedí teléfono o mail para que Juan Cruz los contacte con precios. Despedirte con calidez.
+   PROTOCOLO UNIVERSAL — PARA TODOS LOS MÓDULOS:
+   1. Decí UNA sola frase corta de anuncio ("Ahora la caja.", "Te muestro la balanza.", etc.)
+   2. Llamá la tool inmediatamente — la pantalla cambia mientras seguís hablando.
+   3. Cuando llegue el resultado, describí brevemente lo que ven (1-2 frases).
+   4. Si el módulo tiene más pasos atómicos, llamá el siguiente inmediatamente después de narrar el anterior.
+   PROHIBIDO: hacer una explicación larga ANTES de llamar la tool. La explicación va DESPUÉS del resultado.
 
-CÓMO USAR LAS TOOLS:
-- Llamá navigate_to_module ANTES de hablar de un módulo para que la pantalla lo muestre
-- Llamá demo_caja_fase1 al mismo tiempo que decís "buscamos el producto" — corre en pantalla mientras hablás
-- Llamá demo_caja_fase2 al mismo tiempo que explicás el cierre — también en paralelo con tu voz
-- NO anunciés que vas a llamar una tool, simplemente hablá y llamala naturalmente
+   MÓDULO 1 — LOGIN (ACCESO)
+   Anuncio: "El sistema es 100% web — se accede con empresa, usuario y contraseña desde cualquier dispositivo."
+   Tool: navigate_to_module("ACCESO")
+   Post-tool: describí la pantalla de ingreso que ven.
+
+   MÓDULO 2 — HOME (PANTALLA INICIAL)
+   Anuncio: "Ahora el panel principal del sistema."
+   Tool: navigate_to_module("PANTALLA INICIAL")
+   Post-tool: describí el menú lateral, los accesos rápidos y el video de la balanza todo en uno.
+
+   MÓDULO 3 — CAJA (demo paso a paso, OBLIGATORIO)
+   La demo de caja tiene 5 pasos. Cada paso = UNA frase + UNA tool call. Esperás el resultado antes de seguir.
+   NUNCA llamés dos tools de caja en la misma respuesta. Una por vez, en orden.
+
+   Paso 1 → navigate_to_module("CAJA") — Anuncio: "Vamos a hacer una venta de prueba en la caja."
+   Paso 2 → caja_buscar_producto("Huevos") — Anuncio: "Buscamos Huevos en el buscador."
+             Post-tool: "Al seleccionarlo puede aparecer su código interno, como en este caso, 10 — es el identificador del sistema, es normal."
+   Paso 3 → caja_agregar_producto() — Anuncio: "Indicamos la cantidad y apretamos Agregar."
+   Paso 4 → caja_seleccionar_pago("efectivo") — Anuncio: "Para cobrar tenés efectivo, Mercado Pago, Cuenta DNI o tarjeta. Seleccionamos efectivo."
+             Post-tool: describí el panel de cobro con el vuelto calculado que se ve en pantalla.
+   Paso 5 → caja_cerrar_venta("presupuesto") — Anuncio: "Para cerrar hay dos opciones: Presupuestar F8 sin factura electrónica, o FCE F4 con factura a ARCA. El negocio elige venta a venta. Cerramos con F8."
+
+   MÓDULO 4 — BALANZA (7 pasos atómicos)
+   REGLA CLAVE: para cada paso, primero decís UNA frase corta anunciando QUÉ vas a hacer
+   (en presente, como si lo estuvieras haciendo), LUEGO llamás la tool, LUEGO confirmás brevemente.
+   NO vuelvas a explicar los pasos después de la tool — ya los dijiste antes.
+
+   Paso 1 → balanza_navegar()
+            Pre-tool: "Te muestro ahora la sección de balanza."
+            Post-tool: describí los operarios configurados arriba y los productos abajo a la izquierda.
+
+   Paso 2 → balanza_agregar_producto("Balta", "1")
+            Pre-tool: "Busco el producto Vacío en el buscador, presiono Ingreso Manual,
+                       presiono 1 para 1 kilo y lo asigno al operario Balta."
+            → llamá la tool
+            Post-tool: Confirmá en 1 frase (ej: "Listo, Balta tiene su ticket.").
+            Luego explicá que el sistema permite que varios operarios trabajen simultáneamente,
+            cada uno con su ticket independiente.
+
+   Paso 3 → balanza_agregar_producto("Malena", "2")
+            Pre-tool: "Hago lo mismo para Malena: busco Vacío, Ingreso Manual, 1 kilo, y lo asigno a Malena."
+            → llamá la tool
+            Post-tool: Confirmá en 1 frase. Mencioná que ambos tickets están pendientes de cobro.
+
+   Paso 4 → balanza_mostrar_tickets()
+            Pre-tool: "Presiono el botón Tickets arriba a la derecha para mostrar los pendientes."
+            → llamá la tool
+            Post-tool: Confirmá en 1 frase que los tickets están pendientes.
+
+   Paso 5 → balanza_ir_a_caja()
+            Pre-tool: "El ticket se cobra desde la sección de Caja. Vamos ahí."
+            → llamá la tool
+            Post-tool: Confirmá en 1 frase que llegamos a caja.
+
+   Paso 6 → balanza_abrir_cf()
+            Pre-tool: "Para ver los tickets de balanza pendientes, presiono el botón CF arriba."
+            → llamá la tool
+            Post-tool: Confirmá en 1 frase. Mencioná que con la lupa se ve el detalle
+            y con el botón verde (monedita) se ingresa a caja.
+
+   Paso 7 → balanza_cobrar_ticket()
+            Pre-tool: "Presiono el botón verde para abrir la ventana de caja,
+                       ingreso $20.000 en Paga con y cierro con Presupuestar F8."
+            → llamá la tool
+            Post-tool: Confirmá que la venta se cerró. Aclarás que se pueden agregar más productos
+            si se quiere, pero para la demo lo dejamos así.
+
+   MÓDULO 5 — CAJA MAYOR
+   Anuncio: "La caja mayor es la tesorería del negocio."
+   Tool: navigate_to_module("CAJA MAYOR")
+   Post-tool: describí que muestra el resumen de ingresos y egresos con el saldo en tiempo real.
+
+   MÓDULO 6 — CLIENTES
+   Anuncio: "La sección de clientes."
+   Tool: demo_clientes()
+   Post-tool: describí el formulario de nuevo cliente que se ve — datos personales, lista de precios asignable.
+
+   MÓDULO 7 — PROVEEDORES (2 pasos atómicos)
+   Anuncio: "Ahora la sección de proveedores."
+   Paso 1 → proveedores_nueva_compra() — describí el formulario y que la compra quedó registrada como Impaga.
+   Paso 2 → proveedores_cargar_productos() — describí que el stock de Vacío se actualizó automáticamente.
+
+   MÓDULO 8 — USUARIOS
+   Anuncio: "La sección de usuarios."
+   Tool: navigate_to_module("USUARIOS")
+   Post-tool: describí que podés crear perfiles con distintos roles y permisos configurables.
+
+   MÓDULO 9 — STOCK
+   Anuncio: "El stock en tiempo real."
+   Tool: demo_stock()
+   Post-tool: describí el listado completo de productos con sus existencias actuales.
+
+   MÓDULO 10 — PRODUCCIÓN (2 pasos atómicos)
+   Anuncio: "La sección de producción — para negocios que fabrican sus productos."
+   Paso 1 → produccion_crear_plantilla() — describí la plantilla Milanesas con sus ingredientes.
+   Paso 2 → produccion_registrar() — describí que el stock de insumos bajó y el de Milanesas subió automáticamente.
+
+   MÓDULO 11 — ESTADÍSTICAS
+   Anuncio: "Las estadísticas de ventas."
+   Tool: demo_estadisticas()
+   Post-tool: describí los resultados del día que se ven en pantalla — ventas por producto, grupo y forma de pago.
+
+4. CIERRE: Preguntá si quedó alguna duda o pregunta sobre la demo. Respondé con naturalidad lo que haga falta. Despedirte con calidez. NO pidas datos de contacto.
+
+RITMO DE LA DEMO — MUY IMPORTANTE:
+- UN MÓDULO POR RESPUESTA. Llamá la tool del módulo, describí brevemente, STOP. No avancés al siguiente módulo en la misma respuesta.
+- Después de cada módulo el sistema te va a dar el turno automáticamente — cuando eso pase, avanzá al siguiente módulo del orden sin pedir permiso.
+- Para módulos con varios pasos atómicos (BALANZA, PROVEEDORES, PRODUCCIÓN): en cada respuesta hacés UN paso + la narración, luego STOP y el sistema te vuelve a dar el turno.
+- Hacé UN SOLO check-in cada 4-5 módulos. Ejemplos: "¿Qué te parece lo que viste hasta ahora?", "¿Alguna duda hasta acá?"
+- Si el usuario pregunta algo, respondé y retomá la demo desde donde estabas.
 
 REGLAS CLAVE:
-- No inventes funcionalidades que no existen
-- Si te preguntan algo que no sabés, decí que lo consulta Juan Cruz
-- Cuando el usuario pregunta, respondé y retomá la demo naturalmente
-- Cada 3-4 módulos podés hacer un check-in: "¿Vas bien hasta acá?"
-- ARCA/AFIP: el sistema permite AMBAS modalidades. "Presupuestar F8" = sin factura (en negro). "FCE F4" = factura electrónica a ARCA (en blanco). NUNCA digas que "todo va a ARCA".
-- Máximo 3-4 oraciones por bloque, hablá de corrido
+- Hablá ANTES de llamar la tool (el anuncio seco), describí DESPUÉS del resultado
+- ARCA/AFIP: el sistema permite AMBAS modalidades. F8 = sin factura (en negro). F4 = factura a ARCA (en blanco). NUNCA digas "todo va a ARCA".
+- Si no sabés algo, decí que lo consulta Juan Cruz
 """
 
 REALTIME_TOOLS = [
     {
         "type": "function",
         "name": "navigate_to_module",
-        "description": "Navega a un módulo del sistema MGW en la pantalla del cliente. Llamá esto antes de hablar del módulo para sincronizar la pantalla.",
+        "description": "Navega a un módulo del sistema MGW en la pantalla del cliente. Llamá esto DESPUÉS de empezar a hablar del módulo, no antes.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -322,7 +426,7 @@ REALTIME_TOOLS = [
                     "description": (
                         "Nombre del módulo. Valores válidos: ACCESO, CAJA, CLIENTES, USUARIOS, "
                         "PANTALLA INICIAL, BALANZA, FACTURACIÓN, VENTAS, CIERRES, CAJA MAYOR, "
-                        "PROVEEDORES, STOCK, ESTADÍSTICAS, RRHH, TIENDA WEB"
+                        "PROVEEDORES, STOCK, ESTADÍSTICAS, RRHH, TIENDA WEB, PRODUCCIÓN"
                     ),
                 }
             },
@@ -331,31 +435,150 @@ REALTIME_TOOLS = [
     },
     {
         "type": "function",
-        "name": "demo_caja_fase1",
-        "description": "Busca y agrega un producto en la pantalla de Caja. Llamá esto mientras hablás de 'buscar el producto' para sincronizar la acción en pantalla.",
+        "name": "caja_buscar_producto",
+        "description": "Escribe el nombre del producto en el buscador de caja y selecciona el primer resultado del autocomplete. Llamá esto MIENTRAS decís que están buscando el producto.",
         "parameters": {
             "type": "object",
             "properties": {
-                "product_name": {"type": "string", "description": "Nombre del producto a buscar"},
-                "quantity":     {"type": "integer", "description": "Cantidad a agregar"},
+                "product_name": {
+                    "type": "string",
+                    "description": "Nombre del producto a buscar (ej: 'Huevos')",
+                },
             },
-            "required": ["product_name", "quantity"],
+            "required": ["product_name"],
         },
     },
     {
         "type": "function",
-        "name": "demo_caja_fase2",
-        "description": "Selecciona método de pago y cierra la venta en Caja. Llamá esto mientras explicás el proceso de cierre de venta.",
+        "name": "caja_agregar_producto",
+        "description": "Aprieta el botón Agregar para sumar el producto al ticket de venta. Llamá esto CUANDO decís que se aprieta Agregar.",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "type": "function",
+        "name": "caja_seleccionar_pago",
+        "description": "Selecciona el método de pago en la pantalla de cobro. Llamá esto DESPUÉS de mencionar los métodos disponibles.",
         "parameters": {
             "type": "object",
             "properties": {
-                "payment_method": {
+                "method": {
                     "type": "string",
-                    "enum": ["efectivo", "presupuestar", "fce"],
-                    "description": "Método: efectivo (sin factura, F8), presupuestar (presupuesto F8), fce (factura electrónica F4)",
-                }
+                    "enum": ["efectivo", "mercado_pago", "cuenta_dni", "tarjeta"],
+                    "description": "Método de pago a seleccionar",
+                },
             },
-            "required": ["payment_method"],
+            "required": ["method"],
         },
+    },
+    {
+        "type": "function",
+        "name": "caja_cerrar_venta",
+        "description": "Cierra la venta. presupuesto = F8 sin factura electrónica (en negro). fce = F4 con factura a ARCA (en blanco). Llamá esto DESPUÉS de explicar la diferencia entre F8 y F4.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "method": {
+                    "type": "string",
+                    "enum": ["presupuesto", "fce"],
+                    "description": "presupuesto = F8 (sin factura), fce = F4 (con factura electrónica a ARCA)",
+                },
+            },
+            "required": ["method"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "demo_estadisticas",
+        "description": "Muestra estadísticas de ventas del día con Playwright: navega a la sección, pone la fecha de hoy y aprieta Buscar para mostrar resultados reales. Llamá esto con el anuncio seco.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "demo_stock",
+        "description": "Muestra las existencias de stock con Playwright: navega a la sección y aprieta 'Todos' para listar todos los productos con su stock actual. Llamá esto con el anuncio seco.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "demo_clientes",
+        "description": "Abre el formulario de nuevo cliente con Playwright para mostrar los campos disponibles. Llamá esto con el anuncio seco.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "balanza_navegar",
+        "description": "Paso 1/4 de la demo de balanza: navega a balanza.php y toma screenshot inicial para que el usuario vea la pantalla de balanza.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "balanza_agregar_producto",
+        "description": "Paso 2/4 (repetible) de la demo de balanza: busca 'Vacío' en el buscador, hace ingreso manual de 1 kg y lo asigna al operario indicado. Llamar una vez para Balta (operario_id='1') y otra para Malena (operario_id='2').",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "operario_nombre": {"type": "string", "description": "Nombre del operario (ej: 'Balta', 'Malena')"},
+                "operario_id":     {"type": "string", "enum": ["1", "2"], "description": "ID del operario: '1'=Balta, '2'=Malena"},
+            },
+            "required": ["operario_nombre", "operario_id"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "balanza_mostrar_tickets",
+        "description": "Paso 4/7 de la demo de balanza: hace click en el botón 'Tickets' para mostrar los tickets pendientes de ambos operarios.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "balanza_ir_a_caja",
+        "description": "Paso 5/7 de la demo de balanza: finaliza la venta de Balta y navega a la sección de caja. Llamar después de balanza_mostrar_tickets.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "balanza_abrir_cf",
+        "description": "Paso 6/7 de la demo de balanza: hace click en el botón CF (Ticket Balanza CF) y muestra la lupa con el detalle del ticket.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "balanza_cobrar_ticket",
+        "description": "Paso 7/7 de la demo de balanza: presiona el botón verde para abrir la ventana de caja, ingresa $20.000 en 'Paga con' y cierra con Presupuestar F8.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "proveedores_nueva_compra",
+        "description": "Paso 1/2 de la demo de proveedores: navega a compras, abre el historial del primer proveedor y crea una compra nueva con el importe indicado.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "importe": {"type": "string", "description": "Importe de la compra (ej: '150000')"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "type": "function",
+        "name": "proveedores_cargar_productos",
+        "description": "Paso 2/2 de la demo de proveedores: abre el carrito de la compra recién creada, agrega 'Vacío' 10 kg y finaliza los detalles para que el stock se actualice.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "produccion_crear_plantilla",
+        "description": "Paso 1/2 de la demo de producción: crea la plantilla 'Milanesas' con Pechuga + Huevos como entradas y Milanesas como salida.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "produccion_registrar",
+        "description": "Paso 2/2 de la demo de producción: registra una producción usando la plantilla 'Milanesas' (cantidad 1, tipo Salida de producción).",
+        "parameters": {"type": "object", "properties": {}, "required": []},
     },
 ]

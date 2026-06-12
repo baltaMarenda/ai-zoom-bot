@@ -6,6 +6,7 @@ Maneja STT + LLM + TTS en un solo WebSocket, con barge-in nativo y function call
 import asyncio
 import base64
 import json
+import time
 import traceback
 
 import websockets
@@ -34,36 +35,78 @@ class RealtimeBridge:
         send_logged_in,      # async fn()
         send_stop_audio,     # async fn()
         run_acceso_demo,     # async fn() → bool
-        run_caja_fase1,      # async fn() → bool
-        run_caja_fase2,      # async fn() → bool
+        run_caja_fase1,      # async fn() → bool  (legacy, por si acaso)
+        run_caja_fase2,      # async fn() → bool  (legacy, por si acaso)
+        caja_step_buscar,    # async fn(product_name: str) → str
+        caja_step_agregar,   # async fn() → str
+        caja_step_seleccionar, # async fn(method: str) → str
+        caja_step_cerrar,    # async fn(method: str) → str
         pw_start,            # async fn()
         pw_stop,             # async fn()
         on_screenshot,       # async fn(b64: str)
         on_screenshot_end,   # async fn()
         acceso_login_done,   # asyncio.Event
         fase2_press_f8,      # asyncio.Event
-        reset_caja_fases,    # fn()
-        conv_state,          # ConversationState
+        reset_caja_fases,        # fn()
+        conv_state,              # ConversationState
+        agent_audio_done_event      = None,   # asyncio.Event — set por agent.html cuando termina de reproducir
+        demo_estadisticas           = None,   # async fn() → str
+        demo_stock                  = None,   # async fn() → str
+        demo_clientes               = None,   # async fn() → str
+        balanza_navegar             = None,   # async fn() → str
+        balanza_agregar_producto    = None,   # async fn(nombre, id) → str
+        balanza_mostrar_tickets     = None,   # async fn() → str
+        balanza_ir_a_caja           = None,   # async fn() → str
+        balanza_abrir_cf            = None,   # async fn() → str
+        balanza_cobrar_ticket       = None,   # async fn() → str
+        proveedores_nueva_compra    = None,   # async fn(importe) → str
+        proveedores_cargar_productos = None,  # async fn() → str
+        produccion_crear_plantilla  = None,   # async fn() → str
+        produccion_registrar        = None,   # async fn() → str
     ):
-        self._send_to_agent    = send_to_agent
-        self._send_navigate    = send_navigate
-        self._send_logged_in   = send_logged_in
-        self._send_stop_audio  = send_stop_audio
-        self._run_acceso_demo  = run_acceso_demo
-        self._run_caja_fase1   = run_caja_fase1
-        self._run_caja_fase2   = run_caja_fase2
-        self._pw_start         = pw_start
-        self._pw_stop          = pw_stop
-        self._on_screenshot    = on_screenshot
-        self._on_screenshot_end = on_screenshot_end
-        self._acceso_login_done = acceso_login_done
-        self._fase2_press_f8   = fase2_press_f8
-        self._reset_caja_fases = reset_caja_fases
-        self.conv_state        = conv_state
+        self._send_to_agent      = send_to_agent
+        self._send_navigate      = send_navigate
+        self._send_logged_in     = send_logged_in
+        self._send_stop_audio    = send_stop_audio
+        self._run_acceso_demo    = run_acceso_demo
+        self._run_caja_fase1     = run_caja_fase1
+        self._run_caja_fase2     = run_caja_fase2
+        self._caja_step_buscar   = caja_step_buscar
+        self._caja_step_agregar  = caja_step_agregar
+        self._caja_step_seleccionar = caja_step_seleccionar
+        self._caja_step_cerrar   = caja_step_cerrar
+        self._pw_start           = pw_start
+        self._pw_stop            = pw_stop
+        self._on_screenshot      = on_screenshot
+        self._on_screenshot_end  = on_screenshot_end
+        self._acceso_login_done  = acceso_login_done
+        self._fase2_press_f8     = fase2_press_f8
+        self._reset_caja_fases   = reset_caja_fases
+        self.conv_state          = conv_state
+        self._agent_audio_done           = agent_audio_done_event
+        self._demo_estadisticas          = demo_estadisticas
+        self._demo_stock                 = demo_stock
+        self._demo_clientes              = demo_clientes
+        self._balanza_navegar            = balanza_navegar
+        self._balanza_agregar_producto   = balanza_agregar_producto
+        self._balanza_mostrar_tickets    = balanza_mostrar_tickets
+        self._balanza_ir_a_caja          = balanza_ir_a_caja
+        self._balanza_abrir_cf           = balanza_abrir_cf
+        self._balanza_cobrar_ticket      = balanza_cobrar_ticket
+        self._proveedores_nueva_compra   = proveedores_nueva_compra
+        self._proveedores_cargar_productos = proveedores_cargar_productos
+        self._produccion_crear_plantilla = produccion_crear_plantilla
+        self._produccion_registrar       = produccion_registrar
 
-        self._ws               = None
-        self._pw_started       = False
-        self._is_speaking      = False   # True mientras la API envía audio de respuesta
+        self._ws                    = None
+        self._pw_started            = False
+        self._is_speaking           = False   # True mientras la API envía audio de respuesta
+        self._barge_in_active       = False   # True desde que se detecta barge-in hasta response.done/cancelled
+        self._mute_until            = 0.0     # monotonic timestamp; drops audio chunks until then
+        self._main_session_ready    = False   # True después del primer session.updated exitoso
+        self._last_transcript       = ""      # último transcript de Malena (para detectar preguntas)
+        self._auto_continue_task: asyncio.Task | None = None
+        self._demo_started          = False   # True después del primer navigate_to_module
         # call_id → name (para asociar arguments.done con el nombre de la tool)
         self._pending_calls: dict[str, str] = {}
 
@@ -116,8 +159,15 @@ class RealtimeBridge:
         while True:
             chunk = await audio_queue.get()
             if chunk is None:
+                # Recall desconectó — cerrar el WS de Realtime para que _receive_loop termine
+                try:
+                    await ws.close()
+                except Exception:
+                    pass
                 break
             try:
+                if time.monotonic() < self._mute_until:
+                    continue  # ventana anti-eco: descartar chunk
                 b64 = base64.b64encode(chunk).decode()
                 await ws.send(json.dumps({
                     "type": "input_audio_buffer.append",
@@ -146,7 +196,7 @@ class RealtimeBridge:
 
         elif etype in ("response.audio.delta", "response.output_audio.delta"):
             delta = event.get("delta", "")
-            if delta:
+            if delta and not self._barge_in_active:
                 self._is_speaking = True
                 await self._send_to_agent({
                     "type": "audio_pcm",
@@ -157,19 +207,42 @@ class RealtimeBridge:
         elif etype in ("response.audio.done", "response.output_audio.done"):
             self._is_speaking = False
             await self._send_to_agent({"type": "audio_stream_end"})
+            # Marcar que el agente debe señalizar cuando termina de reproducir
+            if self._agent_audio_done:
+                self._agent_audio_done.clear()
+            # Abrir ventana anti-eco: descarta audio por 400ms para que el eco
+            # de la voz de Malena no llegue a la API como si fuera el usuario.
+            self._mute_until = time.monotonic() + 0.8
+            try:
+                await ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
+            except Exception:
+                pass
+            # Auto-continuar solo durante la demo (cuando ya se navegó al menos un módulo)
+            if self._demo_started:
+                self._cancel_auto_continue()
+                self._auto_continue_task = asyncio.create_task(self._auto_continue())
 
         elif etype == "response.cancelled":
             self._is_speaking = False
+            self._barge_in_active = False
 
         elif etype == "response.output_audio_transcript.done":
             transcript = event.get("transcript", "")
             if transcript:
+                self._last_transcript = transcript
                 print(f"[RT] 🤖 Malena: '{transcript}'")
 
         elif etype == "input_audio_buffer.speech_started":
+            self._cancel_auto_continue()
             if self._is_speaking:
                 print("[RT] Barge-in — deteniendo audio")
+                self._barge_in_active = True
                 await self._send_stop_audio()
+            else:
+                print("[RT] 🎤 Usuario: [hablando...]")
+
+        elif etype == "input_audio_buffer.speech_stopped":
+            print("[RT] 🎤 Usuario: [fin de turno]")
 
         elif etype == "response.output_item.added":
             item = event.get("item", {})
@@ -180,10 +253,17 @@ class RealtimeBridge:
                     self._pending_calls[call_id] = name
 
         elif etype == "response.function_call_arguments.done":
+            self._cancel_auto_continue()
             call_id  = event.get("call_id", "")
             args_str = event.get("arguments", "{}")
             name     = self._pending_calls.pop(call_id, "")
             if name:
+                # Mute audio while tool runs so VAD can't commit mid-execution speech
+                self._mute_until = time.monotonic() + 60.0
+                try:
+                    await ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
+                except Exception:
+                    pass
                 asyncio.create_task(self._handle_tool(ws, call_id, name, args_str))
 
         elif etype == "conversation.item.input_audio_transcription.completed":
@@ -195,18 +275,42 @@ class RealtimeBridge:
             status = event.get("response", {}).get("status", "")
             if status == "cancelled":
                 print(f"[RT] Respuesta cancelada (barge-in)")
+                self._barge_in_active = False
 
         elif etype == "error":
             err = event.get("error", {})
-            print(f"[RT] ⚠️  Error: {err.get('code')} — {err.get('message')}")
+            msg = err.get("message", "")
+            if "input_audio_transcription" in msg:
+                print(f"[RT] ℹ️  Transcripción de usuario no soportada por este modelo")
+            else:
+                print(f"[RT] ⚠️  Error: {err.get('code')} — {msg}")
+
+        elif etype == "session.updated":
+            if not self._main_session_ready:
+                self._main_session_ready = True
+                # Intentar habilitar transcripción como update separado — si falla, no rompe nada
+                asyncio.create_task(self._try_enable_transcription(ws))
+
+        elif etype == "conversation.item.created":
+            item = event.get("item", {})
+            if item.get("role") == "user":
+                for part in item.get("content", []):
+                    if part.get("type") == "input_text" and part.get("text"):
+                        print(f"[RT] 🎤 Usuario: '{part['text']}'")
+                    elif part.get("type") == "input_audio" and part.get("transcript"):
+                        print(f"[RT] 🎤 Usuario: '{part['transcript']}'")
+
+        elif etype == "conversation.item.input_audio_transcription.completed":
+            transcript = event.get("transcript", "")
+            if transcript:
+                print(f"[RT] 🎤 Usuario: '{transcript}'")
 
         else:
             # Log eventos no manejados para diagnóstico
-            _skip = {"input_audio_buffer.committed", "input_audio_buffer.speech_stopped",
-                     "input_audio_buffer.cleared",
-                     "conversation.item.created", "conversation.item.added",
+            _skip = {"input_audio_buffer.committed", "input_audio_buffer.cleared",
+                     "conversation.item.added",
                      "conversation.item.done",
-                     "session.updated", "response.created",
+                     "response.created",
                      "response.output_item.done", "response.content_part.added",
                      "response.content_part.done", "rate_limits.updated",
                      "response.output_audio_transcript.delta",
@@ -214,7 +318,52 @@ class RealtimeBridge:
             if etype not in _skip:
                 print(f"[RT] Evento no manejado: {etype}")
 
+    # ── Auto-continuación ──────────────────────────────────────────────────────
+
+    def _cancel_auto_continue(self):
+        if self._auto_continue_task and not self._auto_continue_task.done():
+            self._auto_continue_task.cancel()
+        self._auto_continue_task = None
+
+    async def _wait_for_audio_done(self, timeout: float = 30.0):
+        """Espera a que agent.html termine de reproducir el audio actual."""
+        if not self._agent_audio_done:
+            return
+        try:
+            await asyncio.wait_for(self._agent_audio_done.wait(), timeout=timeout)
+        except asyncio.TimeoutError:
+            print("[RT] Timeout esperando audio_done del agente — continuando igual")
+
+    async def _auto_continue(self):
+        """Si el usuario no habla después de que Malena termina, continuar la demo."""
+        delay = 12.0 if self._last_transcript.rstrip().endswith("?") else 5.0
+        try:
+            await asyncio.sleep(delay)
+            await self._wait_for_audio_done(timeout=15.0)
+            if self._ws:
+                print("[RT] Auto-continue: disparando siguiente respuesta...")
+                await self._ws.send(json.dumps({"type": "response.create"}))
+        except asyncio.CancelledError:
+            pass
+
     # ── Configuración de sesión ────────────────────────────────────────────────
+
+    async def _try_enable_transcription(self, ws):
+        """Intenta habilitar transcripción de usuario como update separado. Si falla, no afecta la sesión."""
+        try:
+            await ws.send(json.dumps({
+                "type": "session.update",
+                "session": {
+                    "type": "realtime",
+                    "input_audio_transcription": {
+                        "model": "gpt-4o-transcribe",
+                        "language": "es",
+                        "prompt": "Conversación comercial en español rioplatense sobre software de gestión.",
+                    },
+                },
+            }))
+        except Exception as e:
+            print(f"[RT] No se pudo activar transcripción: {e}")
 
     async def _on_session_created(self, ws):
         await ws.send(json.dumps({
@@ -268,25 +417,137 @@ class RealtimeBridge:
 
         print(f"[TOOL] {name}({args})")
 
-        if name == "navigate_to_module":
-            result = await self._do_navigate(args.get("module", ""))
+        is_nav = (name == "navigate_to_module")
 
-        elif name == "demo_caja_fase1":
-            await self._ensure_playwright()
-            asyncio.create_task(self._run_caja_fase1())
-            result = "Buscando y agregando el producto en caja."
+        try:
+            if name == "navigate_to_module":
+                result = await self._do_navigate(args.get("module", ""))
 
-        elif name == "demo_caja_fase2":
-            await self._ensure_playwright()
-            asyncio.create_task(self._run_caja_fase2())
-            result = "Seleccionando método de pago y cerrando la venta."
+            elif name == "caja_buscar_producto":
+                await self._ensure_playwright()
+                product = args.get("product_name", "Huevos")
+                print(f"[CAJA] Buscando '{product}'...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._caja_step_buscar(product)
 
+            elif name == "caja_agregar_producto":
+                print("[CAJA] Agregando producto al ticket...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._caja_step_agregar()
+
+            elif name == "caja_seleccionar_pago":
+                method = args.get("method", "efectivo")
+                print(f"[CAJA] Seleccionando pago: {method}...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._caja_step_seleccionar(method)
+
+            elif name == "caja_cerrar_venta":
+                method = args.get("method", "presupuesto")
+                print(f"[CAJA] Cerrando venta con {method}...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._caja_step_cerrar(method)
+                await self._on_screenshot_end()
+
+            elif name == "demo_estadisticas":
+                print("[DEMO] Estadísticas de ventas...")
+                await self._ensure_playwright()
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._demo_estadisticas() if self._demo_estadisticas else "Demo de estadísticas no disponible."
+                await self._on_screenshot_end()
+
+            elif name == "demo_stock":
+                print("[DEMO] Existencias de stock...")
+                await self._ensure_playwright()
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._demo_stock() if self._demo_stock else "Demo de stock no disponible."
+                await self._on_screenshot_end()
+
+            elif name == "demo_clientes":
+                print("[DEMO] Formulario de clientes...")
+                await self._ensure_playwright()
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._demo_clientes() if self._demo_clientes else "Demo de clientes no disponible."
+                await self._on_screenshot_end()
+
+            elif name == "balanza_navegar":
+                print("[DEMO] Balanza: navegando...")
+                await self._ensure_playwright()
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._balanza_navegar() if self._balanza_navegar else "Pantalla de balanza cargada."
+
+            elif name == "balanza_agregar_producto":
+                operario_nombre = args.get("operario_nombre", "Balta")
+                operario_id     = args.get("operario_id", "1")
+                print(f"[DEMO] Balanza: agregando producto a {operario_nombre}...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._balanza_agregar_producto(operario_nombre, operario_id) if self._balanza_agregar_producto else f"Producto asignado a {operario_nombre}."
+
+            elif name == "balanza_mostrar_tickets":
+                print("[DEMO] Balanza: mostrando tickets pendientes...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._balanza_mostrar_tickets() if self._balanza_mostrar_tickets else "Tickets pendientes mostrados."
+
+            elif name == "balanza_ir_a_caja":
+                print("[DEMO] Balanza: navegando a caja...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._balanza_ir_a_caja() if self._balanza_ir_a_caja else "En sección de caja."
+
+            elif name == "balanza_abrir_cf":
+                print("[DEMO] Balanza: abriendo CF...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._balanza_abrir_cf() if self._balanza_abrir_cf else "CF abierto."
+
+            elif name == "balanza_cobrar_ticket":
+                print("[DEMO] Balanza: cobrando ticket y cerrando con F8...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._balanza_cobrar_ticket() if self._balanza_cobrar_ticket else "Ticket cobrado."
+                await self._on_screenshot_end()
+
+            elif name == "proveedores_nueva_compra":
+                importe = args.get("importe", "150000")
+                print(f"[DEMO] Proveedores: nueva compra (${importe})...")
+                await self._ensure_playwright()
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._proveedores_nueva_compra(importe) if self._proveedores_nueva_compra else "Compra registrada."
+
+            elif name == "proveedores_cargar_productos":
+                print("[DEMO] Proveedores: cargando productos...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._proveedores_cargar_productos() if self._proveedores_cargar_productos else "Productos cargados, stock actualizado."
+                await self._on_screenshot_end()
+
+            elif name == "produccion_crear_plantilla":
+                print("[DEMO] Producción: creando plantilla Milanesas...")
+                await self._ensure_playwright()
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._produccion_crear_plantilla() if self._produccion_crear_plantilla else "Plantilla creada."
+
+            elif name == "produccion_registrar":
+                print("[DEMO] Producción: registrando producción...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._produccion_registrar() if self._produccion_registrar else "Producción registrada."
+                await self._on_screenshot_end()
+
+            else:
+                result = f"Tool desconocida: {name}"
+
+        except Exception as e:
+            print(f"[TOOL] Error en {name}: {e}")
+            traceback.print_exc()
+            result = f"Error ejecutando {name}: {e}"
+
+        if is_nav:
+            await self._send_nav_result(ws, call_id, result)
         else:
-            result = f"Tool desconocida: {name}"
-
-        await self._send_tool_result(ws, call_id, result)
+            await self._send_tool_result(ws, call_id, result)
 
     async def _send_tool_result(self, ws, call_id: str, output: str):
+        # Clear any audio accumulated during tool execution, resume with short mute
+        self._mute_until = time.monotonic() + 1.5
+        try:
+            await ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
+        except Exception:
+            pass
         try:
             await ws.send(json.dumps({
                 "type": "conversation.item.create",
@@ -300,6 +561,29 @@ class RealtimeBridge:
         except Exception as e:
             print(f"[RT] Error enviando resultado de tool: {e}")
 
+    async def _send_nav_result(self, ws, call_id: str, output: str):
+        """Envía tool result de navigate_to_module SIN response.create — auto-continue lo dispara."""
+        self._mute_until = time.monotonic() + 1.5
+        try:
+            await ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
+        except Exception:
+            pass
+        try:
+            await ws.send(json.dumps({
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": output,
+                },
+            }))
+            # Sin response.create — el auto-continue lo dispara después del audio
+            if self._demo_started:
+                self._cancel_auto_continue()
+                self._auto_continue_task = asyncio.create_task(self._auto_continue())
+        except Exception as e:
+            print(f"[RT] Error enviando nav result: {e}")
+
     # ── Navegación ─────────────────────────────────────────────────────────────
 
     async def _do_navigate(self, module: str) -> str:
@@ -307,6 +591,7 @@ class RealtimeBridge:
         if not path:
             return f"Módulo '{module}' no encontrado."
 
+        self._demo_started = True
         print(f"[RT] Navegando a: {module} → {path}")
         await self._send_navigate(path)
 
@@ -314,11 +599,21 @@ class RealtimeBridge:
             await self._ensure_playwright()
             asyncio.create_task(self._run_acceso_with_signal())
 
-        return f"Navegando a {module}."
+        return (
+            f"Módulo {module} cargado en pantalla. "
+            f"Describí en 1-2 frases lo que los usuarios ven ahora. "
+            f"STOP — no llamés ninguna tool ni navigate_to_module en esta respuesta. "
+            f"Terminá de hablar y el sistema te dará el turno automáticamente para continuar."
+        )
 
     async def _run_acceso_with_signal(self):
         ok = await self._run_acceso_demo()
         print(f"[RT] ACCESO demo {'✓' if ok else '✗'}")
+
+    async def _delayed_task(self, coro_fn, delay: float):
+        """Espera `delay` segundos y luego ejecuta coro_fn() — da tiempo a que Malena hable primero."""
+        await asyncio.sleep(delay)
+        await coro_fn()
 
     # ── Playwright lifecycle ───────────────────────────────────────────────────
 
