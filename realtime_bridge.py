@@ -465,7 +465,6 @@ class RealtimeBridge:
                 await self._ensure_playwright()
                 await self._wait_for_audio_done(timeout=20.0)
                 result = await self._demo_clientes() if self._demo_clientes else "Demo de clientes no disponible."
-                await self._on_screenshot_end()
 
             elif name == "balanza_navegar":
                 print("[DEMO] Balanza: navegando...")
