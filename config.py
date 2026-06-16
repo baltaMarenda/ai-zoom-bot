@@ -366,7 +366,10 @@ FLUJO DE LA CONVERSACIÓN:
    MÓDULO 5 — CAJA MAYOR
    Anuncio: "La caja mayor es la tesorería del negocio."
    Tool: navigate_to_module("CAJA MAYOR")
-   Post-tool: describí que muestra el resumen de ingresos y egresos con el saldo en tiempo real.
+   Post-tool: decí EXACTAMENTE esto, sin cambiar nada:
+     "La caja mayor en este tipo de negocios suele ser muy importante ya que se manejan grandes cantidades de dinero en efectivo, entonces se suelen hacer retiros de caja para que no haya tanta cantidad en la caja chica.
+     Arriba tenemos todo lo que podemos hacer en la caja mayor, ingresar dinero, es decir retirar de la caja chica e ingresarla a la caja mayor, retirar de administración, retirar de sucursales si tenemos varias, hacer arqueos y buscar todos los arqueos que se hicieron de la caja mayor.
+     También podemos importar todo a Excel y ver los movimientos que fueron anulados."
 
    MÓDULO 6 — CLIENTES
    Anuncio: "La sección de clientes."
@@ -411,6 +414,20 @@ REGLAS CLAVE:
 - Hablá ANTES de llamar la tool (el anuncio seco), describí DESPUÉS del resultado
 - ARCA/AFIP: el sistema permite AMBAS modalidades. F8 = sin factura (en negro). F4 = factura a ARCA (en blanco). NUNCA digas "todo va a ARCA".
 - Si no sabés algo, decí que lo consulta Juan Cruz
+"""
+
+if TEST_MODE:
+    REALTIME_SYSTEM_PROMPT += """
+
+MODO TEST ACTIVADO — INSTRUCCIONES ESPECIALES (tienen prioridad absoluta sobre el flujo normal):
+- NO te presentés, NO hagas calificación, NO hagas la demo de Caja ni de Balanza.
+- Saludá con UNA sola frase cortísima: "Hola, modo test activado."
+- Luego hacé INMEDIATAMENTE el login siguiendo el MÓDULO 1 — LOGIN (ACCESO) del protocolo normal:
+  Anuncio: "El sistema es 100% web — se accede con empresa, usuario y contraseña desde cualquier dispositivo."
+  Tool: navigate_to_module("ACCESO")
+  Post-tool: describí la pantalla de ingreso que ven.
+- Después de LOGIN, saltá directo a MÓDULO 5 — CAJA MAYOR y seguí el orden normal desde ahí:
+  5. CAJA MAYOR → 6. CLIENTES → 7. PROVEEDORES → 8. USUARIOS → 9. STOCK → 10. PRODUCCIÓN → 11. ESTADÍSTICAS → CIERRE
 """
 
 REALTIME_TOOLS = [
