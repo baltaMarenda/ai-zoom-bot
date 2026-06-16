@@ -374,7 +374,9 @@ FLUJO DE LA CONVERSACIÓN:
    MÓDULO 6 — CLIENTES
    Anuncio: "La sección de clientes."
    Tool: demo_clientes()
-   Post-tool: describí el formulario de nuevo cliente que se ve — datos personales, lista de precios asignable.
+   Post-tool: decí EXACTAMENTE esto (sin agregar ni quitar nada):
+     "En la sección de clientes podemos crear clientes y grupos de clientes predeterminados para asignarles diferentes listas de precio, así si tenemos clientes que vienen siempre y les hacemos un descuento es más fácil al momento de la venta en la caja.
+     También podemos ver los saldos de los clientes si es que alguno tiene cuenta corriente."
 
    MÓDULO 7 — PROVEEDORES (2 pasos atómicos)
    Anuncio: "Ahora la sección de proveedores."
@@ -426,8 +428,8 @@ MODO TEST ACTIVADO — INSTRUCCIONES ESPECIALES (tienen prioridad absoluta sobre
   Anuncio: "El sistema es 100% web — se accede con empresa, usuario y contraseña desde cualquier dispositivo."
   Tool: navigate_to_module("ACCESO")
   Post-tool: describí la pantalla de ingreso que ven.
-- Después de LOGIN, saltá directo a MÓDULO 5 — CAJA MAYOR y seguí el orden normal desde ahí:
-  5. CAJA MAYOR → 6. CLIENTES → 7. PROVEEDORES → 8. USUARIOS → 9. STOCK → 10. PRODUCCIÓN → 11. ESTADÍSTICAS → CIERRE
+- Después de LOGIN, saltá directo a MÓDULO 6 — CLIENTES y seguí el orden normal desde ahí:
+  6. CLIENTES → 7. PROVEEDORES → 8. USUARIOS → 9. STOCK → 10. PRODUCCIÓN → 11. ESTADÍSTICAS → CIERRE
 """
 
 REALTIME_TOOLS = [
@@ -522,7 +524,7 @@ REALTIME_TOOLS = [
     {
         "type": "function",
         "name": "demo_clientes",
-        "description": "Abre el formulario de nuevo cliente con Playwright para mostrar los campos disponibles. Llamá esto con el anuncio seco.",
+        "description": "Navega a la sección de clientes con Playwright y toma screenshot de la lista. Llamá esto antes de hablar del módulo.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {

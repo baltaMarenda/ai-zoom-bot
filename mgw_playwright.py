@@ -2681,9 +2681,30 @@ async def run_demo_stock(on_screenshot=None) -> str:
 
 
 async def run_demo_clientes(on_screenshot=None) -> str:
-    """Abre formulario de nuevo cliente con Playwright (para Realtime API)."""
-    ok = await _demo_clientes_abrir_formulario(on_screenshot=on_screenshot)
-    return "Formulario de nuevo cliente abierto en pantalla." if ok else "Error al abrir formulario de clientes."
+    """Navega a clientes.php y toma screenshot de la lista (sin abrir formulario)."""
+    global _page
+    if not _page:
+        return "Demo de clientes no disponible (Playwright no iniciado)."
+    try:
+        base = MGW_URL.rstrip("/")
+        # Si el login aún está en progreso, esperar a home.php antes de navegar
+        if "index.php" in _page.url:
+            print("[PW] [CLIENTES] Esperando que el login complete...")
+            try:
+                await _page.wait_for_url("**/home.php", timeout=30000)
+                await asyncio.sleep(1.0)
+            except Exception:
+                pass
+        await _page.goto(f"{base}/clientes.php", wait_until="domcontentloaded", timeout=20000)
+        await asyncio.sleep(1.2)
+        if on_screenshot:
+            b64 = await _screenshot_b64()
+            if b64:
+                await on_screenshot(b64)
+        return "Lista de clientes visible en pantalla."
+    except Exception as e:
+        print(f"[PW] [CLIENTES] Error: {e}")
+        return "Error al navegar a clientes."
 
 
 # ── Steps atómicos — Balanza ──────────────────────────────────────────────────
