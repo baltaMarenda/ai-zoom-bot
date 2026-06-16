@@ -48,7 +48,6 @@ class RealtimeBridge:
         acceso_login_done,   # asyncio.Event
         fase2_press_f8,      # asyncio.Event
         reset_caja_fases,        # fn()
-        conv_state,              # ConversationState
         agent_audio_done_event      = None,   # asyncio.Event — set por agent.html cuando termina de reproducir
         demo_estadisticas           = None,   # async fn() → str
         demo_stock                  = None,   # async fn() → str
@@ -82,7 +81,6 @@ class RealtimeBridge:
         self._acceso_login_done  = acceso_login_done
         self._fase2_press_f8     = fase2_press_f8
         self._reset_caja_fases   = reset_caja_fases
-        self.conv_state          = conv_state
         self._agent_audio_done           = agent_audio_done_event
         self._demo_estadisticas          = demo_estadisticas
         self._demo_stock                 = demo_stock
