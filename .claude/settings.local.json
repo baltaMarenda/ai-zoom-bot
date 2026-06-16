@@ -5,7 +5,10 @@
       "Bash(npm i *)",
       "Bash(claude *)",
       "Bash(npm update *)",
-      "Skill(claude-api)"
+      "Skill(claude-api)",
+      "Bash(cat)",
+      "Bash(chmod +x /tmp/audit.sh)",
+      "Bash(/tmp/audit.sh)"
     ]
   }
 }

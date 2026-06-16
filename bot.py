@@ -10,7 +10,6 @@ import json
 import traceback
 
 from config import DEMO_MODULE_PATHS
-from state import ConversationState, Stage
 from mgw_playwright import (
     pw_start, pw_stop,
     demo_acceso_login,
@@ -51,9 +50,6 @@ def on_agent_audio_done():
     """Llamado desde main.py cuando la webpage termina de reproducir audio."""
     _audio_done_event.set()
 
-
-# ── Estado de conversación ────────────────────────────────────────────────────
-conv_state = ConversationState()
 
 # ── Sesión activa (evita puentes superpuestos en reconexión de Recall) ─────────
 _active_bridge = None
@@ -243,7 +239,7 @@ async def _produccion_step_registrar() -> str:
 # ── WebSocket handler ─────────────────────────────────────────────────────────
 
 async def handle_recall_audio(websocket):
-    global conv_state, _fase2_task_created, _active_bridge
+    global _fase2_task_created, _active_bridge
     print("[WS] Recall.ai conectado ✓")
 
     # Cerrar sesión anterior si Recall reconectó sin que la vieja terminara
@@ -256,7 +252,6 @@ async def handle_recall_audio(websocket):
         _active_bridge = None
 
     # Reset para nueva sesión
-    conv_state = ConversationState()
     _fase2_task_created = False
     reset_caja_fases()
     _acceso_login_done.clear()
@@ -289,7 +284,6 @@ async def handle_recall_audio(websocket):
         acceso_login_done      = _acceso_login_done,
         fase2_press_f8         = _fase2_press_f8,
         reset_caja_fases       = reset_caja_fases,
-        conv_state             = conv_state,
         agent_audio_done_event = _audio_done_event,
         demo_estadisticas           = _run_estadisticas_demo,
         demo_stock                  = _run_stock_demo,

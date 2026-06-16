@@ -2710,6 +2710,14 @@ async def balanza_step_agregar_producto(operario_nombre: str, operario_id: str, 
     if _page is None:
         return "Error: browser no iniciado"
 
+    # Si el LLM saltó balanza_navegar, asegurarse de estar en balanza.php
+    if "balanza" not in (_page.url or ""):
+        base = MGW_URL.rstrip("/")
+        print("[PW] [BALANZA-STEP] Auto-navegando a balanza.php (página actual no es balanza)...")
+        await _page.goto(f"{base}/balanza.php", wait_until="domcontentloaded", timeout=20000)
+        await asyncio.sleep(2.0)
+        await _snap(on_screenshot, 0.0)
+
     # Buscar Vacío
     for sel in ['input[name="producto"]', '#producto', 'input.ui-autocomplete-input', 'input[placeholder*="roducto"]']:
         try:
@@ -2779,6 +2787,14 @@ async def balanza_step_mostrar_tickets(on_screenshot=None) -> str:
     """Click en el botón Tickets para mostrar los tickets pendientes de la balanza."""
     if _page is None:
         return "Error: browser no iniciado"
+
+    if "balanza" not in (_page.url or ""):
+        base = MGW_URL.rstrip("/")
+        print("[PW] [BALANZA-STEP] Auto-navegando a balanza.php (mostrar_tickets en página incorrecta)...")
+        await _page.goto(f"{base}/balanza.php", wait_until="domcontentloaded", timeout=20000)
+        await asyncio.sleep(2.0)
+        await _snap(on_screenshot, 0.0)
+
     await _page.evaluate("if(typeof tickets === 'function') tickets();")
     await asyncio.sleep(1.5)
     await _snap(on_screenshot, 0.0)
@@ -2839,6 +2855,13 @@ async def balanza_step_abrir_cf(on_screenshot=None) -> str:
     if _page is None:
         return "Error: browser no iniciado"
 
+    if "caja" not in (_page.url or ""):
+        base = MGW_URL.rstrip("/")
+        print("[PW] [BALANZA-STEP] Auto-navegando a caja.php (abrir_cf en página incorrecta)...")
+        await _page.goto(f"{base}/caja.php", wait_until="domcontentloaded", timeout=20000)
+        await asyncio.sleep(3.0)
+        await _snap(on_screenshot, 0.0)
+
     # Esperar botón CF
     try:
         await _page.wait_for_selector(
@@ -2869,29 +2892,33 @@ async def balanza_step_abrir_cf(on_screenshot=None) -> str:
     })()""")
     await asyncio.sleep(2.0)
     await _snap(on_screenshot, 0.0)
+
+    # Click verde (ingresar_ticket_balanza) — atómico para evitar que un barge-in
+    # interrumpa entre el panel CF y la apertura de la ventana de caja.
+    verde_clicked = await _page.evaluate("""(() => {
+        const btn = [...document.querySelectorAll('[onclick]')].find(e =>
+            (e.getAttribute('onclick') || '').includes('ingresar_ticket_balanza')
+        );
+        if (btn) { btn.click(); return true; }
+        return false;
+    })()""")
+    print(f"[PW] [BALANZA-STEP] botón verde {'✓' if verde_clicked else '✗ (no encontrado)'}")
+    await asyncio.sleep(3.0)
+    await _snap(on_screenshot, 0.0)
+
     print("[PW] [BALANZA-STEP] abrir_cf ✓")
     return (
-        "CF presionado. Panel de tickets pendientes abierto. Lupa y botón verde visibles. "
-        "Confirmá en 1 frase que se ve el panel CF. "
-        "⚠️ SIGUIENTE OBLIGATORIO: llamá balanza_cobrar_ticket AHORA. "
+        "CF presionado, detalle del ticket mostrado, botón verde presionado → ventana de caja abierta. "
+        "Narrá en 1 frase que se abrió la ventana de caja con el ticket de balanza. "
+        "⚠️ SIGUIENTE OBLIGATORIO: llamá balanza_cobrar_ticket AHORA para ingresar el pago. "
         "No describas lo que harás — ejecutá la tool primero."
     )
 
 
 async def balanza_step_cobrar_ticket(on_screenshot=None) -> str:
-    """Presiona el botón verde, llena Paga con 20000 y cierra con Presupuestar F8."""
+    """Llena Paga con 20000 y cierra con Presupuestar F8 (ventana de caja ya abierta por abrir_cf)."""
     if _page is None:
         return "Error: browser no iniciado"
-
-    # Click verde (ingresar ticket — abre ventana de caja)
-    await _page.evaluate("""(() => {
-        const btn = [...document.querySelectorAll('[onclick]')].find(e =>
-            (e.getAttribute('onclick') || '').includes('ingresar_ticket_balanza')
-        );
-        if (btn) btn.click();
-    })()""")
-    await asyncio.sleep(3.0)
-    await _snap(on_screenshot, 0.0)
 
     # Llenar "Paga con" con 20000
     for pago_sel in ['#paga_con', 'input[id="paga_con"]', '#pago', 'input[name="pago"]']:
@@ -3051,6 +3078,19 @@ async def proveedores_step_cargar_productos(on_screenshot=None) -> str:
             except Exception:
                 continue
         return False
+
+    # Si el LLM saltó proveedores_nueva_compra o la página drifteó, volver a compras.php
+    url = _page.url or ""
+    if "compra" not in url and "proveedor" not in url:
+        base = MGW_URL.rstrip("/")
+        print("[PW] [PROV-STEP] Auto-navegando a compras.php (cargar_productos en página incorrecta)...")
+        await _page.goto(f"{base}/compras.php", wait_until="domcontentloaded", timeout=20000)
+        try:
+            await _page.wait_for_selector('tbody tr td', timeout=12000)
+        except Exception:
+            pass
+        await asyncio.sleep(1.0)
+        await snap()
 
     # Click carrito (Cargar productos) — primera fila
     clicked = await click_first([
