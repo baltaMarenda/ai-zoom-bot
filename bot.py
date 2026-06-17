@@ -21,7 +21,9 @@ from mgw_playwright import (
     balanza_step_navegar, balanza_step_agregar_producto,
     balanza_step_mostrar_tickets, balanza_step_ir_a_caja,
     balanza_step_abrir_cf, balanza_step_cobrar_ticket,
-    proveedores_step_nueva_compra, proveedores_step_cargar_productos,
+    proveedores_abrir_historial, proveedores_abrir_modal_compra,
+    proveedores_registrar_compra, proveedores_abrir_carrito,
+    proveedores_cargar_producto, proveedores_finalizar_detalle,
     produccion_step_crear_plantilla, produccion_step_registrar,
 )
 
@@ -223,11 +225,23 @@ async def _balanza_step_abrir_cf() -> str:
 async def _balanza_step_cobrar_ticket() -> str:
     return await balanza_step_cobrar_ticket(on_screenshot=_on_screenshot)
 
-async def _proveedores_step_nueva(importe: str = "150000") -> str:
-    return await proveedores_step_nueva_compra(importe, on_screenshot=_on_screenshot)
+async def _proveedores_abrir_historial() -> str:
+    return await proveedores_abrir_historial(on_screenshot=_on_screenshot)
 
-async def _proveedores_step_cargar() -> str:
-    return await proveedores_step_cargar_productos(on_screenshot=_on_screenshot)
+async def _proveedores_abrir_modal_compra() -> str:
+    return await proveedores_abrir_modal_compra(on_screenshot=_on_screenshot)
+
+async def _proveedores_registrar_compra() -> str:
+    return await proveedores_registrar_compra(on_screenshot=_on_screenshot)
+
+async def _proveedores_abrir_carrito() -> str:
+    return await proveedores_abrir_carrito(on_screenshot=_on_screenshot)
+
+async def _proveedores_cargar_producto() -> str:
+    return await proveedores_cargar_producto(on_screenshot=_on_screenshot)
+
+async def _proveedores_finalizar_detalle() -> str:
+    return await proveedores_finalizar_detalle(on_screenshot=_on_screenshot)
 
 async def _produccion_step_plantilla() -> str:
     return await produccion_step_crear_plantilla(on_screenshot=_on_screenshot)
@@ -294,8 +308,12 @@ async def handle_recall_audio(websocket):
         balanza_ir_a_caja           = _balanza_step_ir_a_caja,
         balanza_abrir_cf            = _balanza_step_abrir_cf,
         balanza_cobrar_ticket       = _balanza_step_cobrar_ticket,
-        proveedores_nueva_compra    = _proveedores_step_nueva,
-        proveedores_cargar_productos = _proveedores_step_cargar,
+        proveedores_abrir_historial      = _proveedores_abrir_historial,
+        proveedores_abrir_modal_compra   = _proveedores_abrir_modal_compra,
+        proveedores_registrar_compra     = _proveedores_registrar_compra,
+        proveedores_abrir_carrito        = _proveedores_abrir_carrito,
+        proveedores_cargar_producto      = _proveedores_cargar_producto,
+        proveedores_finalizar_detalle    = _proveedores_finalizar_detalle,
         produccion_crear_plantilla  = _produccion_step_plantilla,
         produccion_registrar        = _produccion_step_registrar,
     )

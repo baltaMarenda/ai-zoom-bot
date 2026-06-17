@@ -2979,10 +2979,10 @@ async def balanza_step_cobrar_ticket(on_screenshot=None) -> str:
     )
 
 
-# ── Steps atómicos — Proveedores ─────────────────────────────────────────────
+# ── Steps atómicos — Proveedores (6 pasos) ───────────────────────────────────
 
-async def proveedores_step_nueva_compra(importe: str = "150000", on_screenshot=None) -> str:
-    """Navega a compras, abre historial del primer proveedor y crea una compra con el importe dado."""
+async def proveedores_abrir_historial(on_screenshot=None) -> str:
+    """Paso 1/6: navega a compras.php y abre el historial del primer proveedor."""
     if _page is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
@@ -2996,14 +2996,13 @@ async def proveedores_step_nueva_compra(importe: str = "150000", on_screenshot=N
                 el = _page.locator(selector).first
                 if await el.count() > 0 and await el.is_visible():
                     await el.click()
-                    print(f"[PW] [PROV-STEP] {label} via '{selector}' ✓")
+                    print(f"[PW] [PROV] {label} via '{selector}' ✓")
                     return True
             except Exception:
                 continue
         return False
 
-    # Navigate
-    print("[PW] [PROV-STEP] Navegando a compras.php...")
+    print("[PW] [PROV] Navegando a compras.php...")
     await _page.goto(f"{base}/compras.php", wait_until="domcontentloaded", timeout=20000)
     try:
         await _page.wait_for_selector('tbody tr td', timeout=12000)
@@ -3012,7 +3011,6 @@ async def proveedores_step_nueva_compra(importe: str = "150000", on_screenshot=N
     await asyncio.sleep(1.0)
     await snap()
 
-    # Click Editar (primer proveedor)
     clicked = await click_first([
         'tbody tr:first-child [data-original-title="Editar"]',
         '[data-original-title="Editar"]',
@@ -3020,68 +3018,18 @@ async def proveedores_step_nueva_compra(importe: str = "150000", on_screenshot=N
     ], "Editar proveedor")
     if not clicked:
         await _page.evaluate("""() => {
-            const all = [...document.querySelectorAll('[data-original-title], [title]')];
-            const btn = all.find(e => (e.getAttribute('data-original-title') || e.getAttribute('title') || '').toLowerCase() === 'editar');
+            const btn = [...document.querySelectorAll('[data-original-title], [title]')]
+                .find(e => (e.getAttribute('data-original-title') || e.getAttribute('title') || '').toLowerCase() === 'editar');
             if (btn) btn.click();
         }""")
     await asyncio.sleep(3.0)
     await snap()
-
-    # Click + Compra
-    clicked = await click_first([
-        '[title="Nueva Compra"]', 'a:has-text("+ Compra")', 'button:has-text("+ Compra")',
-        '[onclick*="nueva_compra"]', '[onclick*="movimientos_nuevo_compra"]',
-    ], "+ Compra")
-    if not clicked:
-        await _page.evaluate("""
-            const btn = [...document.querySelectorAll('a, button, [onclick], [title]')].find(e => {
-                const t = (e.textContent || '').trim().toLowerCase();
-                const title = (e.getAttribute('title') || '').toLowerCase();
-                return t.includes('+ compra') || title.includes('nueva compra');
-            });
-            if (btn) btn.click();
-        """)
-    await asyncio.sleep(3.0)
-    await snap()
-
-    # Llenar importe
-    for sel in ['input[name="importe"]', 'input[name="total"]', 'input[name="monto"]', 'input[placeholder*="mporte"]']:
-        try:
-            el = _page.locator(sel).first
-            if await el.count() > 0 and await el.is_visible():
-                await el.click()
-                await el.fill("")
-                await el.type(importe, delay=80)
-                print(f"[PW] [PROV-STEP] Importe={importe} via '{sel}' ✓")
-                break
-        except Exception:
-            continue
-    await asyncio.sleep(0.5)
-    await snap()
-
-    # Click Finalizar compra
-    clicked = await click_first([
-        '#ingresar_compra_boton', 'button[name="ingresar_compra_boton"]',
-        'button:has-text("Finalizar")', '[onclick*="ingresar_compra"]',
-    ], "Finalizar compra")
-    if not clicked:
-        await _page.evaluate("""
-            const btn = document.getElementById('ingresar_compra_boton')
-                || [...document.querySelectorAll('button')].find(e => e.textContent.trim().toLowerCase().includes('finalizar'));
-            if (btn) btn.click();
-        """)
-    await asyncio.sleep(3.0)
-    await snap()
-
-    print("[PW] [PROV-STEP] proveedores_step_nueva_compra ✓")
-    return (
-        f"Compra de ${importe} registrada como Impaga en el historial del proveedor. "
-        "Para actualizar el stock hay que cargar los productos de la compra."
-    )
+    print("[PW] [PROV] proveedores_abrir_historial ✓")
+    return "Historial del proveedor abierto."
 
 
-async def proveedores_step_cargar_productos(on_screenshot=None) -> str:
-    """Abre el carrito de la compra recién creada, agrega Vacío 10 kg y finaliza los detalles."""
+async def proveedores_abrir_modal_compra(on_screenshot=None) -> str:
+    """Paso 2/6: abre el modal de nueva compra clickeando '+ Compra'."""
     if _page is None:
         return "Error: browser no iniciado"
 
@@ -3094,54 +3042,168 @@ async def proveedores_step_cargar_productos(on_screenshot=None) -> str:
                 el = _page.locator(selector).first
                 if await el.count() > 0 and await el.is_visible():
                     await el.click()
-                    print(f"[PW] [PROV-STEP] {label} via '{selector}' ✓")
+                    print(f"[PW] [PROV] {label} via '{selector}' ✓")
                     return True
             except Exception:
                 continue
         return False
 
-    # Si el LLM saltó proveedores_nueva_compra o la página drifteó, volver a compras.php
-    url = _page.url or ""
-    if "compra" not in url and "proveedor" not in url:
-        base = MGW_URL.rstrip("/")
-        print("[PW] [PROV-STEP] Auto-navegando a compras.php (cargar_productos en página incorrecta)...")
-        await _page.goto(f"{base}/compras.php", wait_until="domcontentloaded", timeout=20000)
-        try:
-            await _page.wait_for_selector('tbody tr td', timeout=12000)
-        except Exception:
-            pass
-        await asyncio.sleep(1.0)
-        await snap()
-
-    # Click carrito (Cargar productos) — primera fila
     clicked = await click_first([
-        'tbody tr:first-child [data-original-title="Cargar productos"]',
-        '[data-original-title="Cargar productos"]',
-        '[title="Cargar productos"]',
-        '[onclick*="compra_detalles"]', '[onclick*="detalle_compra"]',
-    ], "Cargar productos (carrito)")
+        '[data-original-title="Nueva Compra"]',
+        '[title="Nueva Compra"]',
+        'a:has-text("+ Compra")',
+        'button:has-text("+ Compra")',
+        '[onclick*="nuevo_compra"]',
+        '[onclick*="nueva_compra"]',
+    ], "+ Compra")
     if not clicked:
         await _page.evaluate("""() => {
-            const all = [...document.querySelectorAll('[data-original-title], [title], [onclick]')];
-            const btn = all.find(e => {
-                const dt = (e.getAttribute('data-original-title') || e.getAttribute('title') || '').toLowerCase();
-                const oc = (e.getAttribute('onclick') || '').toLowerCase();
-                return dt.includes('cargar') || oc.includes('detalle') || oc.includes('carrito');
+            const btn = [...document.querySelectorAll('a, button, [onclick], [title]')].find(e => {
+                const t = (e.textContent || '').trim().toLowerCase();
+                const title = (e.getAttribute('title') || e.getAttribute('data-original-title') || '').toLowerCase();
+                return t.includes('+ compra') || title.includes('nueva compra');
             });
             if (btn) btn.click();
         }""")
     await asyncio.sleep(3.0)
     await snap()
+    print("[PW] [PROV] proveedores_abrir_modal_compra ✓")
+    return "Modal de nueva compra abierto."
 
-    # Type "Vacío"
-    for sel in ['input[name="producto"]', '#producto', 'input.ui-autocomplete-input', 'input[placeholder*="roducto"]']:
+
+async def proveedores_registrar_compra(on_screenshot=None) -> str:
+    """Paso 3/6: llena numero=1, importe=100000 y finaliza la compra."""
+    if _page is None:
+        return "Error: browser no iniciado"
+
+    async def snap(delay=0.0):
+        await _snap(on_screenshot, delay)
+
+    async def click_first(selectors, label):
+        for selector in selectors:
+            try:
+                el = _page.locator(selector).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    print(f"[PW] [PROV] {label} via '{selector}' ✓")
+                    return True
+            except Exception:
+                continue
+        return False
+
+    for sel in ['input[name="numero"]', '#numero']:
+        try:
+            el = _page.locator(sel).first
+            if await el.count() > 0 and await el.is_visible():
+                await el.click()
+                await el.fill("1")
+                print(f"[PW] [PROV] numero=1 via '{sel}' ✓")
+                break
+        except Exception:
+            continue
+
+    for sel in ['#importe_id_nuevo_compra', 'input[name="importe"]', 'input[name="total"]']:
+        try:
+            el = _page.locator(sel).first
+            if await el.count() > 0 and await el.is_visible():
+                await el.click()
+                await el.fill("100000")
+                print(f"[PW] [PROV] importe=100000 via '{sel}' ✓")
+                break
+        except Exception:
+            continue
+    await asyncio.sleep(0.5)
+    await snap()
+
+    clicked = await click_first([
+        '#ingresar_compra_boton',
+        'button[name="ingresar_compra_boton"]',
+        'button:has-text("Finalizar")',
+    ], "Finalizar compra")
+    if not clicked:
+        await _page.evaluate("""() => {
+            const btn = document.getElementById('ingresar_compra_boton')
+                || [...document.querySelectorAll('button')].find(e => e.textContent.trim().toLowerCase().includes('finalizar'));
+            if (btn) btn.click();
+        }""")
+    await asyncio.sleep(3.0)
+    await snap()
+    print("[PW] [PROV] proveedores_registrar_compra ✓")
+    return "Compra de $100.000 registrada como Impaga."
+
+
+async def proveedores_abrir_carrito(on_screenshot=None) -> str:
+    """Paso 4/6: abre el carrito (detalle) de la compra recién registrada."""
+    if _page is None:
+        return "Error: browser no iniciado"
+
+    async def snap(delay=0.0):
+        await _snap(on_screenshot, delay)
+
+    async def click_first(selectors, label):
+        for selector in selectors:
+            try:
+                el = _page.locator(selector).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    print(f"[PW] [PROV] {label} via '{selector}' ✓")
+                    return True
+            except Exception:
+                continue
+        return False
+
+    clicked = await click_first([
+        'tbody tr:first-child a:has(.clip-cart)',
+        'a:has(.clip-cart)',
+        'tbody tr:first-child [data-original-title="Cargar productos"]',
+        '[data-original-title="Cargar productos"]',
+        '[onclick*="compra_detalles"]',
+        '[onclick*="detalle_compra"]',
+    ], "Carrito (detalle compra)")
+    if not clicked:
+        await _page.evaluate("""() => {
+            const btn = [...document.querySelectorAll('[data-original-title], [title], [onclick], a')].find(e => {
+                const dt = (e.getAttribute('data-original-title') || e.getAttribute('title') || '').toLowerCase();
+                const oc = (e.getAttribute('onclick') || '').toLowerCase();
+                const hasCart = e.querySelector && !!e.querySelector('.clip-cart');
+                return dt.includes('cargar') || oc.includes('detalle') || oc.includes('carrito') || hasCart;
+            });
+            if (btn) btn.click();
+        }""")
+    await asyncio.sleep(3.0)
+    await snap()
+    print("[PW] [PROV] proveedores_abrir_carrito ✓")
+    return "Detalle de compra abierto."
+
+
+async def proveedores_cargar_producto(on_screenshot=None) -> str:
+    """Paso 5/6: ingresa Asado, $10000, 10 kg y presiona Agregar."""
+    if _page is None:
+        return "Error: browser no iniciado"
+
+    async def snap(delay=0.0):
+        await _snap(on_screenshot, delay)
+
+    async def click_first(selectors, label):
+        for selector in selectors:
+            try:
+                el = _page.locator(selector).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    print(f"[PW] [PROV] {label} via '{selector}' ✓")
+                    return True
+            except Exception:
+                continue
+        return False
+
+    for sel in ['input[name="producto"]', '#producto', 'input.ui-autocomplete-input']:
         try:
             el = _page.locator(sel).first
             if await el.count() > 0 and await el.is_visible():
                 await el.click()
                 await el.fill("")
-                await el.type("Vacío", delay=150)
-                print(f"[PW] [PROV-STEP] 'Vacío' via '{sel}' ✓")
+                await el.type("Asado", delay=150)
+                print(f"[PW] [PROV] producto=Asado via '{sel}' ✓")
                 break
         except Exception:
             continue
@@ -3153,14 +3215,25 @@ async def proveedores_step_cargar_productos(on_screenshot=None) -> str:
         pass
     await asyncio.sleep(0.5)
 
-    # Set peso 10 kg
-    for sel in ['input[name="peso"]', '#peso', 'input[name="kilos"]', 'input[placeholder*="eso"]']:
+    for sel in ['input[name="precio"]', '#precio']:
+        try:
+            el = _page.locator(sel).first
+            if await el.count() > 0 and await el.is_visible():
+                await el.click()
+                await el.fill("10000")
+                print(f"[PW] [PROV] precio=10000 via '{sel}' ✓")
+                break
+        except Exception:
+            continue
+    await asyncio.sleep(0.3)
+
+    for sel in ['input[name="peso"]', '#peso']:
         try:
             el = _page.locator(sel).first
             if await el.count() > 0 and await el.is_visible():
                 await el.click()
                 await el.fill("10")
-                print(f"[PW] [PROV-STEP] Peso 10kg via '{sel}' ✓")
+                print(f"[PW] [PROV] peso=10 via '{sel}' ✓")
                 break
         except Exception:
             continue
@@ -3169,43 +3242,64 @@ async def proveedores_step_cargar_productos(on_screenshot=None) -> str:
 
     # Click Agregar
     clicked = await click_first([
-        '[onclick*="agregar_producto_compra"]', 'button:has-text("Agregar")', '#btnAgregar',
-    ], "Agregar producto compra")
+        'button[onclick*="agregar_producto_compra"]',
+        'button:has-text("Agregar")',
+        'button.btn-primary:has-text("Agregar")',
+    ], "Agregar producto")
     if not clicked:
-        await _page.evaluate("""
-            const btn = [...document.querySelectorAll('button, a, [onclick]')].find(e => {
+        await _page.evaluate("""() => {
+            const btn = [...document.querySelectorAll('button')].find(e => {
                 const oc = (e.getAttribute('onclick') || '');
                 const t = (e.textContent || '').trim().toLowerCase();
                 return oc.includes('agregar_producto_compra') || t === 'agregar';
             });
             if (btn) btn.click();
-        """)
+        }""")
     await asyncio.sleep(2.0)
     await snap()
+    print("[PW] [PROV] proveedores_cargar_producto ✓")
+    return "Asado, AR$10.000, 10 kg ingresados y agregados a la compra."
 
-    # Finalizar detalles
+
+async def proveedores_finalizar_detalle(on_screenshot=None) -> str:
+    """Paso 6/6: finaliza los detalles de la compra."""
+    if _page is None:
+        return "Error: browser no iniciado"
+
+    async def snap(delay=0.0):
+        await _snap(on_screenshot, delay)
+
+    async def click_first(selectors, label):
+        for selector in selectors:
+            try:
+                el = _page.locator(selector).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    print(f"[PW] [PROV] {label} via '{selector}' ✓")
+                    return True
+            except Exception:
+                continue
+        return False
+
     clicked = await click_first([
         '[onclick*="finalizar_compra_detalles"]',
-        'a:has-text("Finalizar detalles")', 'button:has-text("Finalizar detalles")',
+        'a:has-text("Finalizar detalles")',
+        'button:has-text("Finalizar detalles")',
+        'a.btn-success:has-text("Finalizar")',
     ], "Finalizar detalles compra")
     if not clicked:
-        await _page.evaluate("""
+        await _page.evaluate("""() => {
             const btn = [...document.querySelectorAll('[onclick], a, button')].find(e => {
                 const oc = (e.getAttribute('onclick') || '').toLowerCase();
                 const t = (e.textContent || '').toLowerCase();
                 return oc.includes('finalizar_compra_detalles') || t.includes('finalizar detalle');
             });
             if (btn) btn.click();
-        """)
+        }""")
     await asyncio.sleep(3.0)
     await snap()
-
-    print("[PW] [PROV-STEP] proveedores_step_cargar_productos ✓")
-    return (
-        "10 kg de Vacío cargados a la compra. "
-        "El stock se actualizó automáticamente. "
-        "La compra figura como Impaga — cuando se pague se marca con un clic desde la lista."
-    )
+    print("[PW] [PROV] proveedores_finalizar_detalle ✓")
+    return "Detalle de compra finalizado. Stock actualizado automáticamente."
 
 
 # ── Steps atómicos — Producción ───────────────────────────────────────────────

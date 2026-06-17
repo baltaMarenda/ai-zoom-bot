@@ -58,8 +58,12 @@ class RealtimeBridge:
         balanza_ir_a_caja           = None,   # async fn() → str
         balanza_abrir_cf            = None,   # async fn() → str
         balanza_cobrar_ticket       = None,   # async fn() → str
-        proveedores_nueva_compra    = None,   # async fn(importe) → str
-        proveedores_cargar_productos = None,  # async fn() → str
+        proveedores_abrir_historial      = None,   # async fn() → str
+        proveedores_abrir_modal_compra   = None,   # async fn() → str
+        proveedores_registrar_compra     = None,   # async fn() → str
+        proveedores_abrir_carrito        = None,   # async fn() → str
+        proveedores_cargar_producto      = None,   # async fn() → str
+        proveedores_finalizar_detalle    = None,   # async fn() → str
         produccion_crear_plantilla  = None,   # async fn() → str
         produccion_registrar        = None,   # async fn() → str
     ):
@@ -91,8 +95,12 @@ class RealtimeBridge:
         self._balanza_ir_a_caja          = balanza_ir_a_caja
         self._balanza_abrir_cf           = balanza_abrir_cf
         self._balanza_cobrar_ticket      = balanza_cobrar_ticket
-        self._proveedores_nueva_compra   = proveedores_nueva_compra
-        self._proveedores_cargar_productos = proveedores_cargar_productos
+        self._proveedores_abrir_historial    = proveedores_abrir_historial
+        self._proveedores_abrir_modal_compra = proveedores_abrir_modal_compra
+        self._proveedores_registrar_compra   = proveedores_registrar_compra
+        self._proveedores_abrir_carrito      = proveedores_abrir_carrito
+        self._proveedores_cargar_producto    = proveedores_cargar_producto
+        self._proveedores_finalizar_detalle  = proveedores_finalizar_detalle
         self._produccion_crear_plantilla = produccion_crear_plantilla
         self._produccion_registrar       = produccion_registrar
 
@@ -105,6 +113,7 @@ class RealtimeBridge:
         self._last_transcript       = ""      # último transcript de Malena (para detectar preguntas)
         self._auto_continue_task: asyncio.Task | None = None
         self._demo_started          = False   # True después del primer navigate_to_module
+        self._tool_is_running       = False   # True mientras _handle_tool está ejecutando
         # call_id → name (para asociar arguments.done con el nombre de la tool)
         self._pending_calls: dict[str, str] = {}
 
@@ -215,8 +224,8 @@ class RealtimeBridge:
                 await ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
             except Exception:
                 pass
-            # Auto-continuar solo durante la demo (cuando ya se navegó al menos un módulo)
-            if self._demo_started:
+            # Auto-continuar solo durante la demo y cuando no hay tool corriendo
+            if self._demo_started and not self._tool_is_running:
                 self._cancel_auto_continue()
                 self._auto_continue_task = asyncio.create_task(self._auto_continue())
 
@@ -262,6 +271,7 @@ class RealtimeBridge:
                     await ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
                 except Exception:
                     pass
+                self._tool_is_running = True
                 asyncio.create_task(self._handle_tool(ws, call_id, name, args_str))
 
         elif etype == "conversation.item.input_audio_transcription.completed":
@@ -468,6 +478,7 @@ class RealtimeBridge:
 
             elif name == "balanza_navegar":
                 print("[DEMO] Balanza: navegando...")
+                await self._do_navigate("BALANZA")
                 await self._ensure_playwright()
                 await self._wait_for_audio_done(timeout=20.0)
                 result = await self._balanza_navegar() if self._balanza_navegar else "Pantalla de balanza cargada."
@@ -500,17 +511,37 @@ class RealtimeBridge:
                 result = await self._balanza_cobrar_ticket() if self._balanza_cobrar_ticket else "Ticket cobrado."
                 await self._on_screenshot_end()
 
-            elif name == "proveedores_nueva_compra":
-                importe = args.get("importe", "150000")
-                print(f"[DEMO] Proveedores: nueva compra (${importe})...")
+            elif name == "proveedores_abrir_historial":
+                print("[DEMO] Proveedores: abriendo historial del proveedor...")
+                await self._do_navigate("PROVEEDORES")
                 await self._ensure_playwright()
                 await self._wait_for_audio_done(timeout=20.0)
-                result = await self._proveedores_nueva_compra(importe) if self._proveedores_nueva_compra else "Compra registrada."
+                result = await self._proveedores_abrir_historial() if self._proveedores_abrir_historial else "Historial abierto."
 
-            elif name == "proveedores_cargar_productos":
-                print("[DEMO] Proveedores: cargando productos...")
+            elif name == "proveedores_abrir_modal_compra":
+                print("[DEMO] Proveedores: abriendo modal de nueva compra...")
                 await self._wait_for_audio_done(timeout=20.0)
-                result = await self._proveedores_cargar_productos() if self._proveedores_cargar_productos else "Productos cargados, stock actualizado."
+                result = await self._proveedores_abrir_modal_compra() if self._proveedores_abrir_modal_compra else "Modal de compra abierto."
+
+            elif name == "proveedores_registrar_compra":
+                print("[DEMO] Proveedores: registrando compra...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._proveedores_registrar_compra() if self._proveedores_registrar_compra else "Compra registrada."
+
+            elif name == "proveedores_abrir_carrito":
+                print("[DEMO] Proveedores: abriendo carrito de detalle...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._proveedores_abrir_carrito() if self._proveedores_abrir_carrito else "Carrito abierto."
+
+            elif name == "proveedores_cargar_producto":
+                print("[DEMO] Proveedores: cargando producto Asado...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._proveedores_cargar_producto() if self._proveedores_cargar_producto else "Producto cargado."
+
+            elif name == "proveedores_finalizar_detalle":
+                print("[DEMO] Proveedores: finalizando detalle de compra...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._proveedores_finalizar_detalle() if self._proveedores_finalizar_detalle else "Detalle finalizado."
                 await self._on_screenshot_end()
 
             elif name == "produccion_crear_plantilla":
@@ -537,6 +568,8 @@ class RealtimeBridge:
             await self._send_nav_result(ws, call_id, result)
         else:
             await self._send_tool_result(ws, call_id, result)
+
+        self._tool_is_running = False
 
     async def _send_tool_result(self, ws, call_id: str, output: str):
         # Clear any audio accumulated during tool execution, resume with short mute
