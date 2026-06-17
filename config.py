@@ -378,10 +378,27 @@ FLUJO DE LA CONVERSACIÓN:
      "En la sección de clientes podemos crear clientes y grupos de clientes predeterminados para asignarles diferentes listas de precio, así si tenemos clientes que vienen siempre y les hacemos un descuento es más fácil al momento de la venta en la caja.
      También podemos ver los saldos de los clientes si es que alguno tiene cuenta corriente."
 
-   MÓDULO 7 — PROVEEDORES (2 pasos atómicos)
-   Anuncio: "Ahora la sección de proveedores."
-   Paso 1 → proveedores_nueva_compra() — describí el formulario y que la compra quedó registrada como Impaga.
-   Paso 2 → proveedores_cargar_productos() — describí que el stock de Vacío se actualizó automáticamente.
+   MÓDULO 7 — PROVEEDORES (6 pasos atómicos, EN ORDEN, sin saltear ninguno)
+   Anuncio (decí EXACTAMENTE esto, sin agregar ni quitar nada, ANTES de llamar cualquier tool):
+     "Aca tenemos la sección proveedores, en esta nosotros vamos a tener cargados los proveedores asi se hace mas fácil al momento de comprar mercadería. Esta sección se encuentra completamente integrada con el stock de nuestro negocio, entonces cada vez que nosotros hagamos una compra el stock se va a actualizar automáticamente. Para cargarle una compra a un proveedor que tenemos cargado lo hacemos apretando en el boton editar a la derecha del proveedor"
+   Tool: proveedores_abrir_historial()
+   Post-tool: decí EXACTAMENTE (sin agregar ni quitar nada):
+     "Aca vamos a ver todas las compras que nosotros le hicimos al proveedor. Tambien podemos hacer pagos a proveedores, cargar notas de debito, de crédito y hacer una nueva compra, que es lo que vamos a hacer ahora."
+   Tool: proveedores_abrir_modal_compra()
+   Post-tool: decí EXACTAMENTE (sin agregar ni quitar nada):
+     "Para cargar una compra vamos a rellenar estos datos, fecha del dia de hoy o del dia de la compra si es que nos olvidamos de cargarla, fecha de vencimiento, con la posibilidad de decirle que nos notifique el dia antes del vencimiento o 3, 7, 10 o 20 dias antes o directamente que no nos notifique. Despues cargamos el numero de la compra, tipo de factura, el importe de la compra, comentarios y el IVA que corresponda"
+   Tool: proveedores_registrar_compra()
+   Post-tool: decí EXACTAMENTE (sin agregar ni quitar nada):
+     "Como podemos ver ahi arriba en la tabla quedó nuestra compra, pero vacía, para cargarle detalle de la compra presionamos sobre el carrito verde a la derecha de la compra"
+   Tool: proveedores_abrir_carrito()
+   Post-tool: decí EXACTAMENTE (sin agregar ni quitar nada):
+     "Aca ingresamos el detalle de la compra que hicimos, producto, precio y unidad o peso segun corresponda, por ejemplo Asado, a AR$ 10.000, 10 kilos"
+   Tool: proveedores_cargar_producto()
+   Post-tool: decí EXACTAMENTE (sin agregar ni quitar nada):
+     "Arriba donde dice nuevo producto podemos agregar mas productos a la compra pero para el ejemplo lo vamos a hacer con uno solo y vamos a finalizar el detalle de compra"
+   Tool: proveedores_finalizar_detalle()
+   Post-tool: decí EXACTAMENTE (sin agregar ni quitar nada):
+     "Y ahi ya quedaria la compra al proveedor hecha, solo quedaria al momento del pago presionar sobre impaga, la pagamos y listo"
 
    MÓDULO 8 — USUARIOS
    Anuncio: "La sección de usuarios."
@@ -428,8 +445,8 @@ MODO TEST ACTIVADO — INSTRUCCIONES ESPECIALES (tienen prioridad absoluta sobre
   Anuncio: "El sistema es 100% web — se accede con empresa, usuario y contraseña desde cualquier dispositivo."
   Tool: navigate_to_module("ACCESO")
   Post-tool: describí la pantalla de ingreso que ven.
-- Después de LOGIN, saltá directo a MÓDULO 6 — CLIENTES y seguí el orden normal desde ahí:
-  6. CLIENTES → 7. PROVEEDORES → 8. USUARIOS → 9. STOCK → 10. PRODUCCIÓN → 11. ESTADÍSTICAS → CIERRE
+- Después de LOGIN, saltá directo a MÓDULO 7 — PROVEEDORES y seguí el orden normal desde ahí:
+  7. PROVEEDORES → 8. USUARIOS → 9. STOCK → 10. PRODUCCIÓN → 11. ESTADÍSTICAS → CIERRE
 """
 
 REALTIME_TOOLS = [
@@ -572,20 +589,38 @@ REALTIME_TOOLS = [
     },
     {
         "type": "function",
-        "name": "proveedores_nueva_compra",
-        "description": "Paso 1/2 de la demo de proveedores: navega a compras, abre el historial del primer proveedor y crea una compra nueva con el importe indicado.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "importe": {"type": "string", "description": "Importe de la compra (ej: '150000')"},
-            },
-            "required": [],
-        },
+        "name": "proveedores_abrir_historial",
+        "description": "Paso 1/6 de proveedores: navega a la lista de compras y abre el historial del primer proveedor clickeando Editar.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
         "type": "function",
-        "name": "proveedores_cargar_productos",
-        "description": "Paso 2/2 de la demo de proveedores: abre el carrito de la compra recién creada, agrega 'Vacío' 10 kg y finaliza los detalles para que el stock se actualice.",
+        "name": "proveedores_abrir_modal_compra",
+        "description": "Paso 2/6 de proveedores: abre el modal de nueva compra clickeando '+ Compra'.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "proveedores_registrar_compra",
+        "description": "Paso 3/6 de proveedores: llena numero=1 e importe=100000 en el formulario y finaliza la compra.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "proveedores_abrir_carrito",
+        "description": "Paso 4/6 de proveedores: abre el carrito (detalle) de la compra recién registrada.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "proveedores_cargar_producto",
+        "description": "Paso 5/6 de proveedores: ingresa Asado, AR$10.000, 10 kg en el formulario de detalle.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "proveedores_finalizar_detalle",
+        "description": "Paso 6/6 de proveedores: finaliza los detalles de la compra para actualizar el stock.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
