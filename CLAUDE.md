@@ -42,12 +42,9 @@ MGW_EMPRESA=
 MGW_PASSWORD=
 TEST_MODE=false             # true → skips calificación, jumps straight to demo
 REALTIME_MODEL=             # defaults to gpt-realtime-2025-08-28
-
-# Legacy (unused in active pipeline — kept for ai.py compatibility):
-ELEVENLABS_API_KEY=
-ELEVENLABS_VOICE_ID=        # defaults to p7AwDmKvTdoHTBuueGvP
-DEEPGRAM_API_KEY=
 ```
+
+`DEEPGRAM_API_KEY`, `ELEVENLABS_API_KEY`, and `ELEVENLABS_VOICE_ID` are still read in `config.py` but are dead config — the old Deepgram/ElevenLabs pipeline (`ai.py`, `mgw_browser.py`, `mgw_caja.py`) was deleted in the "Limpieza de archivos" cleanup; nothing references them anymore.
 
 ## Architecture Overview
 
@@ -93,7 +90,6 @@ Recall.ai bot (in meeting)
 | [config.py](config.py) | All env vars, `REALTIME_SYSTEM_PROMPT`, `REALTIME_TOOLS` list, `DEMO_MODULE_PATHS` (module name → MGW URL path) |
 | [state.py](state.py) | `ConversationState` dataclass + `Stage` enum (instantiated in `bot.py`; stage logic lives in the Realtime prompt) |
 | [app/static/agent.html](app/static/agent.html) | Single-page frontend loaded as Recall's camera. Connects to `/agent-ws`, plays PCM audio at 24 kHz via Web Audio API, loads MGW pages in an iframe via the proxy, overlays Playwright screenshots |
-| [ai.py](ai.py) | **Legacy** — OpenAI chat completions + ElevenLabs TTS from the old pipeline; not called by the active bot |
 
 ### Key Design Decisions
 
@@ -104,8 +100,6 @@ Recall.ai bot (in meeting)
 **navigate_to_module vs action tools**: `navigate_to_module` loads a URL in the agent iframe without starting Playwright. Playwright-heavy tools (`caja_*`, `balanza_*`, etc.) call `_ensure_playwright()` on first use, which logs in and initializes the browser session.
 
 **MGW reverse proxy**: `agent.html` loads MGW pages via `/mgw-proxy/{path}`. The proxy rewrites absolute MGW URLs to proxy paths and injects a JS snippet that intercepts `fetch`/`XHR` so AJAX calls also go through the proxy with the authenticated session cookies.
-
-**Legacy files**: `mgw_browser.py` (non-headless Playwright) and `mgw_caja.py` (API-only caja flow) are not part of the active pipeline.
 
 ### Deployment
 
