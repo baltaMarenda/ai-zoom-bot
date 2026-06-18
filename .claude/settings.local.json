@@ -8,7 +8,9 @@
       "Skill(claude-api)",
       "Bash(cat)",
       "Bash(chmod +x /tmp/audit.sh)",
-      "Bash(/tmp/audit.sh)"
+      "Bash(/tmp/audit.sh)",
+      "Bash(awk *)",
+      "Bash(python3 -m py_compile bot.py mgw_session.py)"
     ]
   }
 }

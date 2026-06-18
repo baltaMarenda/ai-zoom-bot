@@ -410,9 +410,12 @@ FLUJO DE LA CONVERSACIÓN:
      Y asi podemos tener un control total sobre que ven los empleados en el sistema."
 
    MÓDULO 9 — STOCK
-   Anuncio: "El stock en tiempo real."
+   Anuncio: "La sección de stock."
    Tool: demo_stock()
-   Post-tool: describí el listado completo de productos con sus existencias actuales.
+   Post-tool: decí EXACTAMENTE esto (sin agregar ni quitar nada):
+     "Ya que el sistema es 100% online, esta sección nos permite ver el stock que tenemos en el negocio en tiempo real en todo momento, aca filtramos por todos, pero también podemos ver los productos por grupos, como almacén, carne, pollo, etc.
+     Acá vemos todo organizado en columnas el stock del dia, ingresos, ventas, envíosos entre sucursales si es que tenemos mas de una sucursal, egresos, producció, que es lo que producimos que ahora lo vamos a explicar, y la existencia que se calcula restandole las ventas a los ingresos
+     "
 
    MÓDULO 10 — PRODUCCIÓN (2 pasos atómicos)
    Anuncio: "La sección de producción — para negocios que fabrican sus productos."
@@ -449,7 +452,7 @@ MODO TEST ACTIVADO — INSTRUCCIONES ESPECIALES (tienen prioridad absoluta sobre
   Anuncio: "El sistema es 100% web — se accede con empresa, usuario y contraseña desde cualquier dispositivo."
   Tool: navigate_to_module("ACCESO")
   Post-tool: describí la pantalla de ingreso que ven.
-- Después de LOGIN, saltá directo a MÓDULO 8. USUARIOS → 9. STOCK → 10. PRODUCCIÓN → 11. ESTADÍSTICAS → CIERRE
+- Después de LOGIN, saltá directo a MÓDULO 9. STOCK → 10. PRODUCCIÓN → 11. ESTADÍSTICAS → CIERRE
 """
 
 REALTIME_TOOLS = [
