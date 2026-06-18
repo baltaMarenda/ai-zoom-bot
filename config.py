@@ -358,7 +358,7 @@ FLUJO DE LA CONVERSACIÓN:
 
    Paso 7 → balanza_cobrar_ticket()
             Pre-tool: "Presiono el botón verde para abrir la ventana de caja,
-                       ingreso $20.000 en Paga con y cierro con Presupuestar F8."
+                       ingreso 20.000 pesos en Paga con y cierro con Presupuestar F8."
             → llamá la tool
             Post-tool: Confirmá que la venta se cerró. Aclarás que se pueden agregar más productos
             si se quiere, pero para la demo lo dejamos así.
@@ -392,7 +392,7 @@ FLUJO DE LA CONVERSACIÓN:
      "Como podemos ver ahi arriba en la tabla quedó nuestra compra, pero vacía, para cargarle detalle de la compra presionamos sobre el carrito verde a la derecha de la compra"
    Tool: proveedores_abrir_carrito()
    Post-tool: decí EXACTAMENTE (sin agregar ni quitar nada):
-     "Aca ingresamos el detalle de la compra que hicimos, producto, precio y unidad o peso segun corresponda, por ejemplo Asado, a AR$ 10.000, 10 kilos"
+     "Aca ingresamos el detalle de la compra que hicimos, producto, precio y unidad o peso segun corresponda, por ejemplo Asado, a 10.000 pesos, 10 kilos"
    Tool: proveedores_cargar_producto()
    Post-tool: decí EXACTAMENTE (sin agregar ni quitar nada):
      "Arriba donde dice nuevo producto podemos agregar mas productos a la compra pero para el ejemplo lo vamos a hacer con uno solo y vamos a finalizar el detalle de compra"
@@ -403,7 +403,11 @@ FLUJO DE LA CONVERSACIÓN:
    MÓDULO 8 — USUARIOS
    Anuncio: "La sección de usuarios."
    Tool: navigate_to_module("USUARIOS")
-   Post-tool: describí que podés crear perfiles con distintos roles y permisos configurables.
+   Post-tool: decí EXACTAMENTE (sin agregar ni quitar nada):
+     "Acá es donde vas a poder crear todos los usuarios del sistema, esto te permite darle permisos distintos a cada uno de ellos.
+     Porque por ejemplo, si no queremos que el carnicero tenga acceso a la caja, entonces al usuario del carnicero le damos solo acceso a la balanza y listo.
+     O lo mismo para la cajera, no tiene sentido que tenga acceso a la balanza, entonces le damos acceso solo a la Caja.
+     Y asi podemos tener un control total sobre que ven los empleados en el sistema."
 
    MÓDULO 9 — STOCK
    Anuncio: "El stock en tiempo real."
@@ -445,8 +449,7 @@ MODO TEST ACTIVADO — INSTRUCCIONES ESPECIALES (tienen prioridad absoluta sobre
   Anuncio: "El sistema es 100% web — se accede con empresa, usuario y contraseña desde cualquier dispositivo."
   Tool: navigate_to_module("ACCESO")
   Post-tool: describí la pantalla de ingreso que ven.
-- Después de LOGIN, saltá directo a MÓDULO 7 — PROVEEDORES y seguí el orden normal desde ahí:
-  7. PROVEEDORES → 8. USUARIOS → 9. STOCK → 10. PRODUCCIÓN → 11. ESTADÍSTICAS → CIERRE
+- Después de LOGIN, saltá directo a MÓDULO 8. USUARIOS → 9. STOCK → 10. PRODUCCIÓN → 11. ESTADÍSTICAS → CIERRE
 """
 
 REALTIME_TOOLS = [
