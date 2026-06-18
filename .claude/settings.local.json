@@ -10,7 +10,8 @@
       "Bash(chmod +x /tmp/audit.sh)",
       "Bash(/tmp/audit.sh)",
       "Bash(awk *)",
-      "Bash(python3 -m py_compile bot.py mgw_session.py)"
+      "Bash(python3 -m py_compile bot.py mgw_session.py)",
+      "Bash(python3 -m py_compile config.py bot.py realtime_bridge.py mgw_playwright.py)"
     ]
   }
 }

@@ -3303,9 +3303,11 @@ async def proveedores_finalizar_detalle(on_screenshot=None) -> str:
 
 
 # ── Steps atómicos — Producción ───────────────────────────────────────────────
+# Plantilla "Milanesas" ya existe en el sistema (ID 6) — estos steps la consultan
+# y la usan para registrar una producción, no la crean desde cero.
 
-async def produccion_step_crear_plantilla(on_screenshot=None) -> str:
-    """Crea la plantilla 'Milanesas' con Pechuga+Huevos (entrada) y Milanesas (salida)."""
+async def produccion_ver_plantillas(on_screenshot=None) -> str:
+    """Paso 1/6: navega a la lista de plantillas de producción."""
     if _page is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
@@ -3313,167 +3315,73 @@ async def produccion_step_crear_plantilla(on_screenshot=None) -> str:
     async def snap(delay=0.0):
         await _snap(on_screenshot, delay)
 
-    async def click_first(selectors, label):
-        for selector in selectors:
-            try:
-                el = _page.locator(selector).first
-                if await el.count() > 0 and await el.is_visible():
-                    await el.click()
-                    print(f"[PW] [PROD-STEP] {label} via '{selector}' ✓")
-                    return True
-            except Exception:
-                continue
-        return False
-
-    async def ingresar_producto_detalle(nombre, cantidad):
-        for sel in ['input[name="producto"]', '#producto', '.ui-autocomplete-input', 'input[placeholder*="roducto"]']:
-            try:
-                el = _page.locator(sel).first
-                if await el.count() > 0 and await el.is_visible():
-                    await el.click()
-                    await el.fill("")
-                    await el.type(nombre, delay=120)
-                    break
-            except Exception:
-                continue
-        await asyncio.sleep(1.5)
-        try:
-            await _page.wait_for_selector('.ui-autocomplete .ui-menu-item', state="visible", timeout=4000)
-            await _page.locator('.ui-autocomplete .ui-menu-item').first.click()
-        except Exception:
-            pass
-        try:
-            cant_el = _page.locator('#cantidad').first
-            if await cant_el.count() > 0:
-                await cant_el.click()
-                await cant_el.fill(str(cantidad))
-        except Exception:
-            pass
-
-    async def click_agregar_detalle():
-        clicked = await click_first(['#boton_agregar_producto', 'button:has-text("Agregar")'], "Agregar detalle")
-        if not clicked:
-            await _page.evaluate("""
-                const btn = document.getElementById('boton_agregar_producto')
-                    || [...document.querySelectorAll('button, a')].find(e => e.textContent.trim().toLowerCase() === 'agregar');
-                if (btn) btn.click();
-            """)
-        await asyncio.sleep(2.0)
-        await snap()
-
-    # Navigate to plantillas
     print("[PW] [PROD-STEP] Navegando a produccion_plantillas.php...")
     await _page.goto(f"{base}/produccion_plantillas.php", wait_until="domcontentloaded", timeout=20000)
     await asyncio.sleep(2.0)
     await snap()
+    print("[PW] [PROD-STEP] produccion_ver_plantillas ✓")
+    return "Lista de plantillas de producción visible en pantalla."
 
-    # Nueva plantilla
-    clicked = await click_first([
-        'a[href="#modal_nuevo_plantilla_id"]', 'a[onclick*="plantilla_nueva"]',
-        'a:has-text("Nueva plantilla")', 'button:has-text("Nueva plantilla")',
-    ], "Nueva plantilla")
-    if not clicked:
-        await _page.evaluate("""
-            const btn = [...document.querySelectorAll('a, button')].find(e => {
-                const oc = (e.getAttribute('onclick') || '').toLowerCase();
-                const t = (e.textContent || '').trim().toLowerCase();
-                return oc.includes('plantilla_nueva') || t.includes('nueva plantilla');
-            });
-            if (btn) btn.click();
-        """)
-    await asyncio.sleep(2.0)
-    await snap()
 
-    # Nombre: Milanesas
-    for sel in ['input[name="nombre"]', 'input[id="nombre"]', 'input[placeholder*="ombre"]', 'input[type="text"]']:
-        try:
-            el = _page.locator(sel).first
-            if await el.count() > 0 and await el.is_visible():
-                await el.click()
-                await el.fill("")
-                await el.type("Milanesas", delay=120)
-                break
-        except Exception:
-            continue
-    await asyncio.sleep(0.5)
+async def produccion_ver_detalle_plantilla(on_screenshot=None) -> str:
+    """Paso 2/6: abre el detalle de la plantilla existente 'Milanesas' (ID 6)."""
+    if _page is None:
+        return "Error: browser no iniciado"
 
-    # Confirmar nueva plantilla
-    clicked = await click_first(
-        ['#boton_agregar_plantilla', 'button:has-text("Agregar")', '.modal-footer .btn-primary'],
-        "Agregar plantilla"
-    )
-    if not clicked:
-        await _page.evaluate("""
-            const btn = document.getElementById('boton_agregar_plantilla')
-                || [...document.querySelectorAll('button')].find(e => e.textContent.trim().toLowerCase() === 'agregar');
-            if (btn) btn.click();
-        """)
-    await asyncio.sleep(4.0)
-    await snap()
+    async def snap(delay=0.0):
+        await _snap(on_screenshot, delay)
 
-    # Ver detalles de la fila Milanesas
-    ver_result = await _page.evaluate("""() => {
-        const rows = [...document.querySelectorAll('tbody tr')];
-        for (const row of rows) {
-            if (!row.textContent.toLowerCase().includes('milanesa')) continue;
-            const btns = [...row.querySelectorAll('a, button, [onclick]')];
-            for (const btn of btns) {
-                const title = (btn.getAttribute('title') || btn.getAttribute('data-original-title') || '').toLowerCase();
-                const href = (btn.getAttribute('href') || '').toLowerCase();
-                const oc = (btn.getAttribute('onclick') || '').toLowerCase();
-                if (title.includes('detalle') || href.includes('detalle') || oc.includes('detalle')) {
-                    btn.click(); return 'detalle ✓';
-                }
-            }
-            if (btns.length >= 2) { btns[1].click(); return 'btn[1] ✓'; }
-            if (btns.length >= 1) { btns[0].click(); return 'btn[0] ✓'; }
-        }
-        const any = [...document.querySelectorAll('[title*="etalle"],[data-original-title*="etalle"],[href*="etalle"],[onclick*="etalle"]')];
-        if (any.length) { any[0].click(); return 'any ✓'; }
-        return null;
+    print("[PW] [PROD-STEP] Abriendo detalle de plantilla Milanesas (id=6)...")
+    clicked = await _page.evaluate("""() => {
+        const btn = [...document.querySelectorAll('[onclick]')].find(e =>
+            (e.getAttribute('onclick') || '').includes("plantillas_detalles('6'")
+        );
+        if (btn) { btn.click(); return true; }
+        return false;
     }""")
-    print(f"[PW] [PROD-STEP] Ver detalles: {ver_result}")
+    if not clicked:
+        print("[PW] [PROD-STEP] No se encontró por id=6, reintentando por fila 'Milanesas'...")
+        clicked = await _page.evaluate("""() => {
+            const rows = [...document.querySelectorAll('tbody tr')];
+            for (const row of rows) {
+                if (!row.textContent.toLowerCase().includes('milanesa')) continue;
+                const btn = row.querySelector('[onclick*="plantillas_detalles"]');
+                if (btn) { btn.click(); return true; }
+            }
+            return false;
+        }""")
+    if not clicked:
+        print("[PW] [PROD-STEP] Botón de detalle no encontrado")
     try:
         await _page.wait_for_url("**detalle**", timeout=8000)
     except Exception:
         await asyncio.sleep(3.0)
     await snap()
-
-    # Pechuga — Entrada, 1 unidad
-    try:
-        await _page.locator('#tipo').first.select_option(value="1")
-    except Exception:
-        pass
-    await ingresar_producto_detalle("Pechuga", "1")
-    await snap()
-    await click_agregar_detalle()
-
-    # Huevos — Entrada, 4 unidades
-    await ingresar_producto_detalle("Huevos", "4")
-    await snap()
-    await click_agregar_detalle()
-
-    # Milanesas — Salida, 1 unidad
-    try:
-        await _page.locator('#tipo').first.select_option(value="2")
-    except Exception:
-        pass
-    await ingresar_producto_detalle("Milanesas", "1")
-    await snap()
-    await click_agregar_detalle()
-
-    print("[PW] [PROD-STEP] produccion_step_crear_plantilla ✓")
-    return (
-        "Plantilla 'Milanesas' creada: Pechuga (1 ud) + Huevos (4 ud) como entradas, "
-        "Milanesas (1 ud) como salida. Lista para usar en producción."
-    )
+    print("[PW] [PROD-STEP] produccion_ver_detalle_plantilla ✓")
+    return "Detalle de la plantilla 'Milanesas' visible, con sus ingredientes y la cantidad que produce."
 
 
-async def produccion_step_registrar(on_screenshot=None) -> str:
-    """Registra una producción usando la plantilla 'Milanesas' (cantidad 1, tipo Salida)."""
+async def produccion_ir_a_produccion(on_screenshot=None) -> str:
+    """Paso 3/6: navega a la sección de Producción."""
     if _page is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
+
+    async def snap(delay=0.0):
+        await _snap(on_screenshot, delay)
+
+    print("[PW] [PROD-STEP] Navegando a produccion.php...")
+    await _page.goto(f"{base}/produccion.php", wait_until="domcontentloaded", timeout=20000)
+    await asyncio.sleep(2.0)
+    await snap()
+    print("[PW] [PROD-STEP] produccion_ir_a_produccion ✓")
+    return "Sección de Producción visible, con el historial de producciones anteriores."
+
+
+async def produccion_nueva_produccion(on_screenshot=None) -> str:
+    """Paso 4/6: abre el formulario de nueva producción."""
+    if _page is None:
+        return "Error: browser no iniciado"
 
     async def snap(delay=0.0):
         await _snap(on_screenshot, delay)
@@ -3490,88 +3398,133 @@ async def produccion_step_registrar(on_screenshot=None) -> str:
                 continue
         return False
 
-    print("[PW] [PROD-STEP] Navegando a produccion.php...")
-    await _page.goto(f"{base}/produccion.php", wait_until="domcontentloaded", timeout=20000)
-    await asyncio.sleep(2.0)
-    await snap()
-
-    # Nueva producción
     clicked = await click_first([
-        'a[onclick*="nueva_produccion"]', 'a:has-text("Nueva producción")', 'button:has-text("Nueva producción")',
+        '[onclick="nueva_produccion()"]',
+        'a[onclick*="nueva_produccion"]',
+        'button[onclick*="nueva_produccion"]',
+        'a:has-text("Nueva producción")',
     ], "Nueva producción")
     if not clicked:
-        await _page.evaluate("""
+        await _page.evaluate("""() => {
             const btn = [...document.querySelectorAll('a, button, [onclick]')].find(e => {
                 const oc = (e.getAttribute('onclick') || '').toLowerCase();
                 const t = (e.textContent || '').trim().toLowerCase();
                 return oc.includes('nueva_produccion') || t.includes('nueva producción') || t.includes('nueva produccion');
             });
             if (btn) btn.click();
-        """)
+        }""")
+        print("[PW] [PROD-STEP] Nueva producción via JS ✓")
     await asyncio.sleep(2.5)
     await snap()
+    print("[PW] [PROD-STEP] produccion_nueva_produccion ✓")
+    return "Formulario de nueva producción abierto, con el selector de plantilla."
 
-    # Seleccionar plantilla Milanesas
+
+async def produccion_seleccionar_plantilla(on_screenshot=None) -> str:
+    """Paso 5/6: selecciona la plantilla 'Milanesas' en el formulario de nueva producción."""
+    if _page is None:
+        return "Error: browser no iniciado"
+
+    async def snap(delay=0.0):
+        await _snap(on_screenshot, delay)
+
     try:
         plantilla_sel = _page.locator('#plantilla').first
         if await plantilla_sel.count() > 0:
             await plantilla_sel.select_option(label="Milanesas")
+            print("[PW] [PROD-STEP] Plantilla Milanesas seleccionada ✓")
     except Exception:
-        await _page.evaluate("""
+        await _page.evaluate("""() => {
             const sel = document.getElementById('plantilla');
             if (sel) {
                 for (const opt of sel.options) {
                     if (opt.text.toLowerCase().includes('milanesa')) {
                         sel.value = opt.value;
-                        sel.dispatchEvent(new Event('change', {bubbles: true}));
+                        sel.dispatchEvent(new Event('change', { bubbles: true }));
                         break;
                     }
                 }
             }
-        """)
+        }""")
+        print("[PW] [PROD-STEP] Plantilla Milanesas via JS ✓")
+    await asyncio.sleep(0.5)
+    await snap()
+    print("[PW] [PROD-STEP] produccion_seleccionar_plantilla ✓")
+    return "Plantilla 'Milanesas' seleccionada en el formulario."
 
-    # Cantidad 1
+
+async def produccion_completar_y_registrar(on_screenshot=None) -> str:
+    """Paso 6/6: completa cantidad=1, tipo=Salida de producción, agrega y recarga el resultado."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    base = MGW_URL.rstrip("/")
+
+    async def snap(delay=0.0):
+        await _snap(on_screenshot, delay)
+
+    async def click_first(selectors, label):
+        for selector in selectors:
+            try:
+                el = _page.locator(selector).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    print(f"[PW] [PROD-STEP] {label} via '{selector}' ✓")
+                    return True
+            except Exception:
+                continue
+        return False
+
+    # Cantidad = 1
     try:
         cant_el = _page.locator('#cantidad').first
         if await cant_el.count() > 0 and await cant_el.is_visible():
             await cant_el.click()
             await cant_el.fill("1")
+            print("[PW] [PROD-STEP] Cantidad=1 ✓")
     except Exception:
         pass
 
-    # Tipo: Salida (value=2)
+    # Tipo = Salida de producción (value=2)
     try:
         tipo_sel = _page.locator('#tipo').first
         if await tipo_sel.count() > 0 and await tipo_sel.is_visible():
             await tipo_sel.select_option(value="2")
+            print("[PW] [PROD-STEP] Tipo = Salida de producción ✓")
     except Exception:
         pass
 
     await asyncio.sleep(0.5)
     await snap()
 
-    # Click Agregar producción
+    # Click Agregar
     clicked = await click_first([
-        'button[onclick*="agregar_produccion"]', 'a[onclick*="agregar_produccion"]',
-        'button:has-text("Agregar")', 'a:has-text("Agregar")',
-    ], "Agregar produccion")
+        'button[onclick*="agregar_produccion"]',
+        'a[onclick*="agregar_produccion"]',
+        'button:has-text("Agregar")',
+        'a:has-text("Agregar")',
+    ], "Agregar producción")
     if not clicked:
-        await _page.evaluate("""
+        await _page.evaluate("""() => {
             const btn = [...document.querySelectorAll('[onclick], button, a')].find(e => {
                 const oc = (e.getAttribute('onclick') || '').toLowerCase();
                 const t = (e.textContent || '').trim().toLowerCase();
                 return oc.includes('agregar_produccion') || t === 'agregar';
             });
             if (btn) btn.click();
-        """)
+        }""")
+        print("[PW] [PROD-STEP] Agregar producción via JS ✓")
     await asyncio.sleep(2.5)
+
+    # Recargar produccion.php — el listado no se refresca solo tras el alta
+    print("[PW] [PROD-STEP] Recargando produccion.php...")
+    await _page.goto(f"{base}/produccion.php", wait_until="domcontentloaded", timeout=20000)
+    await asyncio.sleep(2.0)
     await snap()
 
-    print("[PW] [PROD-STEP] produccion_step_registrar ✓")
+    print("[PW] [PROD-STEP] produccion_completar_y_registrar ✓")
     return (
-        "Producción de 1 Milanesa registrada. "
-        "El sistema descontó automáticamente Pechuga y Huevos del stock, "
-        "y sumó la Milanesa elaborada."
+        "Producción de Milanesas registrada. La lista de producciones se actualizó "
+        "y el stock se ajustó automáticamente."
     )
 
 

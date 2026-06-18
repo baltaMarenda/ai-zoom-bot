@@ -25,7 +25,9 @@ from mgw_playwright import (
     proveedores_abrir_historial, proveedores_abrir_modal_compra,
     proveedores_registrar_compra, proveedores_abrir_carrito,
     proveedores_cargar_producto, proveedores_finalizar_detalle,
-    produccion_step_crear_plantilla, produccion_step_registrar,
+    produccion_ver_plantillas, produccion_ver_detalle_plantilla,
+    produccion_ir_a_produccion, produccion_nueva_produccion,
+    produccion_seleccionar_plantilla, produccion_completar_y_registrar,
 )
 
 # ── Referencia al WebSocket de la webpage del agente ──────────────────────────
@@ -252,11 +254,23 @@ async def _proveedores_cargar_producto() -> str:
 async def _proveedores_finalizar_detalle() -> str:
     return await proveedores_finalizar_detalle(on_screenshot=_on_screenshot)
 
-async def _produccion_step_plantilla() -> str:
-    return await produccion_step_crear_plantilla(on_screenshot=_on_screenshot)
+async def _produccion_ver_plantillas() -> str:
+    return await produccion_ver_plantillas(on_screenshot=_on_screenshot)
 
-async def _produccion_step_registrar() -> str:
-    return await produccion_step_registrar(on_screenshot=_on_screenshot)
+async def _produccion_ver_detalle_plantilla() -> str:
+    return await produccion_ver_detalle_plantilla(on_screenshot=_on_screenshot)
+
+async def _produccion_ir_a_produccion() -> str:
+    return await produccion_ir_a_produccion(on_screenshot=_on_screenshot)
+
+async def _produccion_nueva_produccion() -> str:
+    return await produccion_nueva_produccion(on_screenshot=_on_screenshot)
+
+async def _produccion_seleccionar_plantilla() -> str:
+    return await produccion_seleccionar_plantilla(on_screenshot=_on_screenshot)
+
+async def _produccion_completar_y_registrar() -> str:
+    return await produccion_completar_y_registrar(on_screenshot=_on_screenshot)
 
 
 # ── WebSocket handler ─────────────────────────────────────────────────────────
@@ -323,8 +337,12 @@ async def handle_recall_audio(websocket):
         proveedores_abrir_carrito        = _proveedores_abrir_carrito,
         proveedores_cargar_producto      = _proveedores_cargar_producto,
         proveedores_finalizar_detalle    = _proveedores_finalizar_detalle,
-        produccion_crear_plantilla  = _produccion_step_plantilla,
-        produccion_registrar        = _produccion_step_registrar,
+        produccion_ver_plantillas         = _produccion_ver_plantillas,
+        produccion_ver_detalle_plantilla  = _produccion_ver_detalle_plantilla,
+        produccion_ir_a_produccion        = _produccion_ir_a_produccion,
+        produccion_nueva_produccion       = _produccion_nueva_produccion,
+        produccion_seleccionar_plantilla  = _produccion_seleccionar_plantilla,
+        produccion_completar_y_registrar  = _produccion_completar_y_registrar,
     )
 
     async def receive_from_recall():
