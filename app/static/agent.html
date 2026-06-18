@@ -314,6 +314,10 @@ function onAudioStreamEnd() {
     audioDoneSent = true;
     setStatus('listening', 'Escuchando...');
     speakingRing.classList.remove('active');
+    if (pendingHideScreenshot) {
+      pendingHideScreenshot = false;
+      hideScreenshot();
+    }
   }, remaining);
 }
 
@@ -330,10 +334,13 @@ function stopAudioNow() {
 const screenshotView = document.getElementById('screenshot-view');
 const screenshotImg  = document.getElementById('screenshot-img');
 
+let pendingHideScreenshot = false;
+
 function showScreenshot(b64) {
   screenshotImg.src = 'data:image/jpeg;base64,' + b64;
   screenshotView.classList.add('active');
   loadingScreen.classList.add('hidden');
+  pendingHideScreenshot = false;  // llegó una nueva, cancela cualquier ocultamiento pendiente
 }
 
 function hideScreenshot() {
@@ -363,7 +370,9 @@ function connect() {
         break;
 
       case 'screenshot_end':
-        setTimeout(hideScreenshot, 3000);
+        // No la ocultamos todavía — esperamos a que termine el audio de la
+        // narración (onAudioStreamEnd) para no destapar el iframe a mitad de frase.
+        pendingHideScreenshot = true;
         break;
 
       case 'audio_pcm':

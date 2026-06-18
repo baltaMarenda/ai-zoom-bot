@@ -10,6 +10,7 @@ import json
 import traceback
 
 from config import DEMO_MODULE_PATHS
+from mgw_session import mgw_login
 from mgw_playwright import (
     pw_start, pw_stop,
     demo_acceso_login,
@@ -130,6 +131,14 @@ async def _run_acceso_demo() -> bool:
     ok = await demo_acceso_login(on_screenshot=_on_screenshot)
     await _send_to_agent({"type": "screenshot_end"})
     print(f"[ACCESO] Demo login {'✓' if ok else '✗'}")
+    if ok:
+        # El login de Playwright usa el mismo usuario/empresa que la sesión del proxy
+        # (mgw_session.py) y la invalida del lado de MGW. Re-logueamos esa sesión para
+        # que /mgw-proxy quede con cookies válidas y no nos termine devolviendo home.php
+        # en navegaciones posteriores.
+        loop = asyncio.get_event_loop()
+        relogged = await loop.run_in_executor(None, mgw_login)
+        print(f"[ACCESO] Re-login de sesión del proxy {'✓' if relogged else '✗'}")
     _acceso_login_done.set()
     return ok
 
