@@ -417,10 +417,27 @@ FLUJO DE LA CONVERSACIÓN:
      Acá vemos todo organizado en columnas el stock del dia, ingresos, ventas, envíosos entre sucursales si es que tenemos mas de una sucursal, egresos, producció, que es lo que producimos que ahora lo vamos a explicar, y la existencia que se calcula restandole las ventas a los ingresos
      "
 
-   MÓDULO 10 — PRODUCCIÓN (2 pasos atómicos)
-   Anuncio: "La sección de producción — para negocios que fabrican sus productos."
-   Paso 1 → produccion_crear_plantilla() — describí la plantilla Milanesas con sus ingredientes.
-   Paso 2 → produccion_registrar() — describí que el stock de insumos bajó y el de Milanesas subió automáticamente.
+   MÓDULO 10 — PRODUCCIÓN (6 pasos atómicos, EN ORDEN, sin saltear ninguno)
+   Anuncio (decí EXACTAMENTE esto, sin agregar ni quitar nada, ANTES de llamar cualquier tool):
+     "Ahora te muestro lo que te decía antes, la sección de producción."
+   Tool: produccion_ver_plantillas()
+   Post-tool: decí EXACTAMENTE (sin agregar ni quitar nada):
+     "Aca vamos a tener todas las plantillas de las cosas que nosotros produzcamos, como por ejemplo milanesas, o una plantilla de desposte si despostas medias res o mismo cajones de pollo. Cada plantilla va a tener cargado que es lo que nosotros usamos para producir cierta cantidad de producto"
+   Tool: produccion_ver_detalle_plantilla()
+   Post-tool: decí EXACTAMENTE (sin agregar ni quitar nada):
+     "Aca podemos ver en la plantilla que tengo de ejemplo de milanesas, que con 4 huevos, 1 kilo de pan rallado y 1 kilo de Pechuga de pollo por ejemplo, saco 1kg de milanesas"
+   Tool: produccion_ir_a_produccion()
+   Post-tool: decí EXACTAMENTE (sin agregar ni quitar nada):
+     "Entonces para usar esta plantilla vamos a ir a la sección de Producción Producción, donde vamos a tener todas las producciones que hicimos anteriormente y la opción de hacer una nueva, que es lo que vamos a hacer ahora"
+   Tool: produccion_nueva_produccion()
+   Post-tool: decí EXACTAMENTE (sin agregar ni quitar nada):
+     "Cuando apretemos sobre nueva producción nos va a saltar esto donde vamos a elegir la plantilla que vamos a usar, en este caso milanesas"
+   Tool: produccion_seleccionar_plantilla()
+   Post-tool: decí EXACTAMENTE (sin agregar ni quitar nada):
+     "Despues vamos a indicar la cantidad que vamos a realizar, por ejemplo 1 kilo, seleccionar Salida de producción y apretar en agregar"
+   Tool: produccion_completar_y_registrar()
+   Post-tool: decí EXACTAMENTE (sin agregar ni quitar nada):
+     "Y como podemos ver ahi abajo ya vamos a tener la producción realizada, la cual va a impactar automáticamente en nuestro stock, tanto lo que utilizamos para la producción como la producción de milanesas que hicimos"
 
    MÓDULO 11 — ESTADÍSTICAS
    Anuncio: "Las estadísticas de ventas."
@@ -452,7 +469,7 @@ MODO TEST ACTIVADO — INSTRUCCIONES ESPECIALES (tienen prioridad absoluta sobre
   Anuncio: "El sistema es 100% web — se accede con empresa, usuario y contraseña desde cualquier dispositivo."
   Tool: navigate_to_module("ACCESO")
   Post-tool: describí la pantalla de ingreso que ven.
-- Después de LOGIN, saltá directo a MÓDULO 9. STOCK → 10. PRODUCCIÓN → 11. ESTADÍSTICAS → CIERRE
+- Después de LOGIN, saltá directo a MÓDULO 10. PRODUCCIÓN → 11. ESTADÍSTICAS → CIERRE
 """
 
 REALTIME_TOOLS = [
@@ -631,14 +648,38 @@ REALTIME_TOOLS = [
     },
     {
         "type": "function",
-        "name": "produccion_crear_plantilla",
-        "description": "Paso 1/2 de la demo de producción: crea la plantilla 'Milanesas' con Pechuga + Huevos como entradas y Milanesas como salida.",
+        "name": "produccion_ver_plantillas",
+        "description": "Paso 1/6 de producción: navega a la lista de plantillas de producción.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
         "type": "function",
-        "name": "produccion_registrar",
-        "description": "Paso 2/2 de la demo de producción: registra una producción usando la plantilla 'Milanesas' (cantidad 1, tipo Salida de producción).",
+        "name": "produccion_ver_detalle_plantilla",
+        "description": "Paso 2/6 de producción: abre el detalle de la plantilla existente 'Milanesas' para mostrar sus ingredientes.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "produccion_ir_a_produccion",
+        "description": "Paso 3/6 de producción: navega a la sección de Producción (historial de producciones).",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "produccion_nueva_produccion",
+        "description": "Paso 4/6 de producción: abre el formulario de nueva producción.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "produccion_seleccionar_plantilla",
+        "description": "Paso 5/6 de producción: selecciona la plantilla 'Milanesas' en el formulario de nueva producción.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "produccion_completar_y_registrar",
+        "description": "Paso 6/6 de producción: completa cantidad=1 y tipo=Salida de producción, aprieta Agregar y recarga la lista para mostrar el resultado.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
 ]

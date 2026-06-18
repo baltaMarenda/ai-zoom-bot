@@ -64,8 +64,12 @@ class RealtimeBridge:
         proveedores_abrir_carrito        = None,   # async fn() → str
         proveedores_cargar_producto      = None,   # async fn() → str
         proveedores_finalizar_detalle    = None,   # async fn() → str
-        produccion_crear_plantilla  = None,   # async fn() → str
-        produccion_registrar        = None,   # async fn() → str
+        produccion_ver_plantillas         = None,   # async fn() → str
+        produccion_ver_detalle_plantilla  = None,   # async fn() → str
+        produccion_ir_a_produccion        = None,   # async fn() → str
+        produccion_nueva_produccion       = None,   # async fn() → str
+        produccion_seleccionar_plantilla  = None,   # async fn() → str
+        produccion_completar_y_registrar  = None,   # async fn() → str
     ):
         self._send_to_agent      = send_to_agent
         self._send_navigate      = send_navigate
@@ -101,8 +105,12 @@ class RealtimeBridge:
         self._proveedores_abrir_carrito      = proveedores_abrir_carrito
         self._proveedores_cargar_producto    = proveedores_cargar_producto
         self._proveedores_finalizar_detalle  = proveedores_finalizar_detalle
-        self._produccion_crear_plantilla = produccion_crear_plantilla
-        self._produccion_registrar       = produccion_registrar
+        self._produccion_ver_plantillas        = produccion_ver_plantillas
+        self._produccion_ver_detalle_plantilla = produccion_ver_detalle_plantilla
+        self._produccion_ir_a_produccion       = produccion_ir_a_produccion
+        self._produccion_nueva_produccion      = produccion_nueva_produccion
+        self._produccion_seleccionar_plantilla = produccion_seleccionar_plantilla
+        self._produccion_completar_y_registrar = produccion_completar_y_registrar
 
         self._ws                    = None
         self._pw_started            = False
@@ -544,16 +552,37 @@ class RealtimeBridge:
                 result = await self._proveedores_finalizar_detalle() if self._proveedores_finalizar_detalle else "Detalle finalizado."
                 await self._on_screenshot_end()
 
-            elif name == "produccion_crear_plantilla":
-                print("[DEMO] Producción: creando plantilla Milanesas...")
+            elif name == "produccion_ver_plantillas":
+                print("[DEMO] Producción: viendo plantillas...")
+                await self._do_navigate("PRODUCCIÓN")
                 await self._ensure_playwright()
                 await self._wait_for_audio_done(timeout=20.0)
-                result = await self._produccion_crear_plantilla() if self._produccion_crear_plantilla else "Plantilla creada."
+                result = await self._produccion_ver_plantillas() if self._produccion_ver_plantillas else "Plantillas de producción mostradas."
 
-            elif name == "produccion_registrar":
-                print("[DEMO] Producción: registrando producción...")
+            elif name == "produccion_ver_detalle_plantilla":
+                print("[DEMO] Producción: viendo detalle de la plantilla Milanesas...")
                 await self._wait_for_audio_done(timeout=20.0)
-                result = await self._produccion_registrar() if self._produccion_registrar else "Producción registrada."
+                result = await self._produccion_ver_detalle_plantilla() if self._produccion_ver_detalle_plantilla else "Detalle de plantilla mostrado."
+
+            elif name == "produccion_ir_a_produccion":
+                print("[DEMO] Producción: navegando a producción...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._produccion_ir_a_produccion() if self._produccion_ir_a_produccion else "Sección de producción mostrada."
+
+            elif name == "produccion_nueva_produccion":
+                print("[DEMO] Producción: abriendo formulario de nueva producción...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._produccion_nueva_produccion() if self._produccion_nueva_produccion else "Formulario de nueva producción abierto."
+
+            elif name == "produccion_seleccionar_plantilla":
+                print("[DEMO] Producción: seleccionando plantilla Milanesas...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._produccion_seleccionar_plantilla() if self._produccion_seleccionar_plantilla else "Plantilla seleccionada."
+
+            elif name == "produccion_completar_y_registrar":
+                print("[DEMO] Producción: completando y registrando producción...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._produccion_completar_y_registrar() if self._produccion_completar_y_registrar else "Producción registrada."
                 await self._on_screenshot_end()
 
             else:
