@@ -752,15 +752,14 @@ async def _demo_clientes_abrir_formulario(on_screenshot=None) -> bool:
 
 async def demo_estadisticas_ventas(on_screenshot=None) -> bool:
     """
-    Navega a Estadísticas > Ventas, asegura la fecha de hoy y aprieta Buscar.
-    Toma screenshots del formulario inicial y de los resultados.
+    Navega a Estadísticas > Ventas, fija el rango desde el 31/05 hasta hoy y aprieta Buscar.
+    Hace scroll hasta la tabla de productos vendidos y toma el screenshot del resultado.
     """
     if _page is None:
         return False
 
-    import datetime
     base = MGW_URL.rstrip("/")
-    hoy = datetime.date.today().strftime("%d/%m/%Y")
+    desde = "2026-05-31"
 
     async def snap(delay: float = 0.0):
         await _snap(on_screenshot, delay)
@@ -775,15 +774,13 @@ async def demo_estadisticas_ventas(on_screenshot=None) -> bool:
         await asyncio.sleep(2.0)
         await snap()  # vista inicial con los filtros visibles
 
-        # Poner fecha de hoy en los campos de fecha que estén vacíos
+        print(f"[PW] [ESTAD] Fijando rango_desde={desde}...")
         await _page.evaluate(f"""() => {{
-            document.querySelectorAll('input[name*="fecha"], input[id*="fecha"]')
-                .forEach(inp => {{
-                    if (!inp.value) {{
-                        inp.value = '{hoy}';
-                        inp.dispatchEvent(new Event('change', {{bubbles: true}}));
-                    }}
-                }});
+            const el = document.getElementById('rango_desde');
+            if (el) {{
+                el.value = '{desde}';
+                el.dispatchEvent(new Event('change', {{bubbles: true}}));
+            }}
         }}""")
 
         print("[PW] [ESTAD] Clic en Buscar...")
@@ -796,7 +793,16 @@ async def demo_estadisticas_ventas(on_screenshot=None) -> bool:
             print("[PW] [ESTAD] Clic via JS fallback ✓")
 
         await asyncio.sleep(3.0)
-        await snap()  # resultados de ventas del día
+
+        print("[PW] [ESTAD] Scroll hasta la tabla de productos...")
+        try:
+            await _page.locator("#tabla_productos_wrapper").scroll_into_view_if_needed(timeout=5000)
+        except Exception:
+            await _page.evaluate(
+                "document.getElementById('tabla_productos_wrapper')?.scrollIntoView({block: 'center'});"
+            )
+        await asyncio.sleep(0.5)
+        await snap()  # tabla de productos vendidos en el rango
 
         print("[PW] [ESTAD] Demo estadísticas ventas ✓")
         return True

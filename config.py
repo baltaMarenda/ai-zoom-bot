@@ -297,7 +297,7 @@ FLUJO DE LA CONVERSACIÓN:
    PROHIBIDO: hacer una explicación larga ANTES de llamar la tool. La explicación va DESPUÉS del resultado.
 
    MÓDULO 1 — LOGIN (ACCESO)
-   Anuncio: "El sistema es 100% web — se accede con empresa, usuario y contraseña desde cualquier dispositivo."
+   Anuncio: "El sistema es 100% web — lo que nos permite acceder desde cualquier dispositivo."
    Tool: navigate_to_module("ACCESO")
    Post-tool: describí la pantalla de ingreso que ven.
 
@@ -417,7 +417,7 @@ FLUJO DE LA CONVERSACIÓN:
      Acá vemos todo organizado en columnas el stock del dia, ingresos, ventas, envíosos entre sucursales si es que tenemos mas de una sucursal, egresos, producció, que es lo que producimos que ahora lo vamos a explicar, y la existencia que se calcula restandole las ventas a los ingresos
      "
 
-   MÓDULO 10 — PRODUCCIÓN (6 pasos atómicos, EN ORDEN, sin saltear ninguno)
+    MÓDULO 10 — PRODUCCIÓN (6 pasos atómicos, EN ORDEN, sin saltear ninguno)
    Anuncio (decí EXACTAMENTE esto, sin agregar ni quitar nada, ANTES de llamar cualquier tool):
      "Ahora te muestro lo que te decía antes, la sección de producción."
    Tool: produccion_ver_plantillas()
@@ -440,9 +440,12 @@ FLUJO DE LA CONVERSACIÓN:
      "Y como podemos ver ahi abajo ya vamos a tener la producción realizada, la cual va a impactar automáticamente en nuestro stock, tanto lo que utilizamos para la producción como la producción de milanesas que hicimos"
 
    MÓDULO 11 — ESTADÍSTICAS
-   Anuncio: "Las estadísticas de ventas."
    Tool: demo_estadisticas()
-   Post-tool: describí los resultados del día que se ven en pantalla — ventas por producto, grupo y forma de pago.
+   Anuncio (decí EXACTAMENTE esto, sin agregar ni quitar nada, ANTES de llamar la tool):
+     "Aca en Estadisticas Ventas podemos ver todo lo que vendimos filtrando por responsable de la venta, grupo del producto que se vendió, tipo de cierre ya sea presupuesto, factura electrónica y demás. Si fue consumidor final o cuenta corriente.
+     Tambien podemos filtrar por formas de pago, si se le hizo descuento, podemos ver también las ventas anuladas, y demas filtros."
+   Post-tool: decí EXACTAMENTE (sin agregar ni quitar nada):
+     "Aca filtramos por ejemplo todas lo que vendimos sin ningún filtro extra desde el 31 de mayo hasta el dia de hoy"
 
 4. CIERRE: Preguntá si quedó alguna duda o pregunta sobre la demo. Respondé con naturalidad lo que haga falta. Despedirte con calidez. NO pidas datos de contacto.
 
@@ -469,7 +472,7 @@ MODO TEST ACTIVADO — INSTRUCCIONES ESPECIALES (tienen prioridad absoluta sobre
   Anuncio: "El sistema es 100% web — se accede con empresa, usuario y contraseña desde cualquier dispositivo."
   Tool: navigate_to_module("ACCESO")
   Post-tool: describí la pantalla de ingreso que ven.
-- Después de LOGIN, saltá directo a MÓDULO 10. PRODUCCIÓN → 11. ESTADÍSTICAS → CIERRE
+- Después de LOGIN, saltá directo a MÓDULO 11 — ESTADÍSTICAS --> CIERRE.
 """
 
 REALTIME_TOOLS = [
@@ -552,7 +555,7 @@ REALTIME_TOOLS = [
     {
         "type": "function",
         "name": "demo_estadisticas",
-        "description": "Muestra estadísticas de ventas del día con Playwright: navega a la sección, pone la fecha de hoy y aprieta Buscar para mostrar resultados reales. Llamá esto con el anuncio seco.",
+        "description": "Muestra estadísticas de ventas con Playwright: navega a la sección, pone el rango desde el 31/05 hasta hoy en 'rango_desde', aprieta Buscar y hace scroll hasta la tabla de productos vendidos para mostrar resultados reales. Llamá esto con el anuncio seco.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
@@ -648,38 +651,14 @@ REALTIME_TOOLS = [
     },
     {
         "type": "function",
-        "name": "produccion_ver_plantillas",
-        "description": "Paso 1/6 de producción: navega a la lista de plantillas de producción.",
+        "name": "produccion_crear_plantilla",
+        "description": "Paso 1/2 de la demo de producción: crea la plantilla 'Milanesas' con Pechuga + Huevos como entradas y Milanesas como salida.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
         "type": "function",
-        "name": "produccion_ver_detalle_plantilla",
-        "description": "Paso 2/6 de producción: abre el detalle de la plantilla existente 'Milanesas' para mostrar sus ingredientes.",
-        "parameters": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "type": "function",
-        "name": "produccion_ir_a_produccion",
-        "description": "Paso 3/6 de producción: navega a la sección de Producción (historial de producciones).",
-        "parameters": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "type": "function",
-        "name": "produccion_nueva_produccion",
-        "description": "Paso 4/6 de producción: abre el formulario de nueva producción.",
-        "parameters": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "type": "function",
-        "name": "produccion_seleccionar_plantilla",
-        "description": "Paso 5/6 de producción: selecciona la plantilla 'Milanesas' en el formulario de nueva producción.",
-        "parameters": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "type": "function",
-        "name": "produccion_completar_y_registrar",
-        "description": "Paso 6/6 de producción: completa cantidad=1 y tipo=Salida de producción, aprieta Agregar y recarga la lista para mostrar el resultado.",
+        "name": "produccion_registrar",
+        "description": "Paso 2/2 de la demo de producción: registra una producción usando la plantilla 'Milanesas' (cantidad 1, tipo Salida de producción).",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
 ]
