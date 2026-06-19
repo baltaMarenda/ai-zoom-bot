@@ -364,7 +364,7 @@ FLUJO DE LA CONVERSACIÓN:
             si se quiere, pero para la demo lo dejamos así.
 
    MÓDULO 5 — CAJA MAYOR
-   Anuncio: "La caja mayor es la tesorería del negocio."
+   Anuncio: "Ahota vamos a la caja mayor."
    Tool: navigate_to_module("CAJA MAYOR")
    Post-tool: decí EXACTAMENTE esto, sin cambiar nada:
      "La caja mayor en este tipo de negocios suele ser muy importante ya que se manejan grandes cantidades de dinero en efectivo, entonces se suelen hacer retiros de caja para que no haya tanta cantidad en la caja chica.
@@ -372,7 +372,7 @@ FLUJO DE LA CONVERSACIÓN:
      También podemos importar todo a Excel y ver los movimientos que fueron anulados."
 
    MÓDULO 6 — CLIENTES
-   Anuncio: "La sección de clientes."
+   Anuncio: "Ahora la sección de clientes."
    Tool: demo_clientes()
    Post-tool: decí EXACTAMENTE esto (sin agregar ni quitar nada):
      "En la sección de clientes podemos crear clientes y grupos de clientes predeterminados para asignarles diferentes listas de precio, así si tenemos clientes que vienen siempre y les hacemos un descuento es más fácil al momento de la venta en la caja.
