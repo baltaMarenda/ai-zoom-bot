@@ -14,7 +14,17 @@
       "Bash(python3 -m py_compile config.py bot.py realtime_bridge.py mgw_playwright.py)",
       "Bash(python3 -m py_compile config.py mgw_playwright.py)",
       "Bash(python3 -m py_compile config.py)",
-      "Bash(python3 -m py_compile /Users/baltazarmarenda/Downloads/ai-zoom-bot/config.py)"
+      "Bash(python3 -m py_compile /Users/baltazarmarenda/Downloads/ai-zoom-bot/config.py)",
+      "Bash(python3 -m py_compile realtime_bridge.py)",
+      "Bash(python3 -m py_compile /Users/baltazarmarenda/Downloads/ai-zoom-bot/realtime_bridge.py)",
+      "Bash(python3 -m py_compile config.py realtime_bridge.py)",
+      "WebFetch(domain:docs.recall.ai)",
+      "WebFetch(domain:platform.openai.com)",
+      "WebFetch(domain:developers.openai.com)",
+      "WebSearch",
+      "Bash(python3 -c \"import numpy\")",
+      "Bash(python3 -c \"import audioop\")",
+      "Bash(python3 *)"
     ]
   }
 }

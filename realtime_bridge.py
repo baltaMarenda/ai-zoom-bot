@@ -5,10 +5,12 @@ Maneja STT + LLM + TTS en un solo WebSocket, con barge-in nativo y function call
 """
 import asyncio
 import base64
+import difflib
 import json
 import time
 import traceback
 
+import numpy as np
 import websockets
 
 from config import (
@@ -19,6 +21,49 @@ from config import (
     DEMO_MODULE_PATHS,
 )
 
+# Recall.ai manda audio_separate_raw a 16kHz mono PCM16, pero la Realtime API
+# de OpenAI solo acepta audio/pcm a 24kHz como input. Sin resamplear, el audio
+# le llega "acelerado" (interpretado a 24kHz siendo en realidad 16kHz), lo que
+# degrada el VAD y la transcripción — entre otras cosas, falla en detectar el
+# fin de turno de forma confiable.
+_RECALL_SAMPLE_RATE = 16000
+_OPENAI_SAMPLE_RATE = 24000
+
+
+def _resample_16k_to_24k(pcm16: bytes) -> bytes:
+    if not pcm16:
+        return pcm16
+    samples = np.frombuffer(pcm16, dtype="<i2")
+    if samples.size == 0:
+        return pcm16
+    n_out = int(round(samples.size * _OPENAI_SAMPLE_RATE / _RECALL_SAMPLE_RATE))
+    x_old = np.arange(samples.size)
+    x_new = np.linspace(0, samples.size - 1, n_out)
+    resampled = np.interp(x_new, x_old, samples.astype(np.float32))
+    return resampled.astype("<i2").tobytes()
+
+
+# Bias de vocabulario para gpt-4o-transcribe (ver _on_session_created). Cuando el audio
+# de un turno no tiene voz real (ruido, cola de eco, turno abierto por error), el modelo
+# de transcripción "autocompleta" devolviendo este mismo texto como si fuera lo que dijo
+# el usuario — es una alucinación conocida de Whisper/gpt-4o-transcribe ante audio sin
+# contenido. _is_prompt_echo() detecta esos casos para no loguearlos como habla real.
+TRANSCRIPTION_PROMPT = (
+    "Mi Gestión Web, MGW, caja, balanza, ARCA, AFIP, presupuesto, factura electrónica, "
+    "FCE, F8, F4, stock, proveedores, producción, vuelto"
+)
+
+
+def _is_prompt_echo(transcript: str) -> bool:
+    norm = transcript.strip().strip(".,").lower()
+    # Una palabra suelta del rubro ("caja", "stock") es habla real perfectamente posible —
+    # solo tratamos como alucinación una porción larga/multi-palabra que coincide con el
+    # prompt, no cualquier substring corto (sino "caja" sola ya matchearía siempre).
+    if len(norm) < 20:
+        return False
+    prompt_norm = TRANSCRIPTION_PROMPT.lower()
+    return norm in prompt_norm or difflib.SequenceMatcher(None, norm, prompt_norm).ratio() > 0.6
+
 
 class RealtimeBridge:
     """
@@ -27,6 +72,18 @@ class RealtimeBridge:
     El caller (bot.py) crea una instancia por sesión de Recall y llama a run(audio_queue).
     El bridge maneja toda la lógica de audio, tools y eventos de forma autónoma.
     """
+
+    # Backstop: si no llega audio nuevo en este lapso con un turno de usuario abierto,
+    # forzamos el commit manualmente. Cubre el caso en que Recall deja de mandar paquetes
+    # durante silencio real (p.ej. DTX) y el VAD del servidor nunca llega a evaluarlo.
+    # Tiene que ser bastante más laxo que una pausa normal al hablar (respirar, pensar
+    # la frase) — con 0.9s cortaba turnos a mitad de oración y partía la transcripción.
+    _TURN_GAP_TIMEOUT = 2.5
+
+    # La API rechaza un commit si el buffer tiene menos de esto (error
+    # input_audio_buffer_commit_empty). Si el watchdog dispara con menos que esto
+    # acumulado, no hay nada real que comitear.
+    _MIN_COMMIT_MS = 100.0
 
     def __init__(
         self,
@@ -117,13 +174,21 @@ class RealtimeBridge:
         self._is_speaking           = False   # True mientras la API envía audio de respuesta
         self._barge_in_active       = False   # True desde que se detecta barge-in hasta response.done/cancelled
         self._mute_until            = 0.0     # monotonic timestamp; drops audio chunks until then
-        self._main_session_ready    = False   # True después del primer session.updated exitoso
         self._last_transcript       = ""      # último transcript de Malena (para detectar preguntas)
         self._auto_continue_task: asyncio.Task | None = None
         self._demo_started          = False   # True después del primer navigate_to_module
         self._tool_is_running       = False   # True mientras _handle_tool está ejecutando
         # call_id → name (para asociar arguments.done con el nombre de la tool)
         self._pending_calls: dict[str, str] = {}
+
+        self._response_active       = False   # True entre response.created y response.done/cancelled
+        self._response_has_audio    = False   # True si la respuesta activa ya emitió algún audio.delta
+        self._pending_response_reason: str | None = None  # motivo de un response.create diferido por respuesta activa
+        self._last_response_create_reason = ""    # su motivo, para reintentarlo si rebota por conflicto
+        self._user_turn_open        = False   # True entre speech_started y speech_stopped (o commit forzado)
+        self._last_user_audio_ts    = 0.0      # monotonic ts del último chunk de audio real reenviado a la API
+        self._pending_audio_ms      = 0.0      # ms de audio real acumulado en el buffer desde el último commit/clear
+        self._nudge_pending         = False   # True si ya hay un nudge "Continuá con el protocolo" sin responder en la conversación
 
     # ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -146,6 +211,7 @@ class RealtimeBridge:
                     await asyncio.gather(
                         self._send_audio_loop(ws, audio_queue),
                         self._receive_loop(ws),
+                        self._turn_watchdog(ws),
                     )
                 # audio_queue recibió None (Recall desconectó) — salida limpia
                 break
@@ -183,6 +249,9 @@ class RealtimeBridge:
             try:
                 if time.monotonic() < self._mute_until:
                     continue  # ventana anti-eco: descartar chunk
+                self._last_user_audio_ts = time.monotonic()
+                chunk = _resample_16k_to_24k(chunk)
+                self._pending_audio_ms += len(chunk) / 2 / _OPENAI_SAMPLE_RATE * 1000
                 b64 = base64.b64encode(chunk).decode()
                 await ws.send(json.dumps({
                     "type": "input_audio_buffer.append",
@@ -191,6 +260,43 @@ class RealtimeBridge:
             except Exception as e:
                 print(f"[RT] Error enviando audio: {e}")
                 break
+
+    def _reset_pending_audio(self):
+        self._pending_audio_ms = 0.0
+
+    async def _turn_watchdog(self, ws):
+        """Backstop de fin de turno: si Recall deja de mandar paquetes de audio durante
+        un silencio real (p.ej. DTX de WebRTC), el VAD del servidor nunca recibe frames
+        para evaluar el silencio y el turno queda abierto indefinidamente. Si pasa
+        _TURN_GAP_TIMEOUT sin audio nuevo mientras hay un turno abierto, forzamos el
+        commit manualmente."""
+        while True:
+            await asyncio.sleep(0.25)
+            if not self._user_turn_open:
+                continue
+            if time.monotonic() < self._mute_until:
+                continue
+            gap = time.monotonic() - self._last_user_audio_ts
+            if gap >= self._TURN_GAP_TIMEOUT:
+                self._user_turn_open = False
+                if self._pending_audio_ms < self._MIN_COMMIT_MS:
+                    # No hay nada real para comitear (p.ej. un speech_started disparado por
+                    # ruido que ya quedó vaciado por otro clear) — comitear esto solo nos
+                    # devuelve "buffer too small" de la API y no hay nada que narrar.
+                    print(f"[RT] Watchdog: turno abierto sin audio real ({self._pending_audio_ms:.0f}ms) — se descarta sin commit")
+                    self._reset_pending_audio()
+                    continue
+                print(f"[RT] Watchdog: sin audio nuevo hace {gap:.2f}s con turno abierto — forzando fin de turno")
+                try:
+                    await ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
+                    self._reset_pending_audio()
+                    # El commit manual NO dispara create_response (eso solo pasa cuando
+                    # el VAD del servidor detecta speech_stopped por su cuenta) — sin este
+                    # request_response explícito, el turno queda comiteado pero Malena
+                    # nunca contesta hasta que vuelve a fluir audio real.
+                    await self._request_response(ws, "watchdog gap timeout")
+                except Exception as e:
+                    print(f"[RT] Error forzando commit: {e}")
 
     # ── Recepción de eventos ───────────────────────────────────────────────────
 
@@ -213,6 +319,7 @@ class RealtimeBridge:
             delta = event.get("delta", "")
             if delta and not self._barge_in_active:
                 self._is_speaking = True
+                self._response_has_audio = True
                 await self._send_to_agent({
                     "type": "audio_pcm",
                     "data": delta,
@@ -228,18 +335,31 @@ class RealtimeBridge:
             # Abrir ventana anti-eco: descarta audio por 400ms para que el eco
             # de la voz de Malena no llegue a la API como si fuera el usuario.
             self._mute_until = time.monotonic() + 0.8
-            try:
-                await ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
-            except Exception:
-                pass
-            # Auto-continuar solo durante la demo y cuando no hay tool corriendo
-            if self._demo_started and not self._tool_is_running:
-                self._cancel_auto_continue()
-                self._auto_continue_task = asyncio.create_task(self._auto_continue())
+            # Si el usuario tiene un turno abierto (nos está hablando encima / barge-in),
+            # NO limpiar el buffer — borraría su audio real todavía no comiteado.
+            if not self._user_turn_open:
+                try:
+                    await ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
+                    self._reset_pending_audio()
+                except Exception:
+                    pass
+            # NOTA: el auto-continue NO se dispara acá. Cuando una respuesta combina
+            # narración + tool call (protocolo "decí Y LLAMÁ la tool en la misma
+            # respuesta"), response.output_audio.done llega ANTES que
+            # response.function_call_arguments.done — en ese momento _tool_is_running
+            # todavía es False, así que programar el auto-continue acá dispara un
+            # response.create fantasma que choca con el tool call real que está en
+            # curso. Se programa en response.done, cuando ya se sabe con certeza si
+            # esta respuesta disparó una tool o no.
+
+        elif etype == "response.created":
+            self._response_active = True
+            self._response_has_audio = False
 
         elif etype == "response.cancelled":
             self._is_speaking = False
             self._barge_in_active = False
+            self._on_response_ended(ws)
 
         elif etype == "response.output_audio_transcript.done":
             transcript = event.get("transcript", "")
@@ -249,6 +369,11 @@ class RealtimeBridge:
 
         elif etype == "input_audio_buffer.speech_started":
             self._cancel_auto_continue()
+            # Cualquier nudge pendiente queda obsoleto frente a un turno real del usuario —
+            # si la demo lo necesita de nuevo más adelante, se inserta uno fresco.
+            self._nudge_pending = False
+            self._user_turn_open = True
+            self._last_user_audio_ts = time.monotonic()
             if self._is_speaking:
                 print("[RT] Barge-in — deteniendo audio")
                 self._barge_in_active = True
@@ -258,6 +383,7 @@ class RealtimeBridge:
 
         elif etype == "input_audio_buffer.speech_stopped":
             print("[RT] 🎤 Usuario: [fin de turno]")
+            self._user_turn_open = False
 
         elif etype == "response.output_item.added":
             item = event.get("item", {})
@@ -273,18 +399,34 @@ class RealtimeBridge:
             args_str = event.get("arguments", "{}")
             name     = self._pending_calls.pop(call_id, "")
             if name:
+                if not self._response_has_audio:
+                    # El modelo llamó la tool sin decir antes la frase del paso en esta
+                    # misma respuesta (incumple el protocolo del prompt). No hay forma de
+                    # recuperar el audio que faltó — solo lo dejamos visible en el log.
+                    print(f"[RT] ⚠️  Tool '{name}' llamada sin audio previo en esta respuesta")
                 # Mute audio while tool runs so VAD can't commit mid-execution speech
                 self._mute_until = time.monotonic() + 60.0
-                try:
-                    await ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
-                except Exception:
-                    pass
+                # No limpiar si hay un turno de usuario abierto — el audio real
+                # todavía no comiteado se perdería sin que el usuario haya terminado.
+                if not self._user_turn_open:
+                    try:
+                        await ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
+                        self._reset_pending_audio()
+                    except Exception:
+                        pass
                 self._tool_is_running = True
+                # Descartar cualquier response.create diferido de ANTES de esta tool —
+                # quedó pendiente de cuando esta misma respuesta todavía no había emitido
+                # el function call. Si se reintenta ahora, choca con el tool call que
+                # recién está arrancando (la API todavía no tiene su function_call_output).
+                # _send_tool_result/_send_nav_result van a pedir la siguiente respuesta
+                # cuando la tool termine — no se pierde nada.
+                self._pending_response_reason = None
                 asyncio.create_task(self._handle_tool(ws, call_id, name, args_str))
 
         elif etype == "conversation.item.input_audio_transcription.completed":
             transcript = event.get("transcript", "")
-            if transcript:
+            if transcript and not _is_prompt_echo(transcript):
                 print(f"[RT] 🎤 Usuario: '{transcript}'")
 
         elif etype == "response.done":
@@ -292,20 +434,39 @@ class RealtimeBridge:
             if status == "cancelled":
                 print(f"[RT] Respuesta cancelada (barge-in)")
                 self._barge_in_active = False
+            elif self._response_has_audio:
+                # El modelo reaccionó de verdad (al nudge, a una tool o al usuario) — el
+                # nudge pendiente, si lo había, ya cumplió su propósito.
+                self._nudge_pending = False
+            if status != "cancelled" and self._demo_started and not self._tool_is_running:
+                # Auto-continuar solo durante la demo y cuando esta respuesta no
+                # disparó una tool (si la disparó, _send_tool_result/_send_nav_result
+                # se encargan de pedir la siguiente respuesta cuando la tool termine).
+                self._cancel_auto_continue()
+                self._auto_continue_task = asyncio.create_task(self._auto_continue())
+            self._on_response_ended(ws)
 
         elif etype == "error":
             err = event.get("error", {})
             msg = err.get("message", "")
+            code = err.get("code", "")
             if "input_audio_transcription" in msg:
                 print(f"[RT] ℹ️  Transcripción de usuario no soportada por este modelo")
+            elif "active response" in msg.lower():
+                self._response_active = True
+                # Nuestro pedido (tool_result, nav_result, auto-continue, watchdog) chocó
+                # con una respuesta que ya estaba activa — server auto-creando la suya por
+                # turn_detection.create_response, u otro pedido nuestro que todavía no
+                # terminó. Sea cual sea el motivo, ese pedido representa un resultado real
+                # (narración de un tool, continuación de la demo) que si no se reintenta se
+                # pierde para siempre y la demo queda muda hasta que el usuario hable.
+                # Reintentar de más en el caso ambiguo solo genera un response.create extra
+                # inofensivo — mucho mejor que perder el turno en silencio.
+                if not self._pending_response_reason:
+                    print(f"[RT] ⚠️  response.create rechazado (conflicto) — reintentando ({self._last_response_create_reason})")
+                    self._pending_response_reason = self._last_response_create_reason
             else:
-                print(f"[RT] ⚠️  Error: {err.get('code')} — {msg}")
-
-        elif etype == "session.updated":
-            if not self._main_session_ready:
-                self._main_session_ready = True
-                # Intentar habilitar transcripción como update separado — si falla, no rompe nada
-                asyncio.create_task(self._try_enable_transcription(ws))
+                print(f"[RT] ⚠️  Error: {code} — {msg}")
 
         elif etype == "conversation.item.created":
             item = event.get("item", {})
@@ -314,23 +475,20 @@ class RealtimeBridge:
                     if part.get("type") == "input_text" and part.get("text"):
                         print(f"[RT] 🎤 Usuario: '{part['text']}'")
                     elif part.get("type") == "input_audio" and part.get("transcript"):
-                        print(f"[RT] 🎤 Usuario: '{part['transcript']}'")
-
-        elif etype == "conversation.item.input_audio_transcription.completed":
-            transcript = event.get("transcript", "")
-            if transcript:
-                print(f"[RT] 🎤 Usuario: '{transcript}'")
+                        if not _is_prompt_echo(part["transcript"]):
+                            print(f"[RT] 🎤 Usuario: '{part['transcript']}'")
 
         else:
             # Log eventos no manejados para diagnóstico
             _skip = {"input_audio_buffer.committed", "input_audio_buffer.cleared",
                      "conversation.item.added",
                      "conversation.item.done",
-                     "response.created",
                      "response.output_item.done", "response.content_part.added",
                      "response.content_part.done", "rate_limits.updated",
                      "response.output_audio_transcript.delta",
-                     "response.function_call_arguments.delta"}
+                     "response.function_call_arguments.delta",
+                     "conversation.item.input_audio_transcription.delta",
+                     "session.updated"}
             if etype not in _skip:
                 print(f"[RT] Evento no manejado: {etype}")
 
@@ -340,6 +498,35 @@ class RealtimeBridge:
         if self._auto_continue_task and not self._auto_continue_task.done():
             self._auto_continue_task.cancel()
         self._auto_continue_task = None
+
+    def _on_response_ended(self, ws):
+        """Llamado en response.done / response.cancelled. Si había un response.create
+        diferido (porque llegó mientras otra respuesta estaba activa), lo reintenta."""
+        self._response_active = False
+        if self._pending_response_reason:
+            reason = self._pending_response_reason
+            self._pending_response_reason = None
+            asyncio.create_task(self._request_response(ws, reason))
+
+    async def _request_response(self, ws=None, reason: str = ""):
+        """Pide una respuesta nueva a la API, evitando pisar una que ya esté en curso.
+        El servidor también dispara respuestas por su cuenta (turn_detection.create_response)
+        cuando el usuario termina de hablar; sin este guard, un response.create nuestro
+        puede chocar con esa respuesta automática y perderse en silencio."""
+        target_ws = ws or self._ws
+        if not target_ws:
+            return
+        if self._response_active:
+            print(f"[RT] response.create diferido ({reason}) — ya hay una respuesta activa")
+            self._pending_response_reason = reason
+            return
+        self._response_active = True
+        self._last_response_create_reason = reason
+        try:
+            await target_ws.send(json.dumps({"type": "response.create"}))
+        except Exception as e:
+            print(f"[RT] Error pidiendo respuesta ({reason}): {e}")
+            self._response_active = False
 
     async def _wait_for_audio_done(self, timeout: float = 30.0):
         """Espera a que agent.html termine de reproducir el audio actual."""
@@ -351,37 +538,52 @@ class RealtimeBridge:
             print("[RT] Timeout esperando audio_done del agente — continuando igual")
 
     async def _auto_continue(self):
-        """Si el usuario no habla después de que Malena termina, continuar la demo."""
-        delay = 12.0 if self._last_transcript.rstrip().endswith("?") else 5.0
+        """Si el usuario no habla después de que Malena termina, continuar la demo.
+
+        Pedir un response.create "pelado" (sin ítem nuevo en la conversación) suele
+        no alcanzar: el modelo no tiene nada nuevo a qué reaccionar y devuelve una
+        respuesta vacía (sin audio ni tool call) — hay que pedir varias seguidas
+        hasta que reaccione, lo que se percibe como pasos lentos con muchos
+        auto-continue en el medio. Insertar un mensaje system corto antes le da un
+        turno real al que reaccionar en vez de depender de que actúe sobre silencio.
+        """
+        delay = 8.0 if self._last_transcript.rstrip().endswith("?") else 1.5
         try:
             await asyncio.sleep(delay)
             await self._wait_for_audio_done(timeout=15.0)
             if self._ws:
                 print("[RT] Auto-continue: disparando siguiente respuesta...")
-                await self._ws.send(json.dumps({"type": "response.create"}))
+                # Si ya hay un nudge sin responder (la respuesta anterior volvió vacía),
+                # no apilar otro idéntico — eso entierra cualquier turno real del usuario
+                # que haya quedado en el medio bajo varias copias de "continuá ahora" y el
+                # modelo termina ignorando lo que el usuario dijo. Reintentamos la misma
+                # respuesta sobre el nudge que ya está en la conversación.
+                if not self._nudge_pending:
+                    self._nudge_pending = True
+                    try:
+                        await self._ws.send(json.dumps({
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "message",
+                                "role": "system",
+                                "content": [{
+                                    "type": "input_text",
+                                    "text": "Continuá con el siguiente paso del protocolo, ahora.",
+                                }],
+                            },
+                        }))
+                    except Exception as e:
+                        print(f"[RT] Error insertando nudge de auto-continue: {e}")
+                await self._request_response(self._ws, "auto-continue")
         except asyncio.CancelledError:
             pass
 
     # ── Configuración de sesión ────────────────────────────────────────────────
 
-    async def _try_enable_transcription(self, ws):
-        """Intenta habilitar transcripción de usuario como update separado. Si falla, no afecta la sesión."""
-        try:
-            await ws.send(json.dumps({
-                "type": "session.update",
-                "session": {
-                    "type": "realtime",
-                    "input_audio_transcription": {
-                        "model": "gpt-4o-transcribe",
-                        "language": "es",
-                        "prompt": "Conversación comercial en español rioplatense sobre software de gestión.",
-                    },
-                },
-            }))
-        except Exception as e:
-            print(f"[RT] No se pudo activar transcripción: {e}")
-
     async def _on_session_created(self, ws):
+        # Todo en un solo session.update: si la transcripción se manda en un update
+        # separado, ese segundo update reemplaza session.audio.input entero y borra
+        # el turn_detection/noise_reduction que configuramos acá.
         await ws.send(json.dumps({
             "type": "session.update",
             "session": {
@@ -389,6 +591,35 @@ class RealtimeBridge:
                 "instructions": REALTIME_SYSTEM_PROMPT,
                 "tools": REALTIME_TOOLS,
                 "tool_choice": "auto",
+                "audio": {
+                    "input": {
+                        # Recall manda 16kHz; _send_audio_loop resamplea a 24kHz antes
+                        # de mandarlo — es el único rate que soporta audio/pcm acá.
+                        "format": {"type": "audio/pcm", "rate": 24000},
+                        # Threshold más alto que el default (0.5): con 0.6 el ruido/eco de
+                        # una videollamada (sobre todo sin auriculares, la voz de Malena
+                        # rebotando en el micrófono del usuario) disparaba speech_started
+                        # falsos que cortaban a Malena a mitad de frase sin que el usuario
+                        # interrumpiera de verdad. 0.75 exige voz más fuerte/sostenida.
+                        "turn_detection": {
+                            "type": "server_vad",
+                            "threshold": 0.75,
+                            "prefix_padding_ms": 300,
+                            "silence_duration_ms": 500,
+                            "create_response": True,
+                            "interrupt_response": True,
+                        },
+                        "noise_reduction": {"type": "near_field"},
+                        "transcription": {
+                            "model": "gpt-4o-transcribe",
+                            "language": "es",
+                            # Lista de vocabulario, no una oración: un prompt en forma de frase
+                            # natural es lo que el modelo "autocompleta" alucinando cuando el
+                            # audio no tiene voz real (ruido, eco, turno abierto por error).
+                            "prompt": TRANSCRIPTION_PROMPT,
+                        },
+                    },
+                },
             },
         }))
 
@@ -404,7 +635,7 @@ class RealtimeBridge:
                 "content": [{"type": "input_text", "text": "Hola"}],
             },
         }))
-        await ws.send(json.dumps({"type": "response.create"}))
+        await self._request_response(ws, "saludo inicial")
         print("[RT] Sesión configurada, intro disparada ✓")
 
     async def inject_context(self, text: str):
@@ -419,7 +650,7 @@ class RealtimeBridge:
                         "content": [{"type": "input_text", "text": text}],
                     },
                 }))
-                await self._ws.send(json.dumps({"type": "response.create"}))
+                await self._request_response(self._ws, "inject_context")
             except Exception as e:
                 print(f"[RT] inject_context error: {e}")
 
@@ -603,10 +834,14 @@ class RealtimeBridge:
     async def _send_tool_result(self, ws, call_id: str, output: str):
         # Clear any audio accumulated during tool execution, resume with short mute
         self._mute_until = time.monotonic() + 1.5
-        try:
-            await ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
-        except Exception:
-            pass
+        # No limpiar si el usuario ya empezó a hablar (turno abierto) — borraría su
+        # audio real todavía no comiteado, dejando el watchdog sin nada para comitear.
+        if not self._user_turn_open:
+            try:
+                await ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
+                self._reset_pending_audio()
+            except Exception:
+                pass
         try:
             await ws.send(json.dumps({
                 "type": "conversation.item.create",
@@ -616,17 +851,19 @@ class RealtimeBridge:
                     "output": output,
                 },
             }))
-            await ws.send(json.dumps({"type": "response.create"}))
+            await self._request_response(ws, "tool_result")
         except Exception as e:
             print(f"[RT] Error enviando resultado de tool: {e}")
 
     async def _send_nav_result(self, ws, call_id: str, output: str):
         """Envía tool result de navigate_to_module SIN response.create — auto-continue lo dispara."""
         self._mute_until = time.monotonic() + 1.5
-        try:
-            await ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
-        except Exception:
-            pass
+        if not self._user_turn_open:
+            try:
+                await ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
+                self._reset_pending_audio()
+            except Exception:
+                pass
         try:
             await ws.send(json.dumps({
                 "type": "conversation.item.create",
