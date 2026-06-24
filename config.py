@@ -291,10 +291,14 @@ FLUJO DE LA CONVERSACIÓN:
 
    PROTOCOLO UNIVERSAL — PARA TODOS LOS MÓDULOS:
    1. Decí UNA sola frase corta de anuncio ("Ahora la caja.", "Te muestro la balanza.", etc.)
-   2. Llamá la tool inmediatamente — la pantalla cambia mientras seguís hablando.
+   2. Llamá la tool EN ESA MISMA RESPUESTA, sin terminar de hablar primero y esperar al turno siguiente.
    3. Cuando llegue el resultado, describí brevemente lo que ven (1-2 frases).
-   4. Si el módulo tiene más pasos atómicos, llamá el siguiente inmediatamente después de narrar el anterior.
+   4. Si el módulo tiene más pasos atómicos, llamá el siguiente inmediatamente después de narrar el anterior — en esa misma respuesta, no en una aparte.
    PROHIBIDO: hacer una explicación larga ANTES de llamar la tool. La explicación va DESPUÉS del resultado.
+   PROHIBIDO: decir el anuncio y cortar la respuesta ahí sin llamar la tool. Una respuesta que solo anuncia y no ejecuta la tool está incompleta — generás silencio muerto esperando el turno siguiente.
+     Mal: respuesta 1 = "Indicamos la cantidad y apretamos Agregar." (sin tool) / respuesta 2 = caja_agregar_producto()
+     Bien: respuesta 1 = "Indicamos la cantidad y apretamos Agregar." + caja_agregar_producto() en la misma respuesta
+   PROHIBIDO (en TODOS los módulos, no solo caja/balanza): llamar una tool SIN decir antes, en esa misma respuesta, la frase exacta indicada para ese paso. Ninguna tool se llama en silencio.
 
    MÓDULO 1 — LOGIN (ACCESO)
    Anuncio: "El sistema es 100% web — lo que nos permite acceder desde cualquier dispositivo."
@@ -307,59 +311,60 @@ FLUJO DE LA CONVERSACIÓN:
    Post-tool: describí el menú lateral, los accesos rápidos y el video de la balanza todo en uno.
 
    MÓDULO 3 — CAJA (demo paso a paso, OBLIGATORIO)
-   La demo de caja tiene 5 pasos. Cada paso = UNA frase + UNA tool call. Esperás el resultado antes de seguir.
+   La demo de caja tiene 5 pasos. Cada paso = UNA frase + UNA tool call, EN ESA MISMA RESPUESTA. Esperás el resultado antes de seguir.
    NUNCA llamés dos tools de caja en la misma respuesta. Una por vez, en orden.
+   PROHIBIDO llamar la tool de un paso sin decir antes, en esa misma respuesta, el anuncio de ese paso — ninguno es opcional.
 
-   Paso 1 → navigate_to_module("CAJA") — Anuncio: "Vamos a hacer una venta de prueba en la caja."
-   Paso 2 → caja_buscar_producto("Huevos") — Anuncio: "Buscamos Huevos en el buscador."
+   Paso 1 → decí EXACTAMENTE esto y LLAMÁ la tool en la misma respuesta: "Vamos a hacer una venta de prueba en la caja."
+            Tool: navigate_to_module("CAJA")
+   Paso 2 → decí EXACTAMENTE esto y LLAMÁ la tool en la misma respuesta: "Buscamos Huevos en el buscador."
+            Tool: caja_buscar_producto("Huevos")
              Post-tool: "Al seleccionarlo puede aparecer su código interno, como en este caso, 10 — es el identificador del sistema, es normal."
-   Paso 3 → caja_agregar_producto() — Anuncio: "Indicamos la cantidad y apretamos Agregar."
-   Paso 4 → caja_seleccionar_pago("efectivo") — Anuncio: "Para cobrar tenés efectivo, Mercado Pago, Cuenta DNI o tarjeta. Seleccionamos efectivo."
+   Paso 3 → decí EXACTAMENTE esto y LLAMÁ la tool en la misma respuesta: "Indicamos la cantidad y apretamos Agregar."
+            Tool: caja_agregar_producto()
+   Paso 4 → decí EXACTAMENTE esto y LLAMÁ la tool en la misma respuesta: "Para cobrar tenés efectivo, Mercado Pago, Cuenta DNI o tarjeta. Seleccionamos efectivo."
+            Tool: caja_seleccionar_pago("efectivo")
              Post-tool: describí el panel de cobro con el vuelto calculado que se ve en pantalla.
-   Paso 5 → caja_cerrar_venta("presupuesto") — Anuncio: "Para cerrar hay dos opciones: Presupuestar F8 sin factura electrónica, o FCE F4 con factura a ARCA. El negocio elige venta a venta. Cerramos con F8."
+   Paso 5 → decí EXACTAMENTE esto y LLAMÁ la tool en la misma respuesta: "Para cerrar hay dos opciones: Presupuestar F8 sin factura electrónica, o FCE F4 con factura a ARCA. El negocio elige venta a venta. Cerramos con F8."
+            Tool: caja_cerrar_venta("presupuesto")
 
    MÓDULO 4 — BALANZA (7 pasos atómicos)
-   REGLA CLAVE: para cada paso, primero decís UNA frase corta anunciando QUÉ vas a hacer
-   (en presente, como si lo estuvieras haciendo), LUEGO llamás la tool, LUEGO confirmás brevemente.
+   REGLA CLAVE: para cada paso, primero decís EXACTAMENTE la frase de Pre-tool (sin agregar
+   ni quitar nada), LUEGO llamás la tool EN ESA MISMA RESPUESTA, LUEGO confirmás brevemente.
    NO vuelvas a explicar los pasos después de la tool — ya los dijiste antes.
+   PROHIBIDO llamar la tool de un paso sin decir antes, en esa misma respuesta, su frase de Pre-tool — ninguna es opcional.
 
-   Paso 1 → balanza_navegar()
-            Pre-tool: "Te muestro ahora la sección de balanza."
-            Post-tool: describí los operarios configurados arriba y los productos abajo a la izquierda.
+   Paso 1 → Pre-tool (decí EXACTAMENTE esto): "Te muestro ahora la sección de balanza."
+            Tool: balanza_navegar()
+            Post-tool (decí EXACTAMENTE esto): "Acá podemos ver los operarios que tenemos para la balanza, Balta y Malena, y abajo podemos ver Asado y Vacío, que son accesos rapidos para vender los productos que mas salen."
 
-   Paso 2 → balanza_agregar_producto("Balta", "1")
-            Pre-tool: "Busco el producto Vacío en el buscador, presiono Ingreso Manual,
+   Paso 2 → Pre-tool (decí EXACTAMENTE esto): "Busco el producto Vacío en el buscador, presiono Ingreso Manual,
                        presiono 1 para 1 kilo y lo asigno al operario Balta."
-            → llamá la tool
+            Tool: balanza_agregar_producto("Balta", "1")
             Post-tool: Confirmá en 1 frase (ej: "Listo, Balta tiene su ticket.").
             Luego explicá que el sistema permite que varios operarios trabajen simultáneamente,
             cada uno con su ticket independiente.
 
-   Paso 3 → balanza_agregar_producto("Malena", "2")
-            Pre-tool: "Hago lo mismo para Malena: busco Vacío, Ingreso Manual, 1 kilo, y lo asigno a Malena."
-            → llamá la tool
+   Paso 3 → Pre-tool (decí EXACTAMENTE esto): "Hago lo mismo para Malena: busco Vacío, Ingreso Manual, 1 kilo, y lo asigno a Malena."
+            Tool: balanza_agregar_producto("Malena", "2")
             Post-tool: Confirmá en 1 frase. Mencioná que ambos tickets están pendientes de cobro.
 
-   Paso 4 → balanza_mostrar_tickets()
-            Pre-tool: "Presiono el botón Tickets arriba a la derecha para mostrar los pendientes."
-            → llamá la tool
+   Paso 4 → Pre-tool (decí EXACTAMENTE esto): "Presiono el botón Tickets arriba a la derecha para mostrar los pendientes."
+            Tool: balanza_mostrar_tickets()
             Post-tool: Confirmá en 1 frase que los tickets están pendientes.
 
-   Paso 5 → balanza_ir_a_caja()
-            Pre-tool: "El ticket se cobra desde la sección de Caja. Vamos ahí."
-            → llamá la tool
+   Paso 5 → Pre-tool (decí EXACTAMENTE esto): "El ticket se cobra desde la sección de Caja. Vamos ahí."
+            Tool: balanza_ir_a_caja()
             Post-tool: Confirmá en 1 frase que llegamos a caja.
 
-   Paso 6 → balanza_abrir_cf()
-            Pre-tool: "Para ver los tickets de balanza pendientes, presiono el botón CF arriba."
-            → llamá la tool
-            Post-tool: Confirmá en 1 frase. Mencioná que con la lupa se ve el detalle
+   Paso 6 → Pre-tool (decí EXACTAMENTE esto): "Para ver los tickets de balanza pendientes, presiono el botón Ticket Balanza CF arriba."
+            Tool: balanza_abrir_cf()
+            Post-tool: Confirmá en 1 frase. Mencioná SIEMPRE que apretando la lupa se ve el detalle
             y con el botón verde (monedita) se ingresa a caja.
 
-   Paso 7 → balanza_cobrar_ticket()
-            Pre-tool: "Presiono el botón verde para abrir la ventana de caja,
+   Paso 7 → Pre-tool (decí EXACTAMENTE esto): "Presiono el botón verde para abrir la ventana de caja,
                        ingreso 20.000 pesos en Paga con y cierro con Presupuestar F8."
-            → llamá la tool
+            Tool: balanza_cobrar_ticket()
             Post-tool: Confirmá que la venta se cerró. Aclarás que se pueden agregar más productos
             si se quiere, pero para la demo lo dejamos así.
 
@@ -455,6 +460,7 @@ RITMO DE LA DEMO — MUY IMPORTANTE:
 - Para módulos con varios pasos atómicos (BALANZA, PROVEEDORES, PRODUCCIÓN): en cada respuesta hacés UN paso + la narración, luego STOP y el sistema te vuelve a dar el turno.
 - Hacé UN SOLO check-in cada 4-5 módulos. Ejemplos: "¿Qué te parece lo que viste hasta ahora?", "¿Alguna duda hasta acá?"
 - Si el usuario pregunta algo, respondé y retomá la demo desde donde estabas.
+- PRIORIDAD ABSOLUTA: si el usuario dijo algo (una pregunta, un comentario, un saludo) que todavía no respondiste, SIEMPRE contestale primero en esta respuesta, aunque también haya un mensaje de sistema pidiéndote continuar el protocolo. Nunca ignores algo que te dijo el usuario para seguir con el guion.
 
 REGLAS CLAVE:
 - Hablá ANTES de llamar la tool (el anuncio seco), describí DESPUÉS del resultado
@@ -651,14 +657,38 @@ REALTIME_TOOLS = [
     },
     {
         "type": "function",
-        "name": "produccion_crear_plantilla",
-        "description": "Paso 1/2 de la demo de producción: crea la plantilla 'Milanesas' con Pechuga + Huevos como entradas y Milanesas como salida.",
+        "name": "produccion_ver_plantillas",
+        "description": "Paso 1/6 de producción: navega a la lista de plantillas de producción.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
         "type": "function",
-        "name": "produccion_registrar",
-        "description": "Paso 2/2 de la demo de producción: registra una producción usando la plantilla 'Milanesas' (cantidad 1, tipo Salida de producción).",
+        "name": "produccion_ver_detalle_plantilla",
+        "description": "Paso 2/6 de producción: abre el detalle de la plantilla existente 'Milanesas' para mostrar sus ingredientes.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "produccion_ir_a_produccion",
+        "description": "Paso 3/6 de producción: navega a la sección de Producción (historial de producciones).",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "produccion_nueva_produccion",
+        "description": "Paso 4/6 de producción: abre el formulario de nueva producción.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "produccion_seleccionar_plantilla",
+        "description": "Paso 5/6 de producción: selecciona la plantilla 'Milanesas' en el formulario de nueva producción.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "produccion_completar_y_registrar",
+        "description": "Paso 6/6 de producción: completa cantidad=1 y tipo=Salida de producción, aprieta Agregar y recarga la lista para mostrar el resultado.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
 ]
