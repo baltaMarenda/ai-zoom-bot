@@ -198,7 +198,7 @@ class RealtimeBridge:
             try:
                 async with websockets.connect(
                     OPENAI_REALTIME_URL,
-                    extra_headers={
+                    additional_headers={
                         "Authorization": f"Bearer {OPENAI_API_KEY}",
                     },
                     ping_interval=20,

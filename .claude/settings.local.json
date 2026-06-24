@@ -24,7 +24,9 @@
       "WebSearch",
       "Bash(python3 -c \"import numpy\")",
       "Bash(python3 -c \"import audioop\")",
-      "Bash(python3 *)"
+      "Bash(python3 *)",
+      "Bash(railway whoami *)",
+      "Bash(echo \"exit:$?\")"
     ]
   }
 }
