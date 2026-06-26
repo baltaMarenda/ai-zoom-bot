@@ -28,7 +28,18 @@ from mgw_playwright import (
     produccion_ver_plantillas, produccion_ver_detalle_plantilla,
     produccion_ir_a_produccion, produccion_nueva_produccion,
     produccion_seleccionar_plantilla, produccion_completar_y_registrar,
+    config_navegar,
+    config_usuarios_nuevo, config_usuarios_scroll_permisos_de,
+    config_usuarios_expandir_permisos_caja,
+    config_listas_nueva, config_grupos_nuevo,
+    config_productos_nuevo, config_productos_importar,
+    config_precios_editar_grupo_almacen, config_precios2_grupo_carne,
+    config_precios_historial_detalle_grupo, config_precios_historial_detalle_producto,
+    config_combos_nuevo, config_combos_editar,
+    config_formas_pago_nueva, config_descuentos_nuevo,
+    config_terminales_nueva, config_impuestos_nuevo,
 )
+from recall import leave_call
 
 # ── Referencia al WebSocket de la webpage del agente ──────────────────────────
 _agent_ws_list: list = []
@@ -273,6 +284,70 @@ async def _produccion_completar_y_registrar() -> str:
     return await produccion_completar_y_registrar(on_screenshot=_on_screenshot)
 
 
+async def _config_navegar(seccion: str) -> str:
+    return await config_navegar(seccion, on_screenshot=_on_screenshot)
+
+async def _config_usuarios_nuevo() -> str:
+    return await config_usuarios_nuevo(on_screenshot=_on_screenshot)
+
+async def _config_usuarios_scroll_permisos_de() -> str:
+    return await config_usuarios_scroll_permisos_de(on_screenshot=_on_screenshot)
+
+async def _config_usuarios_expandir_permisos_caja() -> str:
+    return await config_usuarios_expandir_permisos_caja(on_screenshot=_on_screenshot)
+
+async def _config_listas_nueva() -> str:
+    return await config_listas_nueva(on_screenshot=_on_screenshot)
+
+async def _config_grupos_nuevo() -> str:
+    return await config_grupos_nuevo(on_screenshot=_on_screenshot)
+
+async def _config_productos_nuevo() -> str:
+    return await config_productos_nuevo(on_screenshot=_on_screenshot)
+
+async def _config_productos_importar() -> str:
+    return await config_productos_importar(on_screenshot=_on_screenshot)
+
+async def _config_precios_editar_grupo_almacen() -> str:
+    return await config_precios_editar_grupo_almacen(on_screenshot=_on_screenshot)
+
+async def _config_precios2_grupo_carne() -> str:
+    return await config_precios2_grupo_carne(on_screenshot=_on_screenshot)
+
+async def _config_precios_historial_detalle_grupo() -> str:
+    return await config_precios_historial_detalle_grupo(on_screenshot=_on_screenshot)
+
+async def _config_precios_historial_detalle_producto() -> str:
+    return await config_precios_historial_detalle_producto(on_screenshot=_on_screenshot)
+
+async def _config_combos_nuevo() -> str:
+    return await config_combos_nuevo(on_screenshot=_on_screenshot)
+
+async def _config_combos_editar() -> str:
+    return await config_combos_editar(on_screenshot=_on_screenshot)
+
+async def _config_formas_pago_nueva() -> str:
+    return await config_formas_pago_nueva(on_screenshot=_on_screenshot)
+
+async def _config_descuentos_nuevo() -> str:
+    return await config_descuentos_nuevo(on_screenshot=_on_screenshot)
+
+async def _config_terminales_nueva() -> str:
+    return await config_terminales_nueva(on_screenshot=_on_screenshot)
+
+async def _config_impuestos_nuevo() -> str:
+    return await config_impuestos_nuevo(on_screenshot=_on_screenshot)
+
+async def _finalizar_capacitacion() -> str:
+    loop = asyncio.get_event_loop()
+    try:
+        result = await loop.run_in_executor(None, leave_call)
+        return f"Llamada finalizada: {result}"
+    except Exception as e:
+        print(f"[BOT] Error en leave_call: {e}")
+        return f"Error al finalizar: {e}"
+
+
 # ── WebSocket handler ─────────────────────────────────────────────────────────
 
 async def handle_recall_audio(websocket):
@@ -343,6 +418,25 @@ async def handle_recall_audio(websocket):
         produccion_nueva_produccion       = _produccion_nueva_produccion,
         produccion_seleccionar_plantilla  = _produccion_seleccionar_plantilla,
         produccion_completar_y_registrar  = _produccion_completar_y_registrar,
+        config_navegar                        = _config_navegar,
+        config_usuarios_nuevo                 = _config_usuarios_nuevo,
+        config_usuarios_scroll_permisos_de    = _config_usuarios_scroll_permisos_de,
+        config_usuarios_expandir_permisos_caja = _config_usuarios_expandir_permisos_caja,
+        config_listas_nueva                   = _config_listas_nueva,
+        config_grupos_nuevo                   = _config_grupos_nuevo,
+        config_productos_nuevo                = _config_productos_nuevo,
+        config_productos_importar             = _config_productos_importar,
+        config_precios_editar_grupo_almacen   = _config_precios_editar_grupo_almacen,
+        config_precios2_grupo_carne           = _config_precios2_grupo_carne,
+        config_precios_historial_detalle_grupo    = _config_precios_historial_detalle_grupo,
+        config_precios_historial_detalle_producto = _config_precios_historial_detalle_producto,
+        config_combos_nuevo                   = _config_combos_nuevo,
+        config_combos_editar                  = _config_combos_editar,
+        config_formas_pago_nueva              = _config_formas_pago_nueva,
+        config_descuentos_nuevo               = _config_descuentos_nuevo,
+        config_terminales_nueva               = _config_terminales_nueva,
+        config_impuestos_nuevo                = _config_impuestos_nuevo,
+        finalizar_capacitacion                = _finalizar_capacitacion,
     )
 
     async def receive_from_recall():

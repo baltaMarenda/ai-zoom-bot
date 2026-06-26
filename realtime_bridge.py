@@ -16,9 +16,10 @@ import websockets
 from config import (
     OPENAI_API_KEY,
     OPENAI_REALTIME_URL,
-    REALTIME_SYSTEM_PROMPT,
+    TRAINING_SYSTEM_PROMPT,
     REALTIME_TOOLS,
     DEMO_MODULE_PATHS,
+    CONFIG_MODULE_PATHS,
 )
 
 # Recall.ai manda audio_separate_raw a 16kHz mono PCM16, pero la Realtime API
@@ -127,6 +128,25 @@ class RealtimeBridge:
         produccion_nueva_produccion       = None,   # async fn() → str
         produccion_seleccionar_plantilla  = None,   # async fn() → str
         produccion_completar_y_registrar  = None,   # async fn() → str
+        config_navegar                        = None,   # async fn(seccion: str) → str
+        config_usuarios_nuevo                 = None,   # async fn() → str
+        config_usuarios_scroll_permisos_de    = None,   # async fn() → str
+        config_usuarios_expandir_permisos_caja = None,  # async fn() → str
+        config_listas_nueva                   = None,   # async fn() → str
+        config_grupos_nuevo                   = None,   # async fn() → str
+        config_productos_nuevo                = None,   # async fn() → str
+        config_productos_importar             = None,   # async fn() → str
+        config_precios_editar_grupo_almacen   = None,   # async fn() → str
+        config_precios2_grupo_carne           = None,   # async fn() → str
+        config_precios_historial_detalle_grupo    = None,   # async fn() → str
+        config_precios_historial_detalle_producto = None,   # async fn() → str
+        config_combos_nuevo                   = None,   # async fn() → str
+        config_combos_editar                  = None,   # async fn() → str
+        config_formas_pago_nueva              = None,   # async fn() → str
+        config_descuentos_nuevo               = None,   # async fn() → str
+        config_terminales_nueva               = None,   # async fn() → str
+        config_impuestos_nuevo                = None,   # async fn() → str
+        finalizar_capacitacion                = None,   # async fn() → str
     ):
         self._send_to_agent      = send_to_agent
         self._send_navigate      = send_navigate
@@ -147,6 +167,8 @@ class RealtimeBridge:
         self._fase2_press_f8     = fase2_press_f8
         self._reset_caja_fases   = reset_caja_fases
         self._agent_audio_done           = agent_audio_done_event
+        self._audio_bytes_this_response  = 0          # bytes PCM acumulados para calcular duración
+        self._audio_done_fallback_handle = None        # handle de loop.call_later para fallback server-side
         self._demo_estadisticas          = demo_estadisticas
         self._demo_stock                 = demo_stock
         self._demo_clientes              = demo_clientes
@@ -168,6 +190,25 @@ class RealtimeBridge:
         self._produccion_nueva_produccion      = produccion_nueva_produccion
         self._produccion_seleccionar_plantilla = produccion_seleccionar_plantilla
         self._produccion_completar_y_registrar = produccion_completar_y_registrar
+        self._config_navegar                        = config_navegar
+        self._config_usuarios_nuevo                 = config_usuarios_nuevo
+        self._config_usuarios_scroll_permisos_de    = config_usuarios_scroll_permisos_de
+        self._config_usuarios_expandir_permisos_caja = config_usuarios_expandir_permisos_caja
+        self._config_listas_nueva                   = config_listas_nueva
+        self._config_grupos_nuevo                   = config_grupos_nuevo
+        self._config_productos_nuevo                = config_productos_nuevo
+        self._config_productos_importar             = config_productos_importar
+        self._config_precios_editar_grupo_almacen   = config_precios_editar_grupo_almacen
+        self._config_precios2_grupo_carne           = config_precios2_grupo_carne
+        self._config_precios_historial_detalle_grupo    = config_precios_historial_detalle_grupo
+        self._config_precios_historial_detalle_producto = config_precios_historial_detalle_producto
+        self._config_combos_nuevo                   = config_combos_nuevo
+        self._config_combos_editar                  = config_combos_editar
+        self._config_formas_pago_nueva              = config_formas_pago_nueva
+        self._config_descuentos_nuevo               = config_descuentos_nuevo
+        self._config_terminales_nueva               = config_terminales_nueva
+        self._config_impuestos_nuevo                = config_impuestos_nuevo
+        self._finalizar_capacitacion                = finalizar_capacitacion
 
         self._ws                    = None
         self._pw_started            = False
@@ -189,6 +230,7 @@ class RealtimeBridge:
         self._last_user_audio_ts    = 0.0      # monotonic ts del último chunk de audio real reenviado a la API
         self._pending_audio_ms      = 0.0      # ms de audio real acumulado en el buffer desde el último commit/clear
         self._nudge_pending         = False   # True si ya hay un nudge "Continuá con el protocolo" sin responder en la conversación
+        self._audio_end_time        = 0.0      # monotonic ts estimado de fin de reproducción del audio actual
 
     # ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -320,6 +362,8 @@ class RealtimeBridge:
             if delta and not self._barge_in_active:
                 self._is_speaking = True
                 self._response_has_audio = True
+                # Acumular bytes para calcular duración (base64 → aprox bytes PCM)
+                self._audio_bytes_this_response += len(delta) * 3 // 4
                 await self._send_to_agent({
                     "type": "audio_pcm",
                     "data": delta,
@@ -331,6 +375,28 @@ class RealtimeBridge:
             await self._send_to_agent({"type": "audio_stream_end"})
             # Marcar que el agente debe señalizar cuando termina de reproducir
             if self._agent_audio_done:
+                # Cancelar timer anterior si existía
+                if self._audio_done_fallback_handle:
+                    self._audio_done_fallback_handle.cancel()
+                    self._audio_done_fallback_handle = None
+                # Calcular duración esperada del audio (PCM16 a 24kHz = 2 bytes/muestra)
+                pcm_bytes = self._audio_bytes_this_response
+                self._audio_bytes_this_response = 0
+                if pcm_bytes > 0:
+                    duration_secs = (pcm_bytes // 2) / 24000.0
+                    self._audio_end_time = time.monotonic() + duration_secs + 1.0
+                    # Fallback server-side: si agent.html no manda audio_done,
+                    # el servidor lo señaliza después de que el audio debería haber terminado.
+                    try:
+                        loop = asyncio.get_running_loop()
+                        self._audio_done_fallback_handle = loop.call_later(
+                            duration_secs + 0.5,
+                            self._agent_audio_done.set,
+                        )
+                    except RuntimeError:
+                        pass
+                else:
+                    self._audio_end_time = time.monotonic()
                 self._agent_audio_done.clear()
             # Abrir ventana anti-eco: descarta audio por 400ms para que el eco
             # de la voz de Malena no llegue a la API como si fuera el usuario.
@@ -378,6 +444,13 @@ class RealtimeBridge:
                 print("[RT] Barge-in — deteniendo audio")
                 self._barge_in_active = True
                 await self._send_stop_audio()
+                # Cancelar fallback timer y señalizar done — audio fue cortado
+                if self._audio_done_fallback_handle:
+                    self._audio_done_fallback_handle.cancel()
+                    self._audio_done_fallback_handle = None
+                self._audio_bytes_this_response = 0
+                if self._agent_audio_done:
+                    self._agent_audio_done.set()
             else:
                 print("[RT] 🎤 Usuario: [hablando...]")
 
@@ -529,11 +602,15 @@ class RealtimeBridge:
             self._response_active = False
 
     async def _wait_for_audio_done(self, timeout: float = 30.0):
-        """Espera a que agent.html termine de reproducir el audio actual."""
+        """Espera a que agent.html termine de reproducir el audio actual.
+        El timeout es dinámico: al menos `timeout`, pero suficiente para cubrir
+        la duración real del audio calculada a partir de los bytes PCM recibidos."""
         if not self._agent_audio_done:
             return
         try:
-            await asyncio.wait_for(self._agent_audio_done.wait(), timeout=timeout)
+            remaining = max(0.0, self._audio_end_time - time.monotonic())
+            actual_timeout = max(timeout, remaining + 3.0)
+            await asyncio.wait_for(self._agent_audio_done.wait(), timeout=actual_timeout)
         except asyncio.TimeoutError:
             print("[RT] Timeout esperando audio_done del agente — continuando igual")
 
@@ -588,7 +665,7 @@ class RealtimeBridge:
             "type": "session.update",
             "session": {
                 "type": "realtime",
-                "instructions": REALTIME_SYSTEM_PROMPT,
+                "instructions": TRAINING_SYSTEM_PROMPT,
                 "tools": REALTIME_TOOLS,
                 "tool_choice": "auto",
                 "audio": {
@@ -665,6 +742,7 @@ class RealtimeBridge:
         print(f"[TOOL] {name}({args})")
 
         is_nav = (name == "navigate_to_module")
+        is_final = (name == "finalizar_capacitacion")
 
         try:
             if name == "navigate_to_module":
@@ -816,6 +894,109 @@ class RealtimeBridge:
                 result = await self._produccion_completar_y_registrar() if self._produccion_completar_y_registrar else "Producción registrada."
                 await self._on_screenshot_end()
 
+            elif name == "config_navegar":
+                seccion = args.get("seccion", "")
+                print(f"[DEMO] Config: navegando a {seccion}...")
+                await self._ensure_playwright()
+                await self._wait_for_audio_done(timeout=20.0)
+                self._demo_started = True
+                config_path = CONFIG_MODULE_PATHS.get(seccion)
+                if config_path:
+                    await self._send_navigate(config_path)
+                result = await self._config_navegar(seccion) if self._config_navegar else f"Navegado a {seccion}."
+
+            elif name == "config_usuarios_nuevo":
+                print("[DEMO] Config: abriendo modal nuevo usuario...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._config_usuarios_nuevo() if self._config_usuarios_nuevo else "Modal de nuevo usuario abierto."
+
+            elif name == "config_usuarios_scroll_permisos_de":
+                print("[DEMO] Config: scroll a selector Permisos del usuario...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._config_usuarios_scroll_permisos_de() if self._config_usuarios_scroll_permisos_de else "Visible selector de Permisos del usuario."
+
+            elif name == "config_usuarios_expandir_permisos_caja":
+                print("[DEMO] Config: expandiendo permisos de Caja...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._config_usuarios_expandir_permisos_caja() if self._config_usuarios_expandir_permisos_caja else "Acordeón de permisos de Caja expandido."
+
+            elif name == "config_listas_nueva":
+                print("[DEMO] Config: abriendo modal nueva lista de precios...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._config_listas_nueva() if self._config_listas_nueva else "Modal de nueva lista de precios abierto."
+
+            elif name == "config_grupos_nuevo":
+                print("[DEMO] Config: abriendo modal nuevo grupo...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._config_grupos_nuevo() if self._config_grupos_nuevo else "Modal de nuevo grupo abierto."
+
+            elif name == "config_productos_nuevo":
+                print("[DEMO] Config: abriendo modal nuevo producto...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._config_productos_nuevo() if self._config_productos_nuevo else "Modal de nuevo producto abierto."
+
+            elif name == "config_productos_importar":
+                print("[DEMO] Config: abriendo modal importar productos...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._config_productos_importar() if self._config_productos_importar else "Modal de importación abierto."
+
+            elif name == "config_precios_editar_grupo_almacen":
+                print("[DEMO] Config: editando grupo Almacén en precios...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._config_precios_editar_grupo_almacen() if self._config_precios_editar_grupo_almacen else "Detalle de precios del grupo Almacén abierto."
+
+            elif name == "config_precios2_grupo_carne":
+                print("[DEMO] Config: filtrando grupo Carne en precios2...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._config_precios2_grupo_carne() if self._config_precios2_grupo_carne else "Filtrado por grupo Carne."
+
+            elif name == "config_precios_historial_detalle_grupo":
+                print("[DEMO] Config: abriendo detalle de grupo en historial de precios...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._config_precios_historial_detalle_grupo() if self._config_precios_historial_detalle_grupo else "Detalle de productos del grupo abierto."
+
+            elif name == "config_precios_historial_detalle_producto":
+                print("[DEMO] Config: abriendo historial de cambios de precio del producto...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._config_precios_historial_detalle_producto() if self._config_precios_historial_detalle_producto else "Historial de cambios de precio del producto abierto."
+
+            elif name == "config_combos_nuevo":
+                print("[DEMO] Config: abriendo modal nuevo combo...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._config_combos_nuevo() if self._config_combos_nuevo else "Modal de nuevo combo abierto."
+
+            elif name == "config_combos_editar":
+                print("[DEMO] Config: abriendo editor del combo...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._config_combos_editar() if self._config_combos_editar else "Editor del combo abierto."
+
+            elif name == "config_formas_pago_nueva":
+                print("[DEMO] Config: abriendo modal nueva forma de pago...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._config_formas_pago_nueva() if self._config_formas_pago_nueva else "Modal de nueva forma de pago abierto."
+
+            elif name == "config_descuentos_nuevo":
+                print("[DEMO] Config: abriendo modal nuevo descuento...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._config_descuentos_nuevo() if self._config_descuentos_nuevo else "Modal de nuevo descuento abierto."
+
+            elif name == "config_terminales_nueva":
+                print("[DEMO] Config: abriendo modal nueva terminal...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._config_terminales_nueva() if self._config_terminales_nueva else "Modal de nueva terminal abierto."
+
+            elif name == "config_impuestos_nuevo":
+                print("[DEMO] Config: abriendo modal nuevo impuesto...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._config_impuestos_nuevo() if self._config_impuestos_nuevo else "Modal de nuevo impuesto abierto."
+
+            elif name == "finalizar_capacitacion":
+                print("[DEMO] Finalizando capacitación — bot abandona la llamada...")
+                await self._wait_for_audio_done(timeout=20.0)
+                if self._finalizar_capacitacion:
+                    await self._finalizar_capacitacion()
+                result = "Capacitación finalizada."
+
             else:
                 result = f"Tool desconocida: {name}"
 
@@ -824,7 +1005,10 @@ class RealtimeBridge:
             traceback.print_exc()
             result = f"Error ejecutando {name}: {e}"
 
-        if is_nav:
+        if is_final:
+            self._tool_is_running = False
+            return
+        elif is_nav:
             await self._send_nav_result(ws, call_id, result)
         else:
             await self._send_tool_result(ws, call_id, result)

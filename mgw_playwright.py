@@ -7,7 +7,7 @@ import asyncio
 import base64
 from playwright.async_api import async_playwright, Page
 
-from config import MGW_URL, MGW_USER, MGW_EMPRESA, MGW_PASSWORD, TEST_MODE
+from config import MGW_URL, MGW_USER, MGW_EMPRESA, MGW_PASSWORD, TEST_MODE, CONFIG_MODULE_PATHS
 
 # Producto demo — ID numérico del array JS de caja.php
 DEMO_PRODUCTO_NOMBRE = "Huevos"
@@ -3552,3 +3552,571 @@ async def run_demo_produccion(on_screenshot=None, on_screenshot_end=None) -> str
         on_screenshot_end=on_screenshot_end,
     )
     return "Demo de producción completada — el usuario vio cómo crear plantilla y registrar producción." if ok else "La demo de producción tuvo un error parcial pero el usuario vio screenshots."
+
+
+# ── Steps atómicos — Módulo 1: Configuración inicial ─────────────────────────
+
+def _make_config_snap(on_screenshot):
+    async def snap(delay=0.0):
+        await _snap(on_screenshot, delay)
+    return snap
+
+
+def _make_config_clicker(label_prefix):
+    async def click_first(selectors, label):
+        for selector in selectors:
+            try:
+                el = _page.locator(selector).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    print(f"[PW] [{label_prefix}] {label} via '{selector}' ✓")
+                    return True
+            except Exception:
+                continue
+        return False
+    return click_first
+
+
+async def _ensure_on_config_page(seccion: str):
+    """Navega defensivamente a la sub-sección si el browser no está ahí ya."""
+    if _page is None:
+        return
+    path = CONFIG_MODULE_PATHS.get(seccion, "")
+    if not path:
+        return
+    if path not in _page.url:
+        base = MGW_URL.rstrip("/")
+        print(f"[PW] [CONFIG] Nav defensiva a {seccion}...")
+        await _page.goto(f"{base}{path}", wait_until="domcontentloaded", timeout=20000)
+        await asyncio.sleep(1.0)
+
+
+async def config_navegar(seccion: str, on_screenshot=None) -> str:
+    """Navega a una sub-sección de Configuración y toma screenshot."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    base = MGW_URL.rstrip("/")
+    path = CONFIG_MODULE_PATHS.get(seccion)
+    if not path:
+        return f"Sección '{seccion}' no encontrada."
+
+    # Login silencioso si el browser todavía no tiene sesión MGW
+    current_url = _page.url
+    if not current_url or current_url in ("about:blank", "") or "index.php" in current_url:
+        print("[PW] [CONFIG] Login silencioso antes de navegar...")
+        ok = await pw_login()
+        if not ok:
+            return "Error: no se pudo hacer login en MGW."
+
+    snap = _make_config_snap(on_screenshot)
+    print(f"[PW] [CONFIG] Navegando a {seccion} → {path}...")
+    await _page.goto(f"{base}{path}", wait_until="domcontentloaded", timeout=20000)
+    await asyncio.sleep(1.0)
+    await snap()
+    print(f"[PW] [CONFIG] config_navegar({seccion}) ✓")
+    return f"Navegado a {seccion}."
+
+
+async def config_usuarios_nuevo(on_screenshot=None) -> str:
+    """Click en 'Nuevo Usuario' para abrir el modal."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    await _ensure_on_config_page("USUARIOS")
+    snap = _make_config_snap(on_screenshot)
+    click_first = _make_config_clicker("CONFIG")
+    clicked = await click_first([
+        '[onclick="configuracion_usuarios_nuevo_usuario()"]',
+        'a[href="#modal_nuevo_usuario_id"]',
+        'button:has-text("Nuevo Usuario")',
+        'a:has-text("Nuevo Usuario")',
+    ], "Nuevo Usuario")
+    if not clicked:
+        await _page.evaluate("""() => {
+            const btn = [...document.querySelectorAll('[onclick], a, button')]
+                .find(e => {
+                    const oc = (e.getAttribute('onclick') || '');
+                    const t = (e.textContent || '').trim().toLowerCase();
+                    return oc.includes('nuevo_usuario') || t.includes('nuevo usuario');
+                });
+            if (btn) btn.click();
+        }""")
+    await asyncio.sleep(1.5)
+    await snap()
+    print("[PW] [CONFIG] config_usuarios_nuevo ✓")
+    return "Modal de nuevo usuario abierto."
+
+
+async def config_usuarios_scroll_permisos_de(on_screenshot=None) -> str:
+    """Scroll dentro del modal de Nuevo Usuario para mostrar el selector 'Permisos del usuario'."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    try:
+        # El modal está abierto — NO llamar _ensure_on_config_page para no cerrarlo.
+        # Scroll dentro del .modal-body para mostrar #permisos_de_id.
+        await _page.evaluate("""() => {
+            const sel = document.getElementById('permisos_de_id');
+            if (sel) {
+                sel.scrollIntoView({ behavior: 'instant', block: 'center' });
+                const modal = sel.closest('.modal-body');
+                if (modal) modal.scrollTop -= 40;
+            }
+        }""")
+        await asyncio.sleep(0.5)
+        if on_screenshot:
+            b64 = await _screenshot_b64()
+            if b64:
+                await on_screenshot(b64)
+        print("[PW] [CONFIG] config_usuarios_scroll_permisos_de ✓")
+        return "Visible el selector de Permisos del usuario."
+    except Exception as e:
+        return f"Error: {e}"
+
+
+async def config_usuarios_expandir_permisos_caja(on_screenshot=None) -> str:
+    """Click en el acordeón de Caja en permisos y scrollea para mostrar el contenido."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    await _ensure_on_config_page("USUARIOS")
+    snap = _make_config_snap(on_screenshot)
+    click_first = _make_config_clicker("CONFIG")
+    clicked = await click_first([
+        '#boton_57',
+        '[onclick*="permisos"][onclick*="57"]',
+        '[id*="57"]',
+    ], "Acordeón Caja permisos")
+    if not clicked:
+        await _page.evaluate("""() => {
+            const el = document.getElementById('boton_57')
+                || [...document.querySelectorAll('[onclick]')]
+                    .find(e => (e.getAttribute('onclick') || '').includes('57'));
+            if (el) el.click();
+        }""")
+    await asyncio.sleep(1.2)
+    # Scroll dentro del modal para que el acordeón expandido sea visible
+    try:
+        await _page.evaluate("""() => {
+            const btn = document.getElementById('boton_57');
+            if (btn) {
+                btn.scrollIntoView({ behavior: 'instant', block: 'start' });
+                const modal = btn.closest('.modal-body');
+                if (modal) {
+                    modal.scrollTop -= 80;
+                } else {
+                    window.scrollBy(0, -80);
+                }
+            }
+        }""")
+    except Exception:
+        pass
+    await asyncio.sleep(0.3)
+    await snap()
+    print("[PW] [CONFIG] config_usuarios_expandir_permisos_caja ✓")
+    return "Acordeón de permisos de Caja expandido."
+
+
+async def config_listas_nueva(on_screenshot=None) -> str:
+    """Click en 'Nueva Lista de Precios' para abrir el modal."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    await _ensure_on_config_page("LISTAS_PRECIOS")
+    snap = _make_config_snap(on_screenshot)
+    click_first = _make_config_clicker("CONFIG")
+    clicked = await click_first([
+        '[onclick="configuracion_listas_de_precios_nuevo_lista()"]',
+        'button:has-text("Nueva Lista")',
+        'a:has-text("Nueva Lista")',
+    ], "Nueva Lista de Precios")
+    if not clicked:
+        await _page.evaluate("""() => {
+            const btn = [...document.querySelectorAll('[onclick], a, button')]
+                .find(e => {
+                    const oc = (e.getAttribute('onclick') || '');
+                    const t = (e.textContent || '').trim().toLowerCase();
+                    return oc.includes('nuevo_lista') || t.includes('nueva lista');
+                });
+            if (btn) btn.click();
+        }""")
+    await asyncio.sleep(1.5)
+    await snap()
+    print("[PW] [CONFIG] config_listas_nueva ✓")
+    return "Modal de nueva lista de precios abierto."
+
+
+async def config_grupos_nuevo(on_screenshot=None) -> str:
+    """Click en 'Nuevo Grupo' para abrir el modal."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    await _ensure_on_config_page("GRUPOS")
+    snap = _make_config_snap(on_screenshot)
+    click_first = _make_config_clicker("CONFIG")
+    clicked = await click_first([
+        '[onclick="configuracion_grupos_nuevo_grupo()"]',
+        'button:has-text("Nuevo Grupo")',
+        'a:has-text("Nuevo Grupo")',
+    ], "Nuevo Grupo")
+    if not clicked:
+        await _page.evaluate("""() => {
+            const btn = [...document.querySelectorAll('[onclick], a, button')]
+                .find(e => {
+                    const oc = (e.getAttribute('onclick') || '');
+                    const t = (e.textContent || '').trim().toLowerCase();
+                    return oc.includes('nuevo_grupo') || t.includes('nuevo grupo');
+                });
+            if (btn) btn.click();
+        }""")
+    await asyncio.sleep(1.5)
+    await snap()
+    print("[PW] [CONFIG] config_grupos_nuevo ✓")
+    return "Modal de nuevo grupo abierto."
+
+
+async def config_productos_nuevo(on_screenshot=None) -> str:
+    """Click en 'Nuevo Producto' y scrollea hasta precios y código PLU."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    await _ensure_on_config_page("PRODUCTOS")
+    snap = _make_config_snap(on_screenshot)
+    click_first = _make_config_clicker("CONFIG")
+    clicked = await click_first([
+        '[onclick="configuracion_productos_nuevo_producto()"]',
+        'button:has-text("Nuevo Producto")',
+        'a:has-text("Nuevo Producto")',
+    ], "Nuevo Producto")
+    if not clicked:
+        await _page.evaluate("""() => {
+            const btn = [...document.querySelectorAll('[onclick], a, button')]
+                .find(e => {
+                    const oc = (e.getAttribute('onclick') || '');
+                    const t = (e.textContent || '').trim().toLowerCase();
+                    return oc.includes('nuevo_producto') || t.includes('nuevo producto');
+                });
+            if (btn) btn.click();
+        }""")
+    await asyncio.sleep(1.5)
+    try:
+        await _page.evaluate("document.getElementById('modal_contenedor_generico_uno').scrollTop = 9999")
+    except Exception:
+        pass
+    await snap()
+    print("[PW] [CONFIG] config_productos_nuevo ✓")
+    return "Modal de nuevo producto abierto, scrolleado hasta precios y código PLU."
+
+
+async def config_productos_importar(on_screenshot=None) -> str:
+    """Click en el botón de importar para abrir el modal de importación desde Excel."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    await _ensure_on_config_page("PRODUCTOS")
+    snap = _make_config_snap(on_screenshot)
+    click_first = _make_config_clicker("CONFIG")
+    clicked = await click_first([
+        '[onclick="form_importar()"]',
+        'button:has-text("Importar")',
+        'a:has-text("Importar")',
+    ], "Importar productos")
+    if not clicked:
+        await _page.evaluate("""() => {
+            const btn = [...document.querySelectorAll('[onclick], a, button')]
+                .find(e => {
+                    const oc = (e.getAttribute('onclick') || '');
+                    const t = (e.textContent || '').trim().toLowerCase();
+                    return oc.includes('form_importar') || t.includes('importar');
+                });
+            if (btn) btn.click();
+        }""")
+    await asyncio.sleep(1.5)
+    await snap()
+    print("[PW] [CONFIG] config_productos_importar ✓")
+    return "Modal de importación de productos abierto."
+
+
+async def config_precios_editar_grupo_almacen(on_screenshot=None) -> str:
+    """Click en el lápiz del grupo Almacén en la sección de precios."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    await _ensure_on_config_page("PRECIOS")
+    snap = _make_config_snap(on_screenshot)
+    click_first = _make_config_clicker("CONFIG")
+    clicked = await click_first([
+        "[onclick=\"precios_lista('3','Almacen')\"]",
+        "[onclick*=\"precios_lista('3'\"]",
+        "[onclick*='Almacen']",
+    ], "Editar grupo Almacén")
+    if not clicked:
+        await _page.evaluate("""() => {
+            const btn = [...document.querySelectorAll('[onclick]')]
+                .find(e => {
+                    const oc = e.getAttribute('onclick') || '';
+                    return oc.includes("precios_lista") && (oc.includes("Almacen") || oc.includes("'3'"));
+                });
+            if (btn) btn.click();
+            else {
+                const lapiz = [...document.querySelectorAll('a, button')]
+                    .find(e => (e.textContent || '').toLowerCase().includes('almac'));
+                if (lapiz) lapiz.click();
+            }
+        }""")
+    await asyncio.sleep(1.5)
+    await snap()
+    print("[PW] [CONFIG] config_precios_editar_grupo_almacen ✓")
+    return "Detalle de precios del grupo Almacén abierto."
+
+
+async def config_precios2_grupo_carne(on_screenshot=None) -> str:
+    """Click en el botón del grupo Carne en PRECIOS2."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    await _ensure_on_config_page("PRECIOS2")
+    snap = _make_config_snap(on_screenshot)
+    click_first = _make_config_clicker("CONFIG")
+    clicked = await click_first([
+        '#boton_1',
+        "[onclick=\"precios_lista('1')\"]",
+        "[onclick*=\"precios_lista('1'\"]",
+    ], "Grupo Carne")
+    if not clicked:
+        await _page.evaluate("""() => {
+            const btn = document.getElementById('boton_1')
+                || [...document.querySelectorAll('[onclick]')]
+                    .find(e => (e.getAttribute('onclick') || '').includes("precios_lista('1')"));
+            if (btn) btn.click();
+        }""")
+    await asyncio.sleep(1.5)
+    await snap()
+    print("[PW] [CONFIG] config_precios2_grupo_carne ✓")
+    return "Filtrado por grupo Carne."
+
+
+async def config_precios_historial_detalle_grupo(on_screenshot=None) -> str:
+    """Click en la lupita del grupo para ver productos en el historial de precios."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    await _ensure_on_config_page("PRECIOS_HISTORIAL")
+    snap = _make_config_snap(on_screenshot)
+    click_first = _make_config_clicker("CONFIG")
+    clicked = await click_first([
+        "[onclick=\"detalles_grupo('3')\"]",
+        "[onclick*=\"detalles_grupo('3'\"]",
+        "[onclick*='detalles_grupo']",
+    ], "Detalle grupo historial")
+    if not clicked:
+        await _page.evaluate("""() => {
+            const btn = [...document.querySelectorAll('[onclick]')]
+                .find(e => (e.getAttribute('onclick') || '').includes('detalles_grupo'));
+            if (btn) btn.click();
+        }""")
+    await asyncio.sleep(1.5)
+    await snap()
+    print("[PW] [CONFIG] config_precios_historial_detalle_grupo ✓")
+    return "Detalle de productos del grupo abierto."
+
+
+async def config_precios_historial_detalle_producto(on_screenshot=None) -> str:
+    """Click en la lupa de un producto para ver el historial de cambios de precio."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    await _ensure_on_config_page("PRECIOS_HISTORIAL")
+    snap = _make_config_snap(on_screenshot)
+    click_first = _make_config_clicker("CONFIG")
+    # Abrir el grupo si la lupa de producto no está visible todavía
+    product_link_visible = False
+    try:
+        el = _page.locator("[onclick*=\"detalles_grupo_detalles\"]").first
+        product_link_visible = await el.count() > 0 and await el.is_visible()
+    except Exception:
+        pass
+    if not product_link_visible:
+        # Abrir el grupo primero
+        grp_clicked = await click_first([
+            "[onclick=\"detalles_grupo('3')\"]",
+            "[onclick*='detalles_grupo']",
+        ], "Abrir grupo antes de detalle producto")
+        if not grp_clicked:
+            await _page.evaluate("""() => {
+                const btn = [...document.querySelectorAll('[onclick]')]
+                    .find(e => (e.getAttribute('onclick') || '').includes('detalles_grupo'));
+                if (btn) btn.click();
+            }""")
+        await asyncio.sleep(1.5)
+    clicked = await click_first([
+        "[onclick=\"detalles_grupo_detalles('3')\"]",
+        "[onclick*=\"detalles_grupo_detalles\"]",
+    ], "Detalle producto historial")
+    if not clicked:
+        await _page.evaluate("""() => {
+            const btn = [...document.querySelectorAll('[onclick]')]
+                .find(e => (e.getAttribute('onclick') || '').includes('detalles_grupo_detalles'));
+            if (btn) btn.click();
+        }""")
+    await asyncio.sleep(1.5)
+    await snap()
+    print("[PW] [CONFIG] config_precios_historial_detalle_producto ✓")
+    return "Historial de cambios de precio del producto abierto."
+
+
+async def config_combos_nuevo(on_screenshot=None) -> str:
+    """Click en 'Nuevo Combo' para abrir el modal."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    await _ensure_on_config_page("COMBOS")
+    snap = _make_config_snap(on_screenshot)
+    click_first = _make_config_clicker("CONFIG")
+    clicked = await click_first([
+        '[onclick="configuracion_combos_nuevo_combo()"]',
+        'button:has-text("Nuevo Combo")',
+        'a:has-text("Nuevo Combo")',
+    ], "Nuevo Combo")
+    if not clicked:
+        await _page.evaluate("""() => {
+            const btn = [...document.querySelectorAll('[onclick], a, button')]
+                .find(e => {
+                    const oc = (e.getAttribute('onclick') || '');
+                    const t = (e.textContent || '').trim().toLowerCase();
+                    return oc.includes('nuevo_combo') || t.includes('nuevo combo');
+                });
+            if (btn) btn.click();
+        }""")
+    await asyncio.sleep(1.5)
+    await snap()
+    print("[PW] [CONFIG] config_combos_nuevo ✓")
+    return "Modal de nuevo combo abierto."
+
+
+async def config_combos_editar(on_screenshot=None) -> str:
+    """Click en el lápiz de editar del primer combo."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    await _ensure_on_config_page("COMBOS")
+    snap = _make_config_snap(on_screenshot)
+    click_first = _make_config_clicker("CONFIG")
+    clicked = await click_first([
+        '#boton_editar_nuevo',
+        '[onclick^="configuracion_combos_editar_combo"]',
+        'tbody tr:first-child [data-original-title="Editar"]',
+        '[data-original-title="Editar"]',
+    ], "Editar combo")
+    if not clicked:
+        await _page.evaluate("""() => {
+            const btn = document.getElementById('boton_editar_nuevo')
+                || [...document.querySelectorAll('[onclick]')]
+                    .find(e => (e.getAttribute('onclick') || '').includes('configuracion_combos_editar_combo'))
+                || [...document.querySelectorAll('[data-original-title]')]
+                    .find(e => (e.getAttribute('data-original-title') || '').toLowerCase() === 'editar');
+            if (btn) btn.click();
+        }""")
+    await asyncio.sleep(1.5)
+    await snap()
+    print("[PW] [CONFIG] config_combos_editar ✓")
+    return "Editor del combo abierto."
+
+
+async def config_formas_pago_nueva(on_screenshot=None) -> str:
+    """Click en 'Nueva Forma de Pago' para abrir el modal."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    await _ensure_on_config_page("FORMAS_PAGO")
+    snap = _make_config_snap(on_screenshot)
+    click_first = _make_config_clicker("CONFIG")
+    clicked = await click_first([
+        '[onclick="configuracion_formas_de_pago_nuevo_forma()"]',
+        'button:has-text("Nueva Forma")',
+        'a:has-text("Nueva Forma")',
+    ], "Nueva Forma de Pago")
+    if not clicked:
+        await _page.evaluate("""() => {
+            const btn = [...document.querySelectorAll('[onclick], a, button')]
+                .find(e => {
+                    const oc = (e.getAttribute('onclick') || '');
+                    const t = (e.textContent || '').trim().toLowerCase();
+                    return oc.includes('nuevo_forma') || t.includes('nueva forma');
+                });
+            if (btn) btn.click();
+        }""")
+    await asyncio.sleep(1.5)
+    await snap()
+    print("[PW] [CONFIG] config_formas_pago_nueva ✓")
+    return "Modal de nueva forma de pago abierto."
+
+
+async def config_descuentos_nuevo(on_screenshot=None) -> str:
+    """Click en 'Nuevo Descuento' para abrir el modal."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    await _ensure_on_config_page("DESCUENTOS")
+    snap = _make_config_snap(on_screenshot)
+    click_first = _make_config_clicker("CONFIG")
+    clicked = await click_first([
+        '[onclick="configuracion_descuentos_nuevo_descuento()"]',
+        'button:has-text("Nuevo Descuento")',
+        'a:has-text("Nuevo Descuento")',
+    ], "Nuevo Descuento")
+    if not clicked:
+        await _page.evaluate("""() => {
+            const btn = [...document.querySelectorAll('[onclick], a, button')]
+                .find(e => {
+                    const oc = (e.getAttribute('onclick') || '');
+                    const t = (e.textContent || '').trim().toLowerCase();
+                    return oc.includes('nuevo_descuento') || t.includes('nuevo descuento');
+                });
+            if (btn) btn.click();
+        }""")
+    await asyncio.sleep(1.5)
+    await snap()
+    print("[PW] [CONFIG] config_descuentos_nuevo ✓")
+    return "Modal de nuevo descuento abierto."
+
+
+async def config_terminales_nueva(on_screenshot=None) -> str:
+    """Click en 'Nueva Terminal' para abrir el modal."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    await _ensure_on_config_page("TERMINALES")
+    snap = _make_config_snap(on_screenshot)
+    click_first = _make_config_clicker("CONFIG")
+    clicked = await click_first([
+        '[onclick="configuracion_terminales_nuevo_terminal()"]',
+        'button:has-text("Nueva Terminal")',
+        'a:has-text("Nueva Terminal")',
+    ], "Nueva Terminal")
+    if not clicked:
+        await _page.evaluate("""() => {
+            const btn = [...document.querySelectorAll('[onclick], a, button')]
+                .find(e => {
+                    const oc = (e.getAttribute('onclick') || '');
+                    const t = (e.textContent || '').trim().toLowerCase();
+                    return oc.includes('nuevo_terminal') || t.includes('nueva terminal');
+                });
+            if (btn) btn.click();
+        }""")
+    await asyncio.sleep(1.5)
+    await snap()
+    print("[PW] [CONFIG] config_terminales_nueva ✓")
+    return "Modal de nueva terminal abierto."
+
+
+async def config_impuestos_nuevo(on_screenshot=None) -> str:
+    """Click en 'Nuevo Impuesto' para abrir el modal."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    await _ensure_on_config_page("IMPUESTOS")
+    snap = _make_config_snap(on_screenshot)
+    click_first = _make_config_clicker("CONFIG")
+    clicked = await click_first([
+        '[onclick="configuracion_impuestos_nuevo_impuesto()"]',
+        'button:has-text("Nuevo Impuesto")',
+        'a:has-text("Nuevo Impuesto")',
+    ], "Nuevo Impuesto")
+    if not clicked:
+        await _page.evaluate("""() => {
+            const btn = [...document.querySelectorAll('[onclick], a, button')]
+                .find(e => {
+                    const oc = (e.getAttribute('onclick') || '');
+                    const t = (e.textContent || '').trim().toLowerCase();
+                    return oc.includes('nuevo_impuesto') || t.includes('nuevo impuesto');
+                });
+            if (btn) btn.click();
+        }""")
+    await asyncio.sleep(1.5)
+    await snap()
+    print("[PW] [CONFIG] config_impuestos_nuevo ✓")
+    return "Modal de nuevo impuesto abierto."

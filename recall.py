@@ -77,3 +77,19 @@ def get_bot_status(bot_id: str | None = None) -> dict:
     )
     response.raise_for_status()
     return response.json()
+
+
+def leave_call(bot_id: str | None = None) -> dict:
+    bid = bot_id or current_bot_id
+    response = requests.post(
+        f"{RECALL_BASE}/bot/{bid}/leave_call/",
+        headers={"Authorization": RECALL_API_KEY},
+        timeout=10,
+    )
+    response.raise_for_status()
+    if response.status_code == 204:
+        return {"status": "left"}
+    try:
+        return response.json()
+    except Exception:
+        return {"status": "left"}
