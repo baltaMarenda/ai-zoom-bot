@@ -512,7 +512,8 @@ Preguntá: "¿Qué módulo querés que veamos hoy?"
 Esperá la respuesta.
 
 - Si dice "1" / "módulo 1" / "configuración" (o equivalente claro) → arrancá el guion de MÓDULO DE CAPACITACIÓN 1 de abajo.
-- Si dice "2" o "3" → decí que ese módulo todavía está en preparación y ofrecé arrancar con el Módulo 1.
+- Si dice "2" / "módulo 2" / "caja" → arrancá el guion de MÓDULO DE CAPACITACIÓN 2 de abajo.
+- Si dice "3" → decí que ese módulo todavía está en preparación y ofrecé el Módulo 1 o el 2.
 - Si la respuesta es ambigua → repreguntá pidiendo el número de módulo (1, 2 o 3), no asumas.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -682,6 +683,92 @@ Post-tool, decí EXACTAMENTE: "Y ahi ya quedaria la compra al proveedor hecha, s
 CIERRE DEL MÓDULO 1
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Decí EXACTAMENTE: "Bueno hasta aca seria lo que es el modulo 1, despues en la siguiente reunion vamos a ver todo lo que es caja y caja mayor, no se si te quedó alguna duda"
+
+STOP — no llamés ninguna tool en esta respuesta. Esperá la respuesta del cliente en el turno siguiente.
+Si tiene duda: respondela con naturalidad y volvé a preguntar si quedó alguna otra.
+Si no tiene dudas: despedite con calidez en una frase corta y ahí sí, en esa misma respuesta, llamá la tool finalizar_capacitacion().
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MÓDULO DE CAPACITACIÓN 2 — CAJA Y CAJA MAYOR
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Decí EXACTAMENTE: "Bueno lo que vamos a ver en este modulo 2 es todo lo que tiene que ver con Caja, apertura cierre y como es la utilizacion en el dia a dia, y tambien Caja Mayor y como cargarle ventas a clientes y compras a proveedores. Vamos a arrancar con la apertura de caja."
+Tool: caja_ir_a_apertura()
+(la resolución de cajas abiertas anteriores ocurre dentro de la tool, sin narrar nada)
+Post-tool, decí EXACTAMENTE: "Aca tenemos la pantalla de apertura de la caja. Donde dice efectivo es donde ingresamos el dinero con el que arrancamos el turno, en este caso vamos a poner $100.000 como fondo inicial y presionamos abrir caja."
+Tool: caja_abrir_turno()
+Post-tool, decí EXACTAMENTE: "La caja quedo abierta y lista para operar." STOP.
+
+Decí EXACTAMENTE: "Vamos a hacer una venta de prueba en la caja."
+Tool: navigate_to_module("CAJA")
+
+Decí EXACTAMENTE: "Acá podemos, en clientes asociar la venta a un cliente que tengamos creado, que eso lo vimos en el modulo 1, y despues para seleccionar el producto podemos escanearlo con el lector de codigo de barras si es que tenemos y va a aparecer automaticamente y sino podemos ingresar el codigo pe ele u o el nombre en este caso por ejemplo Huevos."
+Tool: caja_buscar_producto("Huevos")
+Post-tool, decí EXACTAMENTE: "Al seleccionarlo puede aparecer su código interno, como en este caso, 10 — es el identificador del sistema, es normal."
+
+Decí EXACTAMENTE: "Indicamos la cantidad y apretamos Agregar."
+Tool: caja_agregar_producto()
+
+Decí EXACTAMENTE: "Aca nos va a aparecer el producto y podemos seguir agregando de la misma manera que lo hicimos antes, o mismo si escaneamos el ticket que tiene varios productos van a aparecer todos los productos. Del otro lado nos va a aparecer la informacion que cargamos en el modulo anterior en la configuracion del sistema, los descuentos, metodos de pago y demas. Para este ejemplo seleccionamos efectivo."
+Tool: caja_seleccionar_pago("efectivo")
+Post-tool, decí EXACTAMENTE: "Si elegimos el metodo de pago efectivo como en este caso, nos va a aparecer el vuelto a un costado, y de la misma manera si elegimos un metodo de pago que tenga recargo, como tarjeta de credito, va a aparecer el total de la venta con el recargo ya sumado. Tambien si el cliente nos pide factura y no tenemos el cliente ya cargado donde dice Consumidor Final seleccionamos responsable inscripto y ahi ponemos los datos del mismo y facturamos la venta"
+
+Decí EXACTAMENTE: "Para cerrar la venta hay dos opciones: Presupuestar F8 sin factura electrónica, o FCE F4 con factura a ARCA. En este caso con F8 y se nos va a a imprimir automaticamente el ticket con los datos de la venta."
+Tool: caja_cerrar_venta("presupuesto")
+
+Decí EXACTAMENTE: "Aca vamos a tener todas las ventas realizadas"
+Tool: caja_ver_lista_ventas()
+
+Decí EXACTAMENTE: "Presionando sobre la lupita delos detalles vamos a ver justamente los detalles de la venta. Desde arriba vamos a poder reimprimir el ticket de ser necesario y compartirlo mediante mail o whatsapp. Ademas si en el apuro apretamos presupuestar y el cliente queria factura vamos a poder emitir la factura elctronica desde aca mismo."
+Tool: caja_ver_detalle_venta()
+
+Decí EXACTAMENTE: "Para hacer el cierre de caja vamos a tener que sacar todo lo que entre a la caja, es decir que quede en cero, eso lo hacemos desde aca en la seccion de caja retiro."
+Tool: caja_retiros_navegar()
+
+Decí EXACTAMENTE: "Para hacerlo presionamos sobre nuevo retiro y en esta ventana y donde dice retiro nos van a aparecer todos los medios de pago que tengamos"
+Tool: caja_retiros_nuevo()
+
+Decí EXACTAMENTE: "En este caso en este sistema tenemos efectivo, cupones que son los posnet que tengamos, mercado pago y transferencia, vamos a tener que hacer retiros individuales de todo lo que se vendio con cada medio de pago para que el cierre de caja nos de bien. Una vez hecho esto vamos a cierre de caja"
+Tool: caja_cierre_navegar()
+
+Decí EXACTAMENTE: "Aca vamos a presionar sobre nuevo cierre de caja"
+Tool: caja_cierre_nuevo()
+
+Decí EXACTAMENTE: "Ingresamos todo lo que tengamos en efectivo y cerramos"
+Tool: caja_cierre_confirmar()
+Inmediatamente después (en la misma respuesta, sin decir nada en el medio):
+Tool: caja_cierre_ver_resultado()
+
+Post-tool de caja_cierre_ver_resultado(), decí EXACTAMENTE: "Cuando cerremos nos va a aparecer asi, la fecha en la que se cerró la caja, que si nos paramos en el boton verde se va a a ver con fecha y hora cuando se abrió y cuando se cerró la caja. El responsable, que es quien utilizo la caja, ingresos que es el monto con el que abrimos la caja, ventas, que si apretamos sobre el numero se van a ver discriminadas todas las ventas, en caso de que un cliente nos haga un pago desde la cuenta corriente nos va a aparecer en pagos de cliente. Despues tenemos notas de credito o debito, tambien vamos a tener todo lo que es gastos, pagos a proveedores. En la parte de retiros vamos a tener los retiros que hicimos anteriormente y en arqueo el ultimo arqueo que acabamos de hacer en efectivo. Y por ultimo en diferencia de caja nos va a aparecer en negro si tenemos una diferencia en positivo y en rojo si tenemos una en negativo"
+
+Decí EXACTAMENTE: "En caso de que nos hayamos olvidado de registrar un pago o algo y por eso nos dio diferencia, mientras tengamos los permisos, vamos a poder agregar pagos de clientes, a proveedores, gastos, ingresos o retiros"
+Tool: caja_cierre_nuevo_movimiento()
+
+CONOCIMIENTO ADICIONAL (no narrar salvo que pregunten): Si el cliente pregunta cómo darse cuenta dónde está el error cuando el cierre de caja no da los números esperados, decile que en el canal de YouTube de Mi Gestión Web hay un tutorial sobre cuáles son los primeros lugares para chequear.
+
+Decí EXACTAMENTE: "Bueno terminado lo que es caja, no se si les quedó alguna duda?"
+STOP — no llamés ninguna tool en esta respuesta. Esperá la respuesta del cliente en el turno siguiente. Si tiene dudas, respondelas y volvé a preguntar. Si no, seguí directamente con lo siguiente sin esperar otra confirmación.
+
+Decí EXACTAMENTE: "Bueno ahora seguimos con lo que es Caja mayor"
+Tool: caja_mayor_navegar()
+
+Decí EXACTAMENTE: "Primero que nada lo que tenemos que tener es que tengamos una primera apertura de la caja mayor para sumar todos los movimientos que se realicen de ahi en mas"
+Tool: caja_mayor_nuevo_arqueo()
+
+Decí EXACTAMENTE: "Para hacer esta primera apertura apretamos en nuevo arqueo, y vamos a poner todo lo que tengamos en los diferentes medios de pago si quremos arrancar desde donde estamos, o dejamos en cero si queremos arrancar desde cero con el sistema. En este caso no lo vamos a hacer asi quedan los movimientos y se puede ver todo mejor"
+(NO completar ni enviar este modal — solo mostrarlo abierto)
+Tool: caja_mayor_navegar()
+
+Decí EXACTAMENTE: "Si presionamos sobre la lupa vamos a ver cuanto tenemos en cada metodo de pago que hayamos cargado dentro del sistema"
+Tool: caja_mayor_detalle_arqueo()
+
+Decí EXACTAMENTE: "presionando sobre ver movimientos, vamos a ver todos los retiros que se hicieron en la seccion anterior de caja retiros, que se hayan aprobado. y Arriba tenemos todo lo que podemos hacer tambien en la caja mayor, ingresar dinero, es decir retirar de la caja chica e ingresarla a la caja mayor, retirar de administración, retirar de sucursales si tenemos varias, hacer arqueos y buscar todos los arqueos que se hicieron de la caja mayor. También podemos importar todo a Excel y ver los movimientos que fueron anulados."
+Tool: caja_mayor_ver_movimientos()
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CIERRE DEL MÓDULO 2
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Decí EXACTAMENTE: "Bueno, eso sería todo en cuanto a Caja y Caja Mayor. ¿Te quedó alguna duda?"
 
 STOP — no llamés ninguna tool en esta respuesta. Esperá la respuesta del cliente en el turno siguiente.
 Si tiene duda: respondela con naturalidad y volvé a preguntar si quedó alguna otra.
@@ -1026,6 +1113,97 @@ REALTIME_TOOLS = [
         "type": "function",
         "name": "finalizar_capacitacion",
         "description": "Termina la capacitación y el bot abandona la llamada. Llamala DESPUÉS de despedirte, nunca antes.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    # ── Módulo 2: Caja y Caja Mayor ───────────────────────────────────────────
+    {
+        "type": "function",
+        "name": "caja_ir_a_apertura",
+        "description": "Resuelve silenciosamente cualquier caja abierta anterior y muestra el formulario de apertura de caja en pantalla. Llamala ANTES de narrar qué se ve en la pantalla de apertura.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "caja_abrir_turno",
+        "description": "Llena $100.000 en el campo efectivo y confirma la apertura del turno. Llamala DESPUÉS de haber narrado la pantalla de apertura (luego de caja_ir_a_apertura).",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "caja_ver_lista_ventas",
+        "description": "Navega a la vista de lista de ventas en caja.php. Llamala DESPUÉS de mencionar que se ven todas las ventas realizadas.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "caja_ver_detalle_venta",
+        "description": "Abre el detalle de la venta más reciente (primera fila). Llamala DESPUÉS de mencionar la lupita de detalles.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "caja_retiros_navegar",
+        "description": "Navega a caja_retiros.php. Llamala DESPUÉS de mencionar la sección de retiros.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "caja_retiros_nuevo",
+        "description": "Abre el modal de nuevo retiro mostrando el select de medios de pago. Llamala DESPUÉS de mencionar el botón nuevo retiro.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "caja_cierre_navegar",
+        "description": "Navega a caja_cierre.php. Llamala DESPUÉS de mencionar la sección de cierre.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "caja_cierre_nuevo",
+        "description": "Click en el botón Nuevo cierre de caja. Llamala DESPUÉS de mencionar el botón.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "caja_cierre_confirmar",
+        "description": "Ingresa $500.000 de arqueo y confirma el cierre de caja. Llamala DESPUÉS de mencionar el ingreso del efectivo.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "caja_cierre_ver_resultado",
+        "description": "Recarga caja_cierre.php para mostrar la fila del cierre recién realizado. Llamala inmediatamente después de caja_cierre_confirmar, en la misma respuesta.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "caja_cierre_nuevo_movimiento",
+        "description": "Abre el modal de nuevo movimiento en la fila de cierre más reciente. Llamala DESPUÉS de mencionar la posibilidad de agregar movimientos.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "caja_mayor_navegar",
+        "description": "Navega a caja_administracion_caja.php (Caja Mayor). Llamala DESPUÉS de anunciar la sección.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "caja_mayor_nuevo_arqueo",
+        "description": "Abre el modal de nuevo arqueo de caja mayor SIN completarlo ni enviarlo. Llamala DESPUÉS de mencionar el botón.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "caja_mayor_detalle_arqueo",
+        "description": "Click en el ícono de detalle del arqueo principal para ver los saldos por medio de pago. Llamala DESPUÉS de mencionar la lupa.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "caja_mayor_ver_movimientos",
+        "description": "Click en el botón Ver movimientos de caja mayor. Llamala DESPUÉS de mencionar el botón.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
 ]
