@@ -147,6 +147,22 @@ class RealtimeBridge:
         config_terminales_nueva               = None,   # async fn() → str
         config_impuestos_nuevo                = None,   # async fn() → str
         finalizar_capacitacion                = None,   # async fn() → str
+        # Módulo 2: Caja y Caja Mayor
+        caja_ir_a_apertura                    = None,   # async fn() → str
+        caja_abrir_turno                      = None,   # async fn() → str
+        caja_ver_lista_ventas                 = None,   # async fn() → str
+        caja_ver_detalle_venta                = None,   # async fn() → str
+        caja_retiros_navegar                  = None,   # async fn() → str
+        caja_retiros_nuevo                    = None,   # async fn() → str
+        caja_cierre_navegar                   = None,   # async fn() → str
+        caja_cierre_nuevo                     = None,   # async fn() → str
+        caja_cierre_confirmar                 = None,   # async fn() → str
+        caja_cierre_ver_resultado             = None,   # async fn() → str
+        caja_cierre_nuevo_movimiento          = None,   # async fn() → str
+        caja_mayor_navegar                    = None,   # async fn() → str
+        caja_mayor_nuevo_arqueo               = None,   # async fn() → str
+        caja_mayor_detalle_arqueo             = None,   # async fn() → str
+        caja_mayor_ver_movimientos            = None,   # async fn() → str
     ):
         self._send_to_agent      = send_to_agent
         self._send_navigate      = send_navigate
@@ -209,6 +225,22 @@ class RealtimeBridge:
         self._config_terminales_nueva               = config_terminales_nueva
         self._config_impuestos_nuevo                = config_impuestos_nuevo
         self._finalizar_capacitacion                = finalizar_capacitacion
+        # Módulo 2
+        self._caja_ir_a_apertura                    = caja_ir_a_apertura
+        self._caja_abrir_turno                      = caja_abrir_turno
+        self._caja_ver_lista_ventas                 = caja_ver_lista_ventas
+        self._caja_ver_detalle_venta                = caja_ver_detalle_venta
+        self._caja_retiros_navegar                  = caja_retiros_navegar
+        self._caja_retiros_nuevo                    = caja_retiros_nuevo
+        self._caja_cierre_navegar                   = caja_cierre_navegar
+        self._caja_cierre_nuevo                     = caja_cierre_nuevo
+        self._caja_cierre_confirmar                 = caja_cierre_confirmar
+        self._caja_cierre_ver_resultado             = caja_cierre_ver_resultado
+        self._caja_cierre_nuevo_movimiento          = caja_cierre_nuevo_movimiento
+        self._caja_mayor_navegar                    = caja_mayor_navegar
+        self._caja_mayor_nuevo_arqueo               = caja_mayor_nuevo_arqueo
+        self._caja_mayor_detalle_arqueo             = caja_mayor_detalle_arqueo
+        self._caja_mayor_ver_movimientos            = caja_mayor_ver_movimientos
 
         self._ws                    = None
         self._pw_started            = False
@@ -989,6 +1021,86 @@ class RealtimeBridge:
                 print("[DEMO] Config: abriendo modal nuevo impuesto...")
                 await self._wait_for_audio_done(timeout=20.0)
                 result = await self._config_impuestos_nuevo() if self._config_impuestos_nuevo else "Modal de nuevo impuesto abierto."
+
+            elif name == "caja_ir_a_apertura":
+                print("[CAJA2] Navegando a formulario de apertura...")
+                await self._ensure_playwright()
+                await self._wait_for_audio_done(timeout=20.0)
+                self._demo_started = True
+                result = await self._caja_ir_a_apertura() if self._caja_ir_a_apertura else "Formulario de apertura visible."
+
+            elif name == "caja_abrir_turno":
+                print("[CAJA2] Confirmando apertura de turno...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._caja_abrir_turno() if self._caja_abrir_turno else "Turno de caja abierto."
+
+            elif name == "caja_ver_lista_ventas":
+                print("[CAJA2] Mostrando lista de ventas...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._caja_ver_lista_ventas() if self._caja_ver_lista_ventas else "Lista de ventas visible."
+
+            elif name == "caja_ver_detalle_venta":
+                print("[CAJA2] Abriendo detalle de la venta más reciente...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._caja_ver_detalle_venta() if self._caja_ver_detalle_venta else "Detalle de venta abierto."
+
+            elif name == "caja_retiros_navegar":
+                print("[CAJA2] Navegando a retiros...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._caja_retiros_navegar() if self._caja_retiros_navegar else "Sección de retiros visible."
+
+            elif name == "caja_retiros_nuevo":
+                print("[CAJA2] Abriendo modal nuevo retiro...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._caja_retiros_nuevo() if self._caja_retiros_nuevo else "Modal de nuevo retiro abierto."
+
+            elif name == "caja_cierre_navegar":
+                print("[CAJA2] Navegando a cierre de caja...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._caja_cierre_navegar() if self._caja_cierre_navegar else "Sección de cierre visible."
+
+            elif name == "caja_cierre_nuevo":
+                print("[CAJA2] Iniciando nuevo cierre de caja...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._caja_cierre_nuevo() if self._caja_cierre_nuevo else "Formulario de cierre abierto."
+
+            elif name == "caja_cierre_confirmar":
+                print("[CAJA2] Confirmando cierre con $500.000...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._caja_cierre_confirmar() if self._caja_cierre_confirmar else "Cierre confirmado."
+
+            elif name == "caja_cierre_ver_resultado":
+                print("[CAJA2] Mostrando resultado del cierre...")
+                result = await self._caja_cierre_ver_resultado() if self._caja_cierre_ver_resultado else "Resultado del cierre visible."
+
+            elif name == "caja_cierre_nuevo_movimiento":
+                print("[CAJA2] Abriendo modal nuevo movimiento de cierre...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._caja_cierre_nuevo_movimiento() if self._caja_cierre_nuevo_movimiento else "Modal de nuevo movimiento abierto."
+
+            elif name == "caja_mayor_navegar":
+                print("[CAJA-MAYOR] Navegando a Caja Mayor...")
+                await self._ensure_playwright()
+                await self._wait_for_audio_done(timeout=20.0)
+                self._demo_started = True
+                await self._send_navigate(DEMO_MODULE_PATHS.get("CAJA MAYOR", "/caja_administracion_caja.php"))
+                result = await self._caja_mayor_navegar() if self._caja_mayor_navegar else "Pantalla de Caja Mayor visible."
+
+            elif name == "caja_mayor_nuevo_arqueo":
+                print("[CAJA-MAYOR] Abriendo modal nuevo arqueo...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._caja_mayor_nuevo_arqueo() if self._caja_mayor_nuevo_arqueo else "Modal de nuevo arqueo abierto."
+
+            elif name == "caja_mayor_detalle_arqueo":
+                print("[CAJA-MAYOR] Abriendo detalle del arqueo...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._caja_mayor_detalle_arqueo() if self._caja_mayor_detalle_arqueo else "Detalle del arqueo visible."
+
+            elif name == "caja_mayor_ver_movimientos":
+                print("[CAJA-MAYOR] Mostrando movimientos de caja mayor...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._caja_mayor_ver_movimientos() if self._caja_mayor_ver_movimientos else "Movimientos de caja mayor visibles."
+                await self._on_screenshot_end()
 
             elif name == "finalizar_capacitacion":
                 print("[DEMO] Finalizando capacitación — bot abandona la llamada...")

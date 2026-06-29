@@ -528,22 +528,43 @@ async def caja_step_seleccionar_pago(method: str, on_screenshot=None) -> str:
             }}
         """)
         print(f"[PW] [Caja] {method_text} forzado via JS ✓")
-    # Llenar "Paga con" con 2000 para que el vuelto se calcule y se vea en pantalla
-    print("[PW] [Caja] Llenando campo 'Paga con' con 2000...")
-    for sel in ['input#pago', 'input[name="pago"]']:
+    # Llenar "Paga con" con 5000 para que el vuelto se calcule y se vea en pantalla
+    # (5000 cubre precios típicos y deja vuelto visible)
+    print("[PW] [Caja] Llenando campo 'Paga con' con 5000...")
+    pago_filled = False
+    for sel in [
+        'input[placeholder*="Paga con"]', 'input[placeholder*="paga con"]',
+        'input#efectivo', 'input[name="efectivo"]',
+        'input[name="monto_efectivo"]', 'input[name="recibe"]',
+        'input[name="monto"]', 'input#pago', 'input[name="pago"]',
+    ]:
         try:
             pago_el = _page.locator(sel).first
             if await pago_el.count() > 0 and await pago_el.is_visible():
                 await pago_el.click()
-                await pago_el.fill("2000")
-                await pago_el.press("Tab")
-                print(f"[PW] [Caja] 'Paga con'=2000 via '{sel}' ✓")
+                await pago_el.fill("5000")
+                # Dispatch input + change so JS vuelto recalculates immediately
+                sel_esc = sel.replace("'", "\\'")
+                await _page.evaluate(f"""() => {{
+                    const el = document.querySelector('{sel_esc}');
+                    if (el) {{
+                        el.dispatchEvent(new Event('input', {{bubbles: true}}));
+                        el.dispatchEvent(new Event('change', {{bubbles: true}}));
+                        el.dispatchEvent(new Event('keyup', {{bubbles: true}}));
+                    }}
+                }}""")
+                await pago_el.press("Enter")
+                pago_filled = True
+                print(f"[PW] [Caja] 'Paga con'=5000 via '{sel}' ✓")
                 break
         except Exception:
             continue
-    await asyncio.sleep(1.0)
+    if not pago_filled:
+        print("[PW] [Caja] Selector 'Paga con' no encontrado — continuando sin llenar")
+    # Wait for vuelto JS to render before snapping
+    await asyncio.sleep(2.5)
     if on_screenshot:
-        await _snap(on_screenshot, 3.0)
+        await _snap(on_screenshot, 2.0)
     return f"Forma de pago '{method_text}' seleccionada. El panel de cobro se ve en pantalla con el vuelto calculado."
 
 
@@ -4120,3 +4141,400 @@ async def config_impuestos_nuevo(on_screenshot=None) -> str:
     await snap()
     print("[PW] [CONFIG] config_impuestos_nuevo ✓")
     return "Modal de nuevo impuesto abierto."
+
+
+# ── Steps atómicos — Módulo 2: Caja y Caja Mayor ─────────────────────────────
+
+async def _arqueo_confirmar(monto: int, on_screenshot=None) -> None:
+    """Helper compartido: llena el campo de importe del arqueo, opcionalmente muestra snapshot, y confirma."""
+    if _page is None:
+        return
+    campo = _page.locator("#importe_arqueo_nuevo").first
+    if await campo.count() > 0:
+        await campo.fill(str(monto))
+    else:
+        for sel in ['input[name="importe_arqueo_nuevo"]', 'input[name="importe"]']:
+            try:
+                el = _page.locator(sel).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.fill(str(monto))
+                    break
+            except Exception:
+                continue
+    # Snapshot BEFORE confirming so the user sees the form with the amount filled
+    if on_screenshot:
+        await _snap(on_screenshot, 0.8)
+    btn = _page.locator("#boton_nuevo_arqueo").first
+    if await btn.count() > 0:
+        await btn.click()
+    else:
+        await _page.evaluate("""() => {
+            const b = document.getElementById('boton_nuevo_arqueo')
+                   || [...document.querySelectorAll('[onclick]')].find(e =>
+                          (e.getAttribute('onclick') || '').includes('nuevo_arqueo'));
+            if (b) b.click();
+        }""")
+    await asyncio.sleep(2.0)
+
+
+async def caja_ir_a_apertura(on_screenshot=None) -> str:
+    """
+    Resuelve silenciosamente el estado previo de la caja y navega a caja.php
+    para MOSTRAR el formulario de apertura sin confirmarlo todavía.
+    """
+    if _page is None:
+        return "Error: browser no iniciado"
+    base = MGW_URL.rstrip("/")
+
+    # Login silencioso si todavía no hay sesión activa
+    current_url = _page.url
+    if not current_url or current_url in ("about:blank", "") or "index.php" in current_url:
+        print("[PW] [CAJA2] Login silencioso antes de ir a apertura...")
+        ok = await pw_login()
+        if not ok:
+            return "Error: no se pudo hacer login en MGW."
+
+    print("[PW] [CAJA2] Navegando a caja.php para mostrar formulario de apertura...")
+    await _page.goto(f"{base}/caja.php", wait_until="domcontentloaded", timeout=20000)
+    await asyncio.sleep(1.5)
+
+    # Escenario 1: cartel de cierre forzado visible en caja.php
+    arqueo_input = _page.locator("#importe_arqueo_nuevo").first
+    if await arqueo_input.count() > 0 and await arqueo_input.is_visible():
+        print("[PW] [CAJA2] Escenario 1: cartel de cierre forzado — cerrando silenciosamente...")
+        await _arqueo_confirmar(monto=1000000)
+        await _page.goto(f"{base}/caja.php", wait_until="domcontentloaded", timeout=20000)
+        await asyncio.sleep(1.5)
+    else:
+        # Escenario 2: sin cartel, verificar si la caja sigue abierta
+        print("[PW] [CAJA2] Verificando caja_cierre.php...")
+        await _page.goto(f"{base}/caja_cierre.php", wait_until="domcontentloaded", timeout=20000)
+        await asyncio.sleep(1.0)
+        cierre_btn = _page.locator("#boton_cerrar_caja").first
+        if await cierre_btn.count() > 0 and await cierre_btn.is_visible():
+            print("[PW] [CAJA2] Escenario 2: caja abierta — haciendo cierre silencioso...")
+            await cierre_btn.click()
+            await asyncio.sleep(1.5)
+            await _arqueo_confirmar(monto=1000000)
+        else:
+            print("[PW] [CAJA2] Escenario 3: caja ya cerrada — nada que resolver")
+        await _page.goto(f"{base}/caja.php", wait_until="domcontentloaded", timeout=20000)
+        await asyncio.sleep(1.5)
+
+    # Screenshot del formulario vacío de apertura (ANTES de llenarlo)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    print("[PW] [CAJA2] caja_ir_a_apertura ✓")
+    return "Formulario de apertura de caja visible en pantalla. El campo efectivo está listo para ingresar el fondo inicial."
+
+
+async def caja_abrir_turno(on_screenshot=None) -> str:
+    """
+    Llena $100.000 en el campo efectivo y confirma la apertura del turno.
+    Debe llamarse DESPUÉS de caja_ir_a_apertura().
+    """
+    if _page is None:
+        return "Error: browser no iniciado"
+    print("[PW] [CAJA2] Confirmando apertura con $100.000...")
+    # on_screenshot → snaps BEFORE clic para mostrar el monto ingresado
+    await _arqueo_confirmar(monto=100000, on_screenshot=on_screenshot)
+    await asyncio.sleep(1.0)
+    # Segundo snap: caja abierta y lista para operar
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    print("[PW] [CAJA2] caja_abrir_turno ✓")
+    return "Caja abierta con $100.000 de fondo inicial. La pantalla muestra la caja lista para operar."
+
+
+async def caja_ver_lista_ventas(on_screenshot=None) -> str:
+    """Navega a caja.php y muestra la lista de ventas realizadas."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    base = MGW_URL.rstrip("/")
+    print("[PW] [CAJA2] Navegando a caja.php (lista ventas)...")
+    await _page.goto(f"{base}/caja.php", wait_until="domcontentloaded", timeout=20000)
+    await asyncio.sleep(2.0)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    print("[PW] [CAJA2] caja_ver_lista_ventas ✓")
+    return "Lista de ventas realizadas visible en pantalla."
+
+
+async def caja_ver_detalle_venta(on_screenshot=None) -> str:
+    """Click en el ícono de detalles de la venta más reciente (primera fila de tbody)."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    clicked = await _page.evaluate("""() => {
+        const btn = document.querySelector(
+            'tbody tr:first-child [onclick*="im_detalles_venta"]'
+        );
+        if (btn) { btn.click(); return true; }
+        // fallback: lupa genérica en la primera fila
+        const lupas = document.querySelectorAll('tbody tr:first-child [onclick*="detalles"]');
+        if (lupas.length > 0) { lupas[0].click(); return true; }
+        return false;
+    }""")
+    print(f"[PW] [CAJA2] caja_ver_detalle_venta: {'✓' if clicked else '✗ (no encontrado)'}")
+    await asyncio.sleep(2.0)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    return "Detalle de la venta visible, con opciones de reimprimir, compartir por mail/WhatsApp y emitir FCE."
+
+
+async def caja_retiros_navegar(on_screenshot=None) -> str:
+    """Navega a caja_retiros.php."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    base = MGW_URL.rstrip("/")
+    print("[PW] [CAJA2] Navegando a caja_retiros.php...")
+    await _page.goto(f"{base}/caja_retiros.php", wait_until="domcontentloaded", timeout=20000)
+    await asyncio.sleep(2.0)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    print("[PW] [CAJA2] caja_retiros_navegar ✓")
+    return "Sección de retiros de caja visible."
+
+
+async def caja_retiros_nuevo(on_screenshot=None) -> str:
+    """Abre el modal de nuevo retiro clickeando el botón de efectivo."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    clicked = await _page.evaluate("""() => {
+        // onclick literal que da el documento
+        const btn = [...document.querySelectorAll('[onclick]')].find(e =>
+            (e.getAttribute('onclick') || '').includes("nuevo_retiro('efectivo'")
+        );
+        if (btn) { btn.click(); return true; }
+        // fallback: cualquier botón de nuevo retiro
+        const btn2 = [...document.querySelectorAll('[onclick]')].find(e =>
+            (e.getAttribute('onclick') || '').includes('nuevo_retiro')
+        );
+        if (btn2) { btn2.click(); return true; }
+        return false;
+    }""")
+    if not clicked:
+        for selector in ['a:has-text("Nuevo retiro")', 'button:has-text("Nuevo retiro")',
+                         'a:has-text("Nuevo Retiro")', 'button:has-text("Nuevo Retiro")']:
+            try:
+                el = _page.locator(selector).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    clicked = True
+                    break
+            except Exception:
+                continue
+    print(f"[PW] [CAJA2] caja_retiros_nuevo: {'✓' if clicked else '✗'}")
+    await asyncio.sleep(2.0)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    return "Modal de nuevo retiro abierto. El select de medios de pago muestra las opciones disponibles: efectivo, cupones, Mercado Pago, transferencia."
+
+
+async def caja_cierre_navegar(on_screenshot=None) -> str:
+    """Navega a caja_cierre.php."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    base = MGW_URL.rstrip("/")
+    print("[PW] [CAJA2] Navegando a caja_cierre.php...")
+    await _page.goto(f"{base}/caja_cierre.php", wait_until="domcontentloaded", timeout=20000)
+    await asyncio.sleep(2.0)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    print("[PW] [CAJA2] caja_cierre_navegar ✓")
+    return "Sección de cierre de caja visible."
+
+
+async def caja_cierre_nuevo(on_screenshot=None) -> str:
+    """Hace click en el botón 'Nuevo cierre de caja' (#boton_cerrar_caja)."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    clicked = await _page.evaluate("""() => {
+        const btn = document.getElementById('boton_cerrar_caja')
+               || [...document.querySelectorAll('[onclick]')].find(e =>
+                      (e.getAttribute('onclick') || '').includes('nuevo_cierre'));
+        if (btn) { btn.click(); return true; }
+        return false;
+    }""")
+    if not clicked:
+        for selector in ['button:has-text("Nuevo cierre")', 'a:has-text("Nuevo cierre")',
+                         'button:has-text("Cierre de caja")', 'a:has-text("Cierre de caja")']:
+            try:
+                el = _page.locator(selector).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    clicked = True
+                    break
+            except Exception:
+                continue
+    print(f"[PW] [CAJA2] caja_cierre_nuevo: {'✓' if clicked else '✗'}")
+    await asyncio.sleep(2.0)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    return "Formulario de nuevo cierre de caja abierto."
+
+
+async def caja_cierre_confirmar(on_screenshot=None) -> str:
+    """Ingresa $500.000 en el arqueo y confirma el cierre."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    print("[PW] [CAJA2] Confirmando cierre con $500.000 de arqueo...")
+    await _arqueo_confirmar(monto=500000)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    print("[PW] [CAJA2] caja_cierre_confirmar ✓")
+    return "Arqueo de $500.000 ingresado y cierre de caja confirmado."
+
+
+async def caja_cierre_ver_resultado(on_screenshot=None) -> str:
+    """Recarga caja_cierre.php para mostrar la fila del cierre recién realizado."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    base = MGW_URL.rstrip("/")
+    print("[PW] [CAJA2] Recargando caja_cierre.php...")
+    await _page.goto(f"{base}/caja_cierre.php", wait_until="domcontentloaded", timeout=20000)
+    await asyncio.sleep(2.0)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    print("[PW] [CAJA2] caja_cierre_ver_resultado ✓")
+    return "Cierre realizado visible en la lista, con fecha, responsable, ingresos, ventas, retiros y diferencia de caja."
+
+
+async def caja_cierre_nuevo_movimiento(on_screenshot=None) -> str:
+    """Click en el ícono de nuevo movimiento en la fila más reciente del cierre."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    clicked = await _page.evaluate("""() => {
+        const btn = document.querySelector(
+            'tbody tr:first-child [onclick*="nuevo_movimiento"]'
+        );
+        if (btn) { btn.click(); return true; }
+        // fallback más amplio en la primera fila
+        const btns = document.querySelectorAll('tbody tr:first-child [onclick]');
+        for (const b of btns) {
+            if ((b.getAttribute('onclick') || '').includes('movimiento')) {
+                b.click(); return true;
+            }
+        }
+        return false;
+    }""")
+    print(f"[PW] [CAJA2] caja_cierre_nuevo_movimiento: {'✓' if clicked else '✗'}")
+    await asyncio.sleep(2.0)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    return "Modal de nuevo movimiento abierto, con opciones: pagos de clientes, pagos a proveedores, gastos, ingresos, retiros."
+
+
+async def caja_mayor_navegar(on_screenshot=None) -> str:
+    """Navega a caja_administracion_caja.php (Caja Mayor)."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    base = MGW_URL.rstrip("/")
+    print("[PW] [CAJA-MAYOR] Navegando a caja_administracion_caja.php...")
+    await _page.goto(f"{base}/caja_administracion_caja.php", wait_until="domcontentloaded", timeout=20000)
+    await asyncio.sleep(2.0)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    print("[PW] [CAJA-MAYOR] caja_mayor_navegar ✓")
+    return "Pantalla de Caja Mayor visible."
+
+
+async def caja_mayor_nuevo_arqueo(on_screenshot=None) -> str:
+    """Abre el modal de nuevo arqueo de caja mayor SIN completar ni enviar."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    clicked = await _page.evaluate("""() => {
+        const btn = [...document.querySelectorAll('[onclick]')].find(e =>
+            (e.getAttribute('onclick') || '').includes('caja_administracion_nuevo_arqueo')
+        );
+        if (btn) { btn.click(); return true; }
+        return false;
+    }""")
+    if not clicked:
+        for selector in ['a:has-text("Nuevo arqueo")', 'button:has-text("Nuevo arqueo")',
+                         '.btn-danger:has-text("arqueo")']:
+            try:
+                el = _page.locator(selector).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    clicked = True
+                    break
+            except Exception:
+                continue
+    print(f"[PW] [CAJA-MAYOR] caja_mayor_nuevo_arqueo (modal abierto, sin enviar): {'✓' if clicked else '✗'}")
+    await asyncio.sleep(2.0)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    return "Modal de nuevo arqueo abierto (sin completar ni enviar — solo se muestra al cliente)."
+
+
+async def caja_mayor_detalle_arqueo(on_screenshot=None) -> str:
+    """Click en el ícono de detalle del arqueo principal."""
+    if _page is None:
+        return "Error: browser no iniciado"
+
+    # Cerrar el modal de nuevo arqueo si quedó abierto
+    try:
+        await _page.keyboard.press("Escape")
+        await asyncio.sleep(0.5)
+    except Exception:
+        pass
+
+    clicked = await _page.evaluate("""() => {
+        const btn = [...document.querySelectorAll('[onclick]')].find(e =>
+            (e.getAttribute('onclick') || '').includes('detalles_arqueo_principal')
+        );
+        if (btn) { btn.click(); return true; }
+        return false;
+    }""")
+    if not clicked:
+        for selector in ['[data-original-title="Ver detalles"]', '[title="Ver detalles"]',
+                         'tbody tr:first-child .fa-search', 'tbody tr:first-child a']:
+            try:
+                el = _page.locator(selector).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    clicked = True
+                    break
+            except Exception:
+                continue
+    print(f"[PW] [CAJA-MAYOR] caja_mayor_detalle_arqueo: {'✓' if clicked else '✗'}")
+    await asyncio.sleep(2.0)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    return "Detalle del arqueo visible, mostrando el saldo en cada medio de pago."
+
+
+async def caja_mayor_ver_movimientos(on_screenshot=None) -> str:
+    """Click en el botón 'Ver movimientos' de la caja mayor."""
+    if _page is None:
+        return "Error: browser no iniciado"
+
+    # Cerrar modal si quedó abierto
+    try:
+        await _page.keyboard.press("Escape")
+        await asyncio.sleep(0.3)
+    except Exception:
+        pass
+
+    clicked = await _page.evaluate("""() => {
+        const btn = [...document.querySelectorAll('[onclick]')].find(e =>
+            (e.getAttribute('onclick') || '').includes('caja_administracion_lista_detalles')
+        );
+        if (btn) { btn.click(); return true; }
+        return false;
+    }""")
+    if not clicked:
+        for selector in ['a:has-text("Ver movimientos")', 'button:has-text("Ver movimientos")']:
+            try:
+                el = _page.locator(selector).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    clicked = True
+                    break
+            except Exception:
+                continue
+    print(f"[PW] [CAJA-MAYOR] caja_mayor_ver_movimientos: {'✓' if clicked else '✗'}")
+    await asyncio.sleep(2.0)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    return "Movimientos de caja mayor visibles: retiros aprobados y botones de ingreso, retiro, arqueo y más."

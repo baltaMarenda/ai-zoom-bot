@@ -38,6 +38,15 @@ from mgw_playwright import (
     config_combos_nuevo, config_combos_editar,
     config_formas_pago_nueva, config_descuentos_nuevo,
     config_terminales_nueva, config_impuestos_nuevo,
+    # Módulo 2: Caja y Caja Mayor
+    caja_ir_a_apertura, caja_abrir_turno,
+    caja_ver_lista_ventas, caja_ver_detalle_venta,
+    caja_retiros_navegar, caja_retiros_nuevo,
+    caja_cierre_navegar, caja_cierre_nuevo,
+    caja_cierre_confirmar, caja_cierre_ver_resultado,
+    caja_cierre_nuevo_movimiento,
+    caja_mayor_navegar, caja_mayor_nuevo_arqueo,
+    caja_mayor_detalle_arqueo, caja_mayor_ver_movimientos,
 )
 from recall import leave_call
 
@@ -348,6 +357,54 @@ async def _finalizar_capacitacion() -> str:
         return f"Error al finalizar: {e}"
 
 
+# ── Módulo 2: Caja y Caja Mayor ───────────────────────────────────────────────
+
+async def _caja_ir_a_apertura() -> str:
+    return await caja_ir_a_apertura(on_screenshot=_on_screenshot)
+
+async def _caja_abrir_turno() -> str:
+    return await caja_abrir_turno(on_screenshot=_on_screenshot)
+
+async def _caja_ver_lista_ventas() -> str:
+    return await caja_ver_lista_ventas(on_screenshot=_on_screenshot)
+
+async def _caja_ver_detalle_venta() -> str:
+    return await caja_ver_detalle_venta(on_screenshot=_on_screenshot)
+
+async def _caja_retiros_navegar() -> str:
+    return await caja_retiros_navegar(on_screenshot=_on_screenshot)
+
+async def _caja_retiros_nuevo() -> str:
+    return await caja_retiros_nuevo(on_screenshot=_on_screenshot)
+
+async def _caja_cierre_navegar() -> str:
+    return await caja_cierre_navegar(on_screenshot=_on_screenshot)
+
+async def _caja_cierre_nuevo() -> str:
+    return await caja_cierre_nuevo(on_screenshot=_on_screenshot)
+
+async def _caja_cierre_confirmar() -> str:
+    return await caja_cierre_confirmar(on_screenshot=_on_screenshot)
+
+async def _caja_cierre_ver_resultado() -> str:
+    return await caja_cierre_ver_resultado(on_screenshot=_on_screenshot)
+
+async def _caja_cierre_nuevo_movimiento() -> str:
+    return await caja_cierre_nuevo_movimiento(on_screenshot=_on_screenshot)
+
+async def _caja_mayor_navegar() -> str:
+    return await caja_mayor_navegar(on_screenshot=_on_screenshot)
+
+async def _caja_mayor_nuevo_arqueo() -> str:
+    return await caja_mayor_nuevo_arqueo(on_screenshot=_on_screenshot)
+
+async def _caja_mayor_detalle_arqueo() -> str:
+    return await caja_mayor_detalle_arqueo(on_screenshot=_on_screenshot)
+
+async def _caja_mayor_ver_movimientos() -> str:
+    return await caja_mayor_ver_movimientos(on_screenshot=_on_screenshot)
+
+
 # ── WebSocket handler ─────────────────────────────────────────────────────────
 
 async def handle_recall_audio(websocket):
@@ -437,6 +494,22 @@ async def handle_recall_audio(websocket):
         config_terminales_nueva               = _config_terminales_nueva,
         config_impuestos_nuevo                = _config_impuestos_nuevo,
         finalizar_capacitacion                = _finalizar_capacitacion,
+        # Módulo 2
+        caja_ir_a_apertura                    = _caja_ir_a_apertura,
+        caja_abrir_turno                      = _caja_abrir_turno,
+        caja_ver_lista_ventas                 = _caja_ver_lista_ventas,
+        caja_ver_detalle_venta                = _caja_ver_detalle_venta,
+        caja_retiros_navegar                  = _caja_retiros_navegar,
+        caja_retiros_nuevo                    = _caja_retiros_nuevo,
+        caja_cierre_navegar                   = _caja_cierre_navegar,
+        caja_cierre_nuevo                     = _caja_cierre_nuevo,
+        caja_cierre_confirmar                 = _caja_cierre_confirmar,
+        caja_cierre_ver_resultado             = _caja_cierre_ver_resultado,
+        caja_cierre_nuevo_movimiento          = _caja_cierre_nuevo_movimiento,
+        caja_mayor_navegar                    = _caja_mayor_navegar,
+        caja_mayor_nuevo_arqueo               = _caja_mayor_nuevo_arqueo,
+        caja_mayor_detalle_arqueo             = _caja_mayor_detalle_arqueo,
+        caja_mayor_ver_movimientos            = _caja_mayor_ver_movimientos,
     )
 
     async def receive_from_recall():
