@@ -262,6 +262,7 @@ class RealtimeBridge:
         self._last_user_audio_ts    = 0.0      # monotonic ts del último chunk de audio real reenviado a la API
         self._pending_audio_ms      = 0.0      # ms de audio real acumulado en el buffer desde el último commit/clear
         self._nudge_pending         = False   # True si ya hay un nudge "Continuá con el protocolo" sin responder en la conversación
+        self._auto_continue_empty_count = 0    # respuestas vacías consecutivas tras un nudge (para backoff)
         self._audio_end_time        = 0.0      # monotonic ts estimado de fin de reproducción del audio actual
 
     # ── Lifecycle ──────────────────────────────────────────────────────────────
@@ -470,6 +471,7 @@ class RealtimeBridge:
             # Cualquier nudge pendiente queda obsoleto frente a un turno real del usuario —
             # si la demo lo necesita de nuevo más adelante, se inserta uno fresco.
             self._nudge_pending = False
+            self._auto_continue_empty_count = 0
             self._user_turn_open = True
             self._last_user_audio_ts = time.monotonic()
             if self._is_speaking:
@@ -543,10 +545,14 @@ class RealtimeBridge:
                 # El modelo reaccionó de verdad (al nudge, a una tool o al usuario) — el
                 # nudge pendiente, si lo había, ya cumplió su propósito.
                 self._nudge_pending = False
+                self._auto_continue_empty_count = 0
             if status != "cancelled" and self._demo_started and not self._tool_is_running:
                 # Auto-continuar solo durante la demo y cuando esta respuesta no
                 # disparó una tool (si la disparó, _send_tool_result/_send_nav_result
                 # se encargan de pedir la siguiente respuesta cuando la tool termine).
+                if not self._response_has_audio and self._nudge_pending:
+                    # Respuesta vacía con nudge ya en la conversación — acumular para backoff
+                    self._auto_continue_empty_count += 1
                 self._cancel_auto_continue()
                 self._auto_continue_task = asyncio.create_task(self._auto_continue())
             self._on_response_ended(ws)
@@ -656,7 +662,14 @@ class RealtimeBridge:
         auto-continue en el medio. Insertar un mensaje system corto antes le da un
         turno real al que reaccionar en vez de depender de que actúe sobre silencio.
         """
-        delay = 8.0 if self._last_transcript.rstrip().endswith("?") else 1.5
+        if self._nudge_pending:
+            # Backoff exponencial: 3s → 5.5s → 8s (tope) por cada respuesta vacía
+            # consecutiva tras el nudge, para no spamear la API con response.create.
+            delay = min(3.0 + 2.5 * max(self._auto_continue_empty_count - 1, 0), 8.0)
+        elif self._last_transcript.rstrip().endswith("?"):
+            delay = 8.0
+        else:
+            delay = 1.5
         try:
             await asyncio.sleep(delay)
             await self._wait_for_audio_done(timeout=15.0)
