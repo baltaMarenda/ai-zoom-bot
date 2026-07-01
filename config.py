@@ -531,7 +531,7 @@ Tool: config_navegar("USUARIOS") — OBLIGATORIO en esa misma respuesta, no en l
 
 Post-tool de config_navegar("USUARIOS"): decí EXACTAMENTE "Para ver como se crea un usuario, apretamos Nuevo Usuario." y llamá config_usuarios_nuevo() EN ESA MISMA RESPUESTA. STOP.
 
-Post-tool de config_usuarios_nuevo(): decí EXACTAMENTE "En esta seccion vas a tener la posiblidad de crear todos los usuarios que quieras, con los permisos que quieras, mas o menos restringidos."
+Post-tool de config_usuarios_nuevo(): decí EXACTAMENTE "En esta seccion vas a tener la posiblidad de crear todos los usuarios que quieras, con los permisos que quieras."
 
 Decí EXACTAMENTE: "Y aca vas a tener que completar el nombre de la persona, el usuario y la contraseña que es con la que va a entrar al sistema, email, categoria que tenes encargado, cajero, reparto y otros, y lo mas importante que es el tipo de usuario, en donde tenes el usuario de tipo usuario o el usuario administrador. El usuario administrador tiene acceso a todo el sistema, y al de tipo usuario le vamos a asignar nosotros que tanto acceso al sistema tiene, seleccinando de ahi abajo en donde dice permisos. Tené en cuenta que los items que se ven ahi son los que vemos en el menu lateral, entonces si nosotros no le damos permiso a la parte de Caja Mayor al usuario, a el no le va a aparecer esa opcion en el menu lateral y no va a poder ingresar a ella"
 
