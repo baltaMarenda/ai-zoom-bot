@@ -110,6 +110,9 @@ class RealtimeBridge:
         demo_estadisticas           = None,   # async fn() → str
         demo_stock                  = None,   # async fn() → str
         demo_clientes               = None,   # async fn() → str
+        clientes_nuevo_cliente      = None,   # async fn() → str
+        clientes_importar           = None,   # async fn() → str
+        clientes_ver_detalle        = None,   # async fn() → str
         balanza_navegar             = None,   # async fn() → str
         balanza_agregar_producto    = None,   # async fn(nombre, id) → str
         balanza_mostrar_tickets     = None,   # async fn() → str
@@ -122,6 +125,7 @@ class RealtimeBridge:
         proveedores_abrir_carrito        = None,   # async fn() → str
         proveedores_cargar_producto      = None,   # async fn() → str
         proveedores_finalizar_detalle    = None,   # async fn() → str
+        proveedores_registrar_pago       = None,   # async fn() → str
         produccion_ver_plantillas         = None,   # async fn() → str
         produccion_ver_detalle_plantilla  = None,   # async fn() → str
         produccion_ir_a_produccion        = None,   # async fn() → str
@@ -146,6 +150,9 @@ class RealtimeBridge:
         config_descuentos_nuevo               = None,   # async fn() → str
         config_terminales_nueva               = None,   # async fn() → str
         config_impuestos_nuevo                = None,   # async fn() → str
+        config_gastos_nuevo_concepto          = None,   # async fn() → str
+        config_gastos_crear_concepto          = None,   # async fn() → str
+        config_gastos_eliminar_concepto       = None,   # async fn() → str
         finalizar_capacitacion                = None,   # async fn() → str
         # Módulo 2: Caja y Caja Mayor
         caja_ir_a_apertura                    = None,   # async fn() → str
@@ -188,6 +195,9 @@ class RealtimeBridge:
         self._demo_estadisticas          = demo_estadisticas
         self._demo_stock                 = demo_stock
         self._demo_clientes              = demo_clientes
+        self._clientes_nuevo_cliente     = clientes_nuevo_cliente
+        self._clientes_importar          = clientes_importar
+        self._clientes_ver_detalle       = clientes_ver_detalle
         self._balanza_navegar            = balanza_navegar
         self._balanza_agregar_producto   = balanza_agregar_producto
         self._balanza_mostrar_tickets    = balanza_mostrar_tickets
@@ -200,6 +210,7 @@ class RealtimeBridge:
         self._proveedores_abrir_carrito      = proveedores_abrir_carrito
         self._proveedores_cargar_producto    = proveedores_cargar_producto
         self._proveedores_finalizar_detalle  = proveedores_finalizar_detalle
+        self._proveedores_registrar_pago     = proveedores_registrar_pago
         self._produccion_ver_plantillas        = produccion_ver_plantillas
         self._produccion_ver_detalle_plantilla = produccion_ver_detalle_plantilla
         self._produccion_ir_a_produccion       = produccion_ir_a_produccion
@@ -224,6 +235,9 @@ class RealtimeBridge:
         self._config_descuentos_nuevo               = config_descuentos_nuevo
         self._config_terminales_nueva               = config_terminales_nueva
         self._config_impuestos_nuevo                = config_impuestos_nuevo
+        self._config_gastos_nuevo_concepto          = config_gastos_nuevo_concepto
+        self._config_gastos_crear_concepto          = config_gastos_crear_concepto
+        self._config_gastos_eliminar_concepto       = config_gastos_eliminar_concepto
         self._finalizar_capacitacion                = finalizar_capacitacion
         # Módulo 2
         self._caja_ir_a_apertura                    = caja_ir_a_apertura
@@ -838,6 +852,22 @@ class RealtimeBridge:
                 await self._wait_for_audio_done(timeout=20.0)
                 result = await self._demo_clientes() if self._demo_clientes else "Demo de clientes no disponible."
 
+            elif name == "clientes_nuevo_cliente":
+                print("[DEMO] Clientes: abriendo modal nuevo cliente...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._clientes_nuevo_cliente() if self._clientes_nuevo_cliente else "Modal de nuevo cliente abierto."
+
+            elif name == "clientes_importar":
+                print("[DEMO] Clientes: abriendo importación por Excel...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._clientes_importar() if self._clientes_importar else "Modal de importación abierto."
+
+            elif name == "clientes_ver_detalle":
+                print("[DEMO] Clientes: abriendo detalle del cliente...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._clientes_ver_detalle() if self._clientes_ver_detalle else "Detalle del cliente abierto."
+                await self._on_screenshot_end()
+
             elif name == "balanza_navegar":
                 print("[DEMO] Balanza: navegando...")
                 await self._do_navigate("BALANZA")
@@ -896,7 +926,7 @@ class RealtimeBridge:
                 result = await self._proveedores_abrir_carrito() if self._proveedores_abrir_carrito else "Carrito abierto."
 
             elif name == "proveedores_cargar_producto":
-                print("[DEMO] Proveedores: cargando producto Asado...")
+                print("[DEMO] Proveedores: cargando producto Media res...")
                 await self._wait_for_audio_done(timeout=20.0)
                 result = await self._proveedores_cargar_producto() if self._proveedores_cargar_producto else "Producto cargado."
 
@@ -904,6 +934,11 @@ class RealtimeBridge:
                 print("[DEMO] Proveedores: finalizando detalle de compra...")
                 await self._wait_for_audio_done(timeout=20.0)
                 result = await self._proveedores_finalizar_detalle() if self._proveedores_finalizar_detalle else "Detalle finalizado."
+
+            elif name == "proveedores_registrar_pago":
+                print("[DEMO] Proveedores: registrando pago al proveedor...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._proveedores_registrar_pago() if self._proveedores_registrar_pago else "Pago registrado."
                 await self._on_screenshot_end()
 
             elif name == "produccion_ver_plantillas":
@@ -1034,6 +1069,20 @@ class RealtimeBridge:
                 print("[DEMO] Config: abriendo modal nuevo impuesto...")
                 await self._wait_for_audio_done(timeout=20.0)
                 result = await self._config_impuestos_nuevo() if self._config_impuestos_nuevo else "Modal de nuevo impuesto abierto."
+
+            elif name == "config_gastos_nuevo_concepto":
+                print("[DEMO] Config: abriendo modal nuevo concepto de gasto...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._config_gastos_nuevo_concepto() if self._config_gastos_nuevo_concepto else "Modal de nuevo concepto abierto."
+
+            elif name == "config_gastos_crear_concepto":
+                print("[DEMO] Config: creando concepto de gasto de prueba...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._config_gastos_crear_concepto() if self._config_gastos_crear_concepto else "Concepto creado."
+
+            elif name == "config_gastos_eliminar_concepto":
+                print("[DEMO] Config: eliminando concepto de prueba (interno)...")
+                result = await self._config_gastos_eliminar_concepto() if self._config_gastos_eliminar_concepto else "Concepto eliminado."
 
             elif name == "caja_ir_a_apertura":
                 print("[CAJA2] Navegando a formulario de apertura...")

@@ -26,7 +26,9 @@
       "Bash(python3 -c \"import audioop\")",
       "Bash(python3 *)",
       "Bash(railway whoami *)",
-      "Bash(echo \"exit:$?\")"
+      "Bash(echo \"exit:$?\")",
+      "Bash(git push *)",
+      "Bash(xargs -n1 git branch -D)"
     ]
   }
 }
