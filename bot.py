@@ -16,7 +16,7 @@ from mgw_playwright import (
     demo_acceso_login,
     demo_caja_fase1_agregar, demo_caja_fase2_pagar,
     caja_step_buscar, caja_step_agregar,
-    caja_step_seleccionar_pago, caja_step_cerrar,
+    caja_step_seleccionar_pago, caja_step_descuento, caja_step_cerrar,
     reset_caja_fases,
     run_demo_estadisticas, run_demo_stock, run_demo_clientes,
     clientes_nuevo_cliente, clientes_importar, clientes_ver_detalle,
@@ -46,11 +46,17 @@ from mgw_playwright import (
     caja_ir_a_apertura, caja_abrir_turno,
     caja_ver_lista_ventas, caja_ver_detalle_venta,
     caja_retiros_navegar, caja_retiros_nuevo,
+    caja_retiros_ingresar_ejemplo, caja_retiros_abrir_aprobar,
+    caja_retiros_confirmar_aprobar,
     caja_cierre_navegar, caja_cierre_nuevo,
     caja_cierre_confirmar, caja_cierre_ver_resultado,
     caja_cierre_nuevo_movimiento,
+    caja_cierre_movimiento_pago_proveedor,
+    caja_cierre_movimiento_finalizar_proveedor,
     caja_mayor_navegar, caja_mayor_nuevo_arqueo,
     caja_mayor_detalle_arqueo, caja_mayor_ver_movimientos,
+    caja_mayor_cheques_navegar, caja_mayor_cheques_emitir,
+    caja_mayor_cheques_completar, caja_mayor_cheques_filtrar_todos,
 )
 from recall import leave_call
 
@@ -229,6 +235,9 @@ async def _caja_step_agregar() -> str:
 async def _caja_step_seleccionar_pago(method: str) -> str:
     return await caja_step_seleccionar_pago(method, on_screenshot=_on_screenshot)
 
+async def _caja_step_descuento() -> str:
+    return await caja_step_descuento(on_screenshot=_on_screenshot)
+
 async def _caja_step_cerrar(method: str) -> str:
     return await caja_step_cerrar(method, on_screenshot=_on_screenshot)
 
@@ -402,6 +411,15 @@ async def _caja_retiros_navegar() -> str:
 async def _caja_retiros_nuevo() -> str:
     return await caja_retiros_nuevo(on_screenshot=_on_screenshot)
 
+async def _caja_retiros_ingresar_ejemplo() -> str:
+    return await caja_retiros_ingresar_ejemplo(on_screenshot=_on_screenshot)
+
+async def _caja_retiros_abrir_aprobar() -> str:
+    return await caja_retiros_abrir_aprobar(on_screenshot=_on_screenshot)
+
+async def _caja_retiros_confirmar_aprobar() -> str:
+    return await caja_retiros_confirmar_aprobar(on_screenshot=_on_screenshot)
+
 async def _caja_cierre_navegar() -> str:
     return await caja_cierre_navegar(on_screenshot=_on_screenshot)
 
@@ -417,6 +435,12 @@ async def _caja_cierre_ver_resultado() -> str:
 async def _caja_cierre_nuevo_movimiento() -> str:
     return await caja_cierre_nuevo_movimiento(on_screenshot=_on_screenshot)
 
+async def _caja_cierre_movimiento_pago_proveedor() -> str:
+    return await caja_cierre_movimiento_pago_proveedor(on_screenshot=_on_screenshot)
+
+async def _caja_cierre_movimiento_finalizar_proveedor() -> str:
+    return await caja_cierre_movimiento_finalizar_proveedor(on_screenshot=_on_screenshot)
+
 async def _caja_mayor_navegar() -> str:
     return await caja_mayor_navegar(on_screenshot=_on_screenshot)
 
@@ -428,6 +452,18 @@ async def _caja_mayor_detalle_arqueo() -> str:
 
 async def _caja_mayor_ver_movimientos() -> str:
     return await caja_mayor_ver_movimientos(on_screenshot=_on_screenshot)
+
+async def _caja_mayor_cheques_navegar() -> str:
+    return await caja_mayor_cheques_navegar(on_screenshot=_on_screenshot)
+
+async def _caja_mayor_cheques_emitir() -> str:
+    return await caja_mayor_cheques_emitir(on_screenshot=_on_screenshot)
+
+async def _caja_mayor_cheques_completar() -> str:
+    return await caja_mayor_cheques_completar(on_screenshot=_on_screenshot)
+
+async def _caja_mayor_cheques_filtrar_todos() -> str:
+    return await caja_mayor_cheques_filtrar_todos(on_screenshot=_on_screenshot)
 
 
 # ── WebSocket handler ─────────────────────────────────────────────────────────
@@ -470,6 +506,7 @@ async def handle_recall_audio(websocket):
         caja_step_buscar       = _caja_step_buscar,
         caja_step_agregar      = _caja_step_agregar,
         caja_step_seleccionar  = _caja_step_seleccionar_pago,
+        caja_step_descuento    = _caja_step_descuento,
         caja_step_cerrar       = _caja_step_cerrar,
         pw_start               = pw_start,
         pw_stop                = pw_stop,
@@ -533,15 +570,24 @@ async def handle_recall_audio(websocket):
         caja_ver_detalle_venta                = _caja_ver_detalle_venta,
         caja_retiros_navegar                  = _caja_retiros_navegar,
         caja_retiros_nuevo                    = _caja_retiros_nuevo,
+        caja_retiros_ingresar_ejemplo         = _caja_retiros_ingresar_ejemplo,
+        caja_retiros_abrir_aprobar            = _caja_retiros_abrir_aprobar,
+        caja_retiros_confirmar_aprobar        = _caja_retiros_confirmar_aprobar,
         caja_cierre_navegar                   = _caja_cierre_navegar,
         caja_cierre_nuevo                     = _caja_cierre_nuevo,
         caja_cierre_confirmar                 = _caja_cierre_confirmar,
         caja_cierre_ver_resultado             = _caja_cierre_ver_resultado,
         caja_cierre_nuevo_movimiento          = _caja_cierre_nuevo_movimiento,
+        caja_cierre_movimiento_pago_proveedor = _caja_cierre_movimiento_pago_proveedor,
+        caja_cierre_movimiento_finalizar_proveedor = _caja_cierre_movimiento_finalizar_proveedor,
         caja_mayor_navegar                    = _caja_mayor_navegar,
         caja_mayor_nuevo_arqueo               = _caja_mayor_nuevo_arqueo,
         caja_mayor_detalle_arqueo             = _caja_mayor_detalle_arqueo,
         caja_mayor_ver_movimientos            = _caja_mayor_ver_movimientos,
+        caja_mayor_cheques_navegar            = _caja_mayor_cheques_navegar,
+        caja_mayor_cheques_emitir             = _caja_mayor_cheques_emitir,
+        caja_mayor_cheques_completar          = _caja_mayor_cheques_completar,
+        caja_mayor_cheques_filtrar_todos      = _caja_mayor_cheques_filtrar_todos,
     )
 
     async def receive_from_recall():
