@@ -98,6 +98,7 @@ class RealtimeBridge:
         caja_step_buscar,    # async fn(product_name: str) → str
         caja_step_agregar,   # async fn() → str
         caja_step_seleccionar, # async fn(method: str) → str
+        caja_step_descuento, # async fn() → str
         caja_step_cerrar,    # async fn(method: str) → str
         pw_start,            # async fn()
         pw_stop,             # async fn()
@@ -161,15 +162,24 @@ class RealtimeBridge:
         caja_ver_detalle_venta                = None,   # async fn() → str
         caja_retiros_navegar                  = None,   # async fn() → str
         caja_retiros_nuevo                    = None,   # async fn() → str
+        caja_retiros_ingresar_ejemplo         = None,   # async fn() → str
+        caja_retiros_abrir_aprobar            = None,   # async fn() → str
+        caja_retiros_confirmar_aprobar        = None,   # async fn() → str
         caja_cierre_navegar                   = None,   # async fn() → str
         caja_cierre_nuevo                     = None,   # async fn() → str
         caja_cierre_confirmar                 = None,   # async fn() → str
         caja_cierre_ver_resultado             = None,   # async fn() → str
         caja_cierre_nuevo_movimiento          = None,   # async fn() → str
+        caja_cierre_movimiento_pago_proveedor = None,   # async fn() → str
+        caja_cierre_movimiento_finalizar_proveedor = None,   # async fn() → str
         caja_mayor_navegar                    = None,   # async fn() → str
         caja_mayor_nuevo_arqueo               = None,   # async fn() → str
         caja_mayor_detalle_arqueo             = None,   # async fn() → str
         caja_mayor_ver_movimientos            = None,   # async fn() → str
+        caja_mayor_cheques_navegar            = None,   # async fn() → str
+        caja_mayor_cheques_emitir             = None,   # async fn() → str
+        caja_mayor_cheques_completar          = None,   # async fn() → str
+        caja_mayor_cheques_filtrar_todos      = None,   # async fn() → str
     ):
         self._send_to_agent      = send_to_agent
         self._send_navigate      = send_navigate
@@ -181,6 +191,7 @@ class RealtimeBridge:
         self._caja_step_buscar   = caja_step_buscar
         self._caja_step_agregar  = caja_step_agregar
         self._caja_step_seleccionar = caja_step_seleccionar
+        self._caja_step_descuento = caja_step_descuento
         self._caja_step_cerrar   = caja_step_cerrar
         self._pw_start           = pw_start
         self._pw_stop            = pw_stop
@@ -246,15 +257,24 @@ class RealtimeBridge:
         self._caja_ver_detalle_venta                = caja_ver_detalle_venta
         self._caja_retiros_navegar                  = caja_retiros_navegar
         self._caja_retiros_nuevo                    = caja_retiros_nuevo
+        self._caja_retiros_ingresar_ejemplo         = caja_retiros_ingresar_ejemplo
+        self._caja_retiros_abrir_aprobar            = caja_retiros_abrir_aprobar
+        self._caja_retiros_confirmar_aprobar        = caja_retiros_confirmar_aprobar
         self._caja_cierre_navegar                   = caja_cierre_navegar
         self._caja_cierre_nuevo                     = caja_cierre_nuevo
         self._caja_cierre_confirmar                 = caja_cierre_confirmar
         self._caja_cierre_ver_resultado             = caja_cierre_ver_resultado
         self._caja_cierre_nuevo_movimiento          = caja_cierre_nuevo_movimiento
+        self._caja_cierre_movimiento_pago_proveedor = caja_cierre_movimiento_pago_proveedor
+        self._caja_cierre_movimiento_finalizar_proveedor = caja_cierre_movimiento_finalizar_proveedor
         self._caja_mayor_navegar                    = caja_mayor_navegar
         self._caja_mayor_nuevo_arqueo               = caja_mayor_nuevo_arqueo
         self._caja_mayor_detalle_arqueo             = caja_mayor_detalle_arqueo
         self._caja_mayor_ver_movimientos            = caja_mayor_ver_movimientos
+        self._caja_mayor_cheques_navegar            = caja_mayor_cheques_navegar
+        self._caja_mayor_cheques_emitir             = caja_mayor_cheques_emitir
+        self._caja_mayor_cheques_completar          = caja_mayor_cheques_completar
+        self._caja_mayor_cheques_filtrar_todos      = caja_mayor_cheques_filtrar_todos
 
         self._ws                    = None
         self._pw_started            = False
@@ -825,6 +845,11 @@ class RealtimeBridge:
                 await self._wait_for_audio_done(timeout=20.0)
                 result = await self._caja_step_seleccionar(method)
 
+            elif name == "caja_aplicar_descuento":
+                print("[CAJA] Aplicando descuento 10% en efectivo...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._caja_step_descuento()
+
             elif name == "caja_cerrar_venta":
                 method = args.get("method", "presupuesto")
                 print(f"[CAJA] Cerrando venta con {method}...")
@@ -1116,6 +1141,21 @@ class RealtimeBridge:
                 await self._wait_for_audio_done(timeout=20.0)
                 result = await self._caja_retiros_nuevo() if self._caja_retiros_nuevo else "Modal de nuevo retiro abierto."
 
+            elif name == "caja_retiros_ingresar_ejemplo":
+                print("[CAJA2] Cargando retiro de ejemplo de $10.000...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._caja_retiros_ingresar_ejemplo() if self._caja_retiros_ingresar_ejemplo else "Retiro de ejemplo creado en estado pendiente."
+
+            elif name == "caja_retiros_abrir_aprobar":
+                print("[CAJA2] Abriendo confirmación de aprobación del retiro...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._caja_retiros_abrir_aprobar() if self._caja_retiros_abrir_aprobar else "Modal de aprobación abierto."
+
+            elif name == "caja_retiros_confirmar_aprobar":
+                print("[CAJA2] Confirmando aprobación del retiro...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._caja_retiros_confirmar_aprobar() if self._caja_retiros_confirmar_aprobar else "Retiro aprobado."
+
             elif name == "caja_cierre_navegar":
                 print("[CAJA2] Navegando a cierre de caja...")
                 await self._wait_for_audio_done(timeout=20.0)
@@ -1140,6 +1180,16 @@ class RealtimeBridge:
                 await self._wait_for_audio_done(timeout=20.0)
                 result = await self._caja_cierre_nuevo_movimiento() if self._caja_cierre_nuevo_movimiento else "Modal de nuevo movimiento abierto."
 
+            elif name == "caja_cierre_movimiento_pago_proveedor":
+                print("[CAJA2] Seleccionando Pago a proveedor...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._caja_cierre_movimiento_pago_proveedor() if self._caja_cierre_movimiento_pago_proveedor else "Formulario de pago a proveedor visible."
+
+            elif name == "caja_cierre_movimiento_finalizar_proveedor":
+                print("[CAJA2] Finalizando pago a proveedor de $100.000...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._caja_cierre_movimiento_finalizar_proveedor() if self._caja_cierre_movimiento_finalizar_proveedor else "Pago a proveedor registrado."
+
             elif name == "caja_mayor_navegar":
                 print("[CAJA-MAYOR] Navegando a Caja Mayor...")
                 await self._ensure_playwright()
@@ -1162,6 +1212,26 @@ class RealtimeBridge:
                 print("[CAJA-MAYOR] Mostrando movimientos de caja mayor...")
                 await self._wait_for_audio_done(timeout=20.0)
                 result = await self._caja_mayor_ver_movimientos() if self._caja_mayor_ver_movimientos else "Movimientos de caja mayor visibles."
+
+            elif name == "caja_mayor_cheques_navegar":
+                print("[CAJA-MAYOR] Navegando a cheques...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._caja_mayor_cheques_navegar() if self._caja_mayor_cheques_navegar else "Sección de cheques visible."
+
+            elif name == "caja_mayor_cheques_emitir":
+                print("[CAJA-MAYOR] Abriendo modal de nuevo cheque...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._caja_mayor_cheques_emitir() if self._caja_mayor_cheques_emitir else "Modal de nuevo cheque abierto."
+
+            elif name == "caja_mayor_cheques_completar":
+                print("[CAJA-MAYOR] Completando y emitiendo cheque...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._caja_mayor_cheques_completar() if self._caja_mayor_cheques_completar else "Cheque emitido."
+
+            elif name == "caja_mayor_cheques_filtrar_todos":
+                print("[CAJA-MAYOR] Aplicando filtro Todos en cheques...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._caja_mayor_cheques_filtrar_todos() if self._caja_mayor_cheques_filtrar_todos else "Filtro Todos aplicado."
                 await self._on_screenshot_end()
 
             elif name == "finalizar_capacitacion":

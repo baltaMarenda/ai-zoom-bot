@@ -765,7 +765,7 @@ MÓDULO DE CAPACITACIÓN 2 — CAJA Y CAJA MAYOR
 Decí EXACTAMENTE: "Bueno lo que vamos a ver en este modulo 2 es todo lo que tiene que ver con Caja, apertura cierre y como es la utilizacion en el dia a dia, y tambien Caja Mayor y como cargarle ventas a clientes y compras a proveedores. Vamos a arrancar con la apertura de caja."
 Tool: caja_ir_a_apertura()
 (la resolución de cajas abiertas anteriores ocurre dentro de la tool, sin narrar nada)
-Post-tool, decí EXACTAMENTE: "Aca tenemos la pantalla de apertura de la caja. Donde dice efectivo es donde ingresamos el dinero con el que arrancamos el turno, en este caso vamos a poner $100.000 como fondo inicial y presionamos abrir caja."
+    Post-tool, decí EXACTAMENTE: "Aca tenemos la pantalla de apertura de la caja. Donde dice efectivo es donde ingresamos el dinero con el que arrancamos el turno, en este caso vamos a poner 100.000 pesos como fondo inicial y presionamos abrir caja."
 Tool: caja_abrir_turno()
 Post-tool, decí EXACTAMENTE: "La caja quedo abierta y lista para operar." STOP.
 
@@ -777,11 +777,15 @@ Tool: caja_buscar_producto("Huevos")
 Post-tool, decí EXACTAMENTE: "Al seleccionarlo puede aparecer su código interno, como en este caso, 10 — es el identificador del sistema, es normal."
 
 Decí EXACTAMENTE: "Indicamos la cantidad y apretamos Agregar."
-Tool: caja_agregar_producto()
+Tool: caja_agregar_producto()[]
 
 Decí EXACTAMENTE: "Aca nos va a aparecer el producto y podemos seguir agregando de la misma manera que lo hicimos antes, o mismo si escaneamos el ticket que tiene varios productos van a aparecer todos los productos. Del otro lado nos va a aparecer la informacion que cargamos en el modulo anterior en la configuracion del sistema, los descuentos, metodos de pago y demas. Para este ejemplo seleccionamos efectivo."
 Tool: caja_seleccionar_pago("efectivo")
 Post-tool, decí EXACTAMENTE: "Si elegimos el metodo de pago efectivo como en este caso, nos va a aparecer el vuelto a un costado, y de la misma manera si elegimos un metodo de pago que tenga recargo, como tarjeta de credito, va a aparecer el total de la venta con el recargo ya sumado. Tambien si el cliente nos pide factura y no tenemos el cliente ya cargado donde dice Consumidor Final seleccionamos responsable inscripto y ahi ponemos los datos del mismo y facturamos la venta"
+
+Decí EXACTAMENTE: "Desde aca arriba le aplicamos un descuento, por ejemplo 10% en efectivo" y LLAMÁ la tool en la misma respuesta.
+Tool: caja_aplicar_descuento()
+Post-tool, decí EXACTAMENTE: "Y ahi ya queda el 10% aplicado"
 
 Decí EXACTAMENTE: "Para cerrar la venta hay dos opciones: Presupuestar F8 sin factura electrónica, o FCE F4 con factura a ARCA. En este caso con F8 y se nos va a a imprimir automaticamente el ticket con los datos de la venta."
 Tool: caja_cerrar_venta("presupuesto")
@@ -792,19 +796,33 @@ Tool: caja_ver_lista_ventas()
 Decí EXACTAMENTE: "Presionando sobre la lupita delos detalles vamos a ver justamente los detalles de la venta. Desde arriba vamos a poder reimprimir el ticket de ser necesario y compartirlo mediante mail o whatsapp. Ademas si en el apuro apretamos presupuestar y el cliente queria factura vamos a poder emitir la factura elctronica desde aca mismo."
 Tool: caja_ver_detalle_venta()
 
-Decí EXACTAMENTE: "Para hacer el cierre de caja vamos a tener que sacar todo lo que entre a la caja, es decir que quede en cero, eso lo hacemos desde aca en la seccion de caja retiro."
+Decí EXACTAMENTE: "Para hacer el cierre de caja vamos a tener que hacer un retiro de la caja, que lo hacemos desde aca en la seccion de caja retiro."
 Tool: caja_retiros_navegar()
 
 Decí EXACTAMENTE: "Para hacerlo presionamos sobre nuevo retiro y en esta ventana y donde dice retiro nos van a aparecer todos los medios de pago que tengamos"
 Tool: caja_retiros_nuevo()
+(NO cerrar el modal de nuevo retiro)
+
+Decí EXACTAMENTE: "Por ejemplo hacemos un retiro de 10.000 pesos en efectivo de la caja mayor"
+Tool: caja_retiros_ingresar_ejemplo()
+
+Decí EXACTAMENTE: "Ahi ya vamos a tener el retiro en estado pendiente, entonces desde los botones de la derecha vamos a poder eliminarlo, rechazarlo o aceptarlo, en este caso lo vamos a aceptar"
+Tool: caja_retiros_abrir_aprobar()
+
+Decí EXACTAMENTE: "nos pregunta si queremos aprobar el retiro, le ponemos que si"
+Tool: caja_retiros_confirmar_aprobar()
+
+Decí EXACTAMENTE: "Y ahi ya quedaria el retiro aceptado"
 
 Decí EXACTAMENTE: "En este caso en este sistema tenemos efectivo, cupones que son los posnet que tengamos, mercado pago y transferencia, vamos a tener que hacer retiros individuales de todo lo que se vendio con cada medio de pago para que el cierre de caja nos de bien. Una vez hecho esto vamos a cierre de caja"
 Tool: caja_cierre_navegar()
 
+Decí EXACTAMENTE: "Acá en cierre de caja vamos a ver todos los cierres que hayamos hecho, y los podemos filtrar por rango de fecha o por usuario"
+
 Decí EXACTAMENTE: "Aca vamos a presionar sobre nuevo cierre de caja"
 Tool: caja_cierre_nuevo()
 
-Decí EXACTAMENTE: "Ingresamos todo lo que tengamos en efectivo y cerramos"
+Decí EXACTAMENTE: "Ingresamos el dinero en efectivo que dejamos en caja, el cambio por ejemplo, y cerramos"
 Tool: caja_cierre_confirmar()
 Inmediatamente después (en la misma respuesta, sin decir nada en el medio):
 Tool: caja_cierre_ver_resultado()
@@ -813,6 +831,12 @@ Post-tool de caja_cierre_ver_resultado(), decí EXACTAMENTE: "Cuando cerremos no
 
 Decí EXACTAMENTE: "En caso de que nos hayamos olvidado de registrar un pago o algo y por eso nos dio diferencia, mientras tengamos los permisos, vamos a poder agregar pagos de clientes, a proveedores, gastos, ingresos o retiros"
 Tool: caja_cierre_nuevo_movimiento()
+
+Decí EXACTAMENTE: "Por ejemplo vamos a ingresar un pago a un proveedor"
+Tool: caja_cierre_movimiento_pago_proveedor()
+
+Decí EXACTAMENTE: "Aca ingresamos el proveedor al que le pagamos, la forma de pago, y el importe. Por ejemplo le pagamos en efectivo 100.000 pesos"
+Tool: caja_cierre_movimiento_finalizar_proveedor()
 
 CONOCIMIENTO ADICIONAL (no narrar salvo que pregunten): Si el cliente pregunta cómo darse cuenta dónde está el error cuando el cierre de caja no da los números esperados, decile que en el canal de YouTube de Mi Gestión Web hay un tutorial sobre cuáles son los primeros lugares para chequear.
 
@@ -825,7 +849,7 @@ Tool: caja_mayor_navegar()
 Decí EXACTAMENTE: "Primero que nada lo que tenemos que tener es que tengamos una primera apertura de la caja mayor para sumar todos los movimientos que se realicen de ahi en mas"
 Tool: caja_mayor_nuevo_arqueo()
 
-Decí EXACTAMENTE: "Para hacer esta primera apertura apretamos en nuevo arqueo, y vamos a poner todo lo que tengamos en los diferentes medios de pago si quremos arrancar desde donde estamos, o dejamos en cero si queremos arrancar desde cero con el sistema. En este caso no lo vamos a hacer asi quedan los movimientos y se puede ver todo mejor"
+Decí EXACTAMENTE: "Para hacer esta primera apertura apretamos en nuevo arqueo, y vamos a poner todo lo que tengamos en  efectivo, Mercado pago, cupones, cheques y transferencias si queremos arrancar desde donde estamos, o dejamos en cero si queremos arrancar desde cero con el sistema. En este caso no lo vamos a hacer asi quedan los movimientos y se puede ver todo mejor"
 (NO completar ni enviar este modal — solo mostrarlo abierto)
 Tool: caja_mayor_navegar()
 
@@ -834,6 +858,21 @@ Tool: caja_mayor_detalle_arqueo()
 
 Decí EXACTAMENTE: "presionando sobre ver movimientos, vamos a ver todos los retiros que se hicieron en la seccion anterior de caja retiros, que se hayan aprobado. y Arriba tenemos todo lo que podemos hacer tambien en la caja mayor, ingresar dinero, es decir retirar de la caja chica e ingresarla a la caja mayor, retirar de administración, retirar de sucursales si tenemos varias, hacer arqueos y buscar todos los arqueos que se hicieron de la caja mayor. También podemos importar todo a Excel y ver los movimientos que fueron anulados."
 Tool: caja_mayor_ver_movimientos()
+
+Decí EXACTAMENTE: "Y por ultimo de la caja mayor, la sección de cheques, donde vamos a tener todos los cheques que emitamos nosotros y los que recibamos. Para emitir un cheque apretamos en emitir cheque"
+Tool: caja_mayor_cheques_navegar()
+Inmediatamente después (en la misma respuesta, sin decir nada en el medio):
+Tool: caja_mayor_cheques_emitir()
+
+Decí EXACTAMENTE: "aca vamos a tener que elegir de que banco es el cheque que vamos a emitir, la fecha, el numero del cheque, el importe, y comentarios si queremos"
+Tool: caja_mayor_cheques_completar()
+
+Decí EXACTAMENTE: "Ahi ya quedaria el cheque emitido, después lo podemos usar en la sección de proveedores para pagarles"
+
+Decí EXACTAMENTE: "En la tabla de abajo vamos a ver todos los cheques, tanto los recibidos como los emitidos. Los recibidos, en la columna de Origen, van a aparecer con el nombre del cliente. Y si un cheque que emitiste vos y lo usaste para pagar en la columna de salida va a aparecer pago a proveedor y en la de detalle el nombre del proveedor"
+Tool: caja_mayor_cheques_filtrar_todos()
+
+Decí EXACTAMENTE: "Aca filtramos para ver todos los cheques, pero tambien podemos ver los activos y los inactivos"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CIERRE DEL MÓDULO 2
@@ -905,6 +944,12 @@ REALTIME_TOOLS = [
             },
             "required": ["method"],
         },
+    },
+    {
+        "type": "function",
+        "name": "caja_aplicar_descuento",
+        "description": "Aplica el descuento 'Efectivo 10 (10.00%)' sobre el total de la venta desde el select de descuentos. Llamá esto DESPUÉS de seleccionar el método de pago efectivo y ANTES de cerrar la venta.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
         "type": "function",
@@ -1266,6 +1311,24 @@ REALTIME_TOOLS = [
     },
     {
         "type": "function",
+        "name": "caja_retiros_ingresar_ejemplo",
+        "description": "Carga 10000 en el importe del modal de nuevo retiro, presiona Agregar y vuelve a la lista de retiros mostrando el retiro en estado pendiente. Llamala DESPUÉS de mencionar que se hace el retiro de ejemplo de $10.000 en efectivo.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "caja_retiros_abrir_aprobar",
+        "description": "Click en el botón verde de aprobar del retiro pendiente, abriendo el modal de confirmación. Llamala DESPUÉS de mencionar que lo vamos a aceptar.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "caja_retiros_confirmar_aprobar",
+        "description": "Confirma la aprobación del retiro presionando 'Si, aprobar'. Llamala DESPUÉS de mencionar que le ponemos que sí.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
         "name": "caja_cierre_navegar",
         "description": "Navega a caja_cierre.php. Llamala DESPUÉS de mencionar la sección de cierre.",
         "parameters": {"type": "object", "properties": {}, "required": []},
@@ -1296,6 +1359,18 @@ REALTIME_TOOLS = [
     },
     {
         "type": "function",
+        "name": "caja_cierre_movimiento_pago_proveedor",
+        "description": "En el modal de nuevo movimiento, selecciona la opción 'Pago a proveedor'. Llamala DESPUÉS de mencionar que vamos a ingresar un pago a un proveedor.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "caja_cierre_movimiento_finalizar_proveedor",
+        "description": "Ingresa 100000 en el importe del pago a proveedor y presiona Finalizar. Llamala DESPUÉS de mencionar que le pagamos en efectivo 100.000 pesos.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
         "name": "caja_mayor_navegar",
         "description": "Navega a caja_administracion_caja.php (Caja Mayor). Llamala DESPUÉS de anunciar la sección.",
         "parameters": {"type": "object", "properties": {}, "required": []},
@@ -1316,6 +1391,30 @@ REALTIME_TOOLS = [
         "type": "function",
         "name": "caja_mayor_ver_movimientos",
         "description": "Click en el botón Ver movimientos de caja mayor. Llamala DESPUÉS de mencionar el botón.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "caja_mayor_cheques_navegar",
+        "description": "Navega a caja_administracion_cheques.php (sección de cheques de la caja mayor). Llamala DESPUÉS de anunciar la sección de cheques.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "caja_mayor_cheques_emitir",
+        "description": "Abre el modal de nuevo cheque (botón Emitir cheque). Llamala DESPUÉS de mencionar que para emitir un cheque apretamos en emitir cheque.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "caja_mayor_cheques_completar",
+        "description": "Completa el cheque con la fecha de hoy, número 123456 e importe 100000, y presiona Ingresar. Llamala DESPUÉS de describir los campos del cheque.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "caja_mayor_cheques_filtrar_todos",
+        "description": "Click en el filtro 'Todos' de la tabla de cheques. Llamala DESPUÉS de mencionar que filtramos para ver todos los cheques.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
 ]

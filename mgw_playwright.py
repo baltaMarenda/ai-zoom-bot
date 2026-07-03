@@ -568,6 +568,47 @@ async def caja_step_seleccionar_pago(method: str, on_screenshot=None) -> str:
     return f"Forma de pago '{method_text}' seleccionada. El panel de cobro se ve en pantalla con el vuelto calculado."
 
 
+async def caja_step_descuento(on_screenshot=None) -> str:
+    """Aplica el descuento 'Efectivo 10 (10.00%)' desde el select #descuento_total."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    aplicado = False
+    # Camino directo: select_option por value/label en el select de descuentos
+    for sel in ['select#descuento_total', 'select[name="descuento_total"]']:
+        try:
+            sel_el = _page.locator(sel).first
+            if await sel_el.count() > 0:
+                try:
+                    await sel_el.select_option(value="1")
+                except Exception:
+                    await sel_el.select_option(label="Efectivo 10 (10.00%)")
+                aplicado = True
+                print("[PW] [Caja] Descuento 'Efectivo 10 (10.00%)' seleccionado ✓")
+                break
+        except Exception:
+            continue
+    # Fallback JS: setea el value y dispara change para invocar seleccionar_descuento()
+    if not aplicado:
+        aplicado = await _page.evaluate("""() => {
+            const s = document.querySelector('#descuento_total') ||
+                      document.querySelector('select[name="descuento_total"]');
+            if (!s) return false;
+            let val = '1';
+            for (const opt of s.options) {
+                if (opt.text.toLowerCase().includes('efectivo 10')) { val = opt.value; break; }
+            }
+            s.value = val;
+            s.dispatchEvent(new Event('change', {bubbles: true}));
+            return true;
+        }""")
+        print(f"[PW] [Caja] Descuento forzado via JS ✓ ({aplicado})")
+    # Esperar a que el JS recalcule el total con el descuento aplicado
+    await asyncio.sleep(2.5)
+    if on_screenshot:
+        await _snap(on_screenshot, 2.0)
+    return "Descuento 'Efectivo 10 (10.00%)' aplicado. El total en pantalla ya refleja el 10% de descuento."
+
+
 async def caja_step_cerrar(method: str = "presupuesto", on_screenshot=None) -> str:
     """Cierra la venta con Presupuesto F8 o FCE F4."""
     if _page is None:
@@ -4630,6 +4671,72 @@ async def caja_retiros_nuevo(on_screenshot=None) -> str:
     return "Modal de nuevo retiro abierto. El select de medios de pago muestra las opciones disponibles: efectivo, cupones, Mercado Pago, transferencia."
 
 
+async def caja_retiros_ingresar_ejemplo(on_screenshot=None) -> str:
+    """Ingresa 10000 en el importe del modal de nuevo retiro, presiona Agregar
+    y vuelve a caja_retiros.php para mostrar el retiro pendiente."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    base = MGW_URL.rstrip("/")
+    print("[PW] [CAJA2] Ingresando retiro de ejemplo de $10.000 en efectivo...")
+    try:
+        inp = _page.locator('#importe').first
+        await inp.wait_for(state="visible", timeout=8000)
+        await inp.fill("10000")
+    except Exception as e:
+        print(f"[PW] [CAJA2] no se pudo cargar importe: {e}")
+    await asyncio.sleep(0.5)
+    clicked = await _page.evaluate("""() => {
+        const btn = document.getElementById('boton_nuevo_retiro_ingresar');
+        if (btn) { btn.click(); return true; }
+        return false;
+    }""")
+    print(f"[PW] [CAJA2] retiro agregar: {'✓' if clicked else '✗'}")
+    await asyncio.sleep(2.0)
+    await _page.goto(f"{base}/caja_retiros.php", wait_until="domcontentloaded", timeout=20000)
+    await asyncio.sleep(2.0)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    print("[PW] [CAJA2] caja_retiros_ingresar_ejemplo ✓")
+    return "Retiro de $10.000 en efectivo creado. Aparece en la lista en estado pendiente, con botones a la derecha para eliminarlo, rechazarlo o aprobarlo."
+
+
+async def caja_retiros_abrir_aprobar(on_screenshot=None) -> str:
+    """Click en el botón verde de aprobar del retiro pendiente (mostrar_aprobar_retiro),
+    abriendo el modal de confirmación."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    clicked = await _page.evaluate("""() => {
+        const btn = [...document.querySelectorAll('[onclick]')].find(e =>
+            (e.getAttribute('onclick') || '').includes('mostrar_aprobar_retiro')
+        );
+        if (btn) { btn.click(); return true; }
+        return false;
+    }""")
+    print(f"[PW] [CAJA2] caja_retiros_abrir_aprobar: {'✓' if clicked else '✗'}")
+    await asyncio.sleep(1.5)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    return "Modal de confirmación de aprobación visible, preguntando si se desea aprobar el retiro."
+
+
+async def caja_retiros_confirmar_aprobar(on_screenshot=None) -> str:
+    """Click en 'Si, aprobar' (caja_retiros_aprobar_retiro) para confirmar la aprobación."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    clicked = await _page.evaluate("""() => {
+        const btn = [...document.querySelectorAll('[onclick]')].find(e =>
+            (e.getAttribute('onclick') || '').includes('caja_retiros_aprobar_retiro')
+        );
+        if (btn) { btn.click(); return true; }
+        return false;
+    }""")
+    print(f"[PW] [CAJA2] caja_retiros_confirmar_aprobar: {'✓' if clicked else '✗'}")
+    await asyncio.sleep(2.0)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    return "Retiro aprobado. Queda en estado aceptado."
+
+
 async def caja_cierre_navegar(on_screenshot=None) -> str:
     """Navega a caja_cierre.php."""
     if _page is None:
@@ -4722,6 +4829,48 @@ async def caja_cierre_nuevo_movimiento(on_screenshot=None) -> str:
     if on_screenshot:
         await _snap(on_screenshot, 0.0)
     return "Modal de nuevo movimiento abierto, con opciones: pagos de clientes, pagos a proveedores, gastos, ingresos, retiros."
+
+
+async def caja_cierre_movimiento_pago_proveedor(on_screenshot=None) -> str:
+    """En el modal de nuevo movimiento, selecciona la opción 'Pago a proveedor'."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    clicked = await _page.evaluate("""() => {
+        const btn = document.getElementById('boton_proveedor')
+               || [...document.querySelectorAll('[onclick]')].find(e =>
+                      (e.getAttribute('onclick') || '').includes("cambio_nuevo_movimiento('proveedor'"));
+        if (btn) { btn.click(); return true; }
+        return false;
+    }""")
+    print(f"[PW] [CAJA2] caja_cierre_movimiento_pago_proveedor: {'✓' if clicked else '✗'}")
+    await asyncio.sleep(1.5)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    return "Formulario de pago a proveedor visible, con campos de proveedor, forma de pago e importe."
+
+
+async def caja_cierre_movimiento_finalizar_proveedor(on_screenshot=None) -> str:
+    """Ingresa 100000 en el importe del pago a proveedor y presiona Finalizar."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    print("[PW] [CAJA2] Ingresando pago a proveedor de $100.000...")
+    try:
+        inp = _page.locator('#proveedor_pago_importe').first
+        await inp.wait_for(state="visible", timeout=8000)
+        await inp.fill("100000")
+    except Exception as e:
+        print(f"[PW] [CAJA2] no se pudo cargar proveedor_pago_importe: {e}")
+    await asyncio.sleep(0.5)
+    clicked = await _page.evaluate("""() => {
+        const btn = document.getElementById('boton_finalizar_nuevo_movimiento');
+        if (btn) { btn.click(); return true; }
+        return false;
+    }""")
+    print(f"[PW] [CAJA2] finalizar movimiento: {'✓' if clicked else '✗'}")
+    await asyncio.sleep(2.0)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    return "Pago a proveedor de $100.000 en efectivo registrado como movimiento del cierre."
 
 
 async def caja_mayor_navegar(on_screenshot=None) -> str:
@@ -4838,3 +4987,104 @@ async def caja_mayor_ver_movimientos(on_screenshot=None) -> str:
     if on_screenshot:
         await _snap(on_screenshot, 0.0)
     return "Movimientos de caja mayor visibles: retiros aprobados y botones de ingreso, retiro, arqueo y más."
+
+
+async def caja_mayor_cheques_navegar(on_screenshot=None) -> str:
+    """Navega a caja_administracion_cheques.php (sección de cheques de la caja mayor)."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    base = MGW_URL.rstrip("/")
+    print("[PW] [CAJA-MAYOR] Navegando a caja_administracion_cheques.php...")
+    await _page.goto(f"{base}/caja_administracion_cheques.php", wait_until="domcontentloaded", timeout=20000)
+    await asyncio.sleep(2.0)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    print("[PW] [CAJA-MAYOR] caja_mayor_cheques_navegar ✓")
+    return "Sección de cheques de la caja mayor visible: cheques emitidos y recibidos, con botón para emitir cheque."
+
+
+async def caja_mayor_cheques_emitir(on_screenshot=None) -> str:
+    """Abre el modal de nuevo cheque (botón 'Emitir cheque' → nuevo_cheque())."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    clicked = await _page.evaluate("""() => {
+        const btn = [...document.querySelectorAll('[onclick]')].find(e =>
+            (e.getAttribute('onclick') || '').includes('nuevo_cheque')
+        );
+        if (btn) { btn.click(); return true; }
+        return false;
+    }""")
+    if not clicked:
+        for selector in ['a:has-text("Emitir cheque")', 'button:has-text("Emitir cheque")']:
+            try:
+                el = _page.locator(selector).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    clicked = True
+                    break
+            except Exception:
+                continue
+    print(f"[PW] [CAJA-MAYOR] caja_mayor_cheques_emitir: {'✓' if clicked else '✗'}")
+    await asyncio.sleep(1.5)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    return "Modal de nuevo cheque abierto, con campos de banco, fecha, número, importe y comentarios."
+
+
+async def caja_mayor_cheques_completar(on_screenshot=None) -> str:
+    """Completa el modal de nuevo cheque (fecha de hoy, número 123456, importe 100000) y presiona Ingresar."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    from datetime import date
+    hoy = date.today().strftime("%Y-%m-%d")
+    print(f"[PW] [CAJA-MAYOR] Completando cheque: fecha={hoy}, numero=123456, importe=100000...")
+    # Fecha (date-picker con id fecha_cheque_id)
+    try:
+        await _page.evaluate(
+            """(v) => { const el = document.getElementById('fecha_cheque_id');
+                        if (el) { el.value = v; el.dispatchEvent(new Event('change', {bubbles:true})); } }""",
+            hoy,
+        )
+    except Exception as e:
+        print(f"[PW] [CAJA-MAYOR] no se pudo cargar fecha_cheque_id: {e}")
+    # Número
+    try:
+        inp = _page.locator('#numero_id').first
+        await inp.wait_for(state="visible", timeout=8000)
+        await inp.fill("123456")
+    except Exception as e:
+        print(f"[PW] [CAJA-MAYOR] no se pudo cargar numero_id: {e}")
+    # Importe
+    try:
+        await _page.locator('#importe_id').first.fill("100000")
+    except Exception as e:
+        print(f"[PW] [CAJA-MAYOR] no se pudo cargar importe_id: {e}")
+    await asyncio.sleep(0.5)
+    clicked = await _page.evaluate("""() => {
+        const btn = document.getElementById('boton_nuevo_cheque');
+        if (btn) { btn.click(); return true; }
+        return false;
+    }""")
+    print(f"[PW] [CAJA-MAYOR] ingresar cheque: {'✓' if clicked else '✗'}")
+    await asyncio.sleep(2.0)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    return "Cheque emitido: número 123456 por $100.000 con fecha de hoy. Queda disponible para usar en pagos a proveedores."
+
+
+async def caja_mayor_cheques_filtrar_todos(on_screenshot=None) -> str:
+    """Click en el filtro 'Todos' (cambiar_mostrar_todos) de la tabla de cheques."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    clicked = await _page.evaluate("""() => {
+        const btn = document.getElementById('boton_1')
+               || [...document.querySelectorAll('[onclick]')].find(e =>
+                      (e.getAttribute('onclick') || '').includes('cambiar_mostrar_todos'));
+        if (btn) { btn.click(); return true; }
+        return false;
+    }""")
+    print(f"[PW] [CAJA-MAYOR] caja_mayor_cheques_filtrar_todos: {'✓' if clicked else '✗'}")
+    await asyncio.sleep(2.0)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    return "Filtro 'Todos' aplicado: se muestran todos los cheques, tanto activos como inactivos."
