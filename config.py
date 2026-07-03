@@ -265,7 +265,7 @@ CONFIG_MODULE_PATHS: dict[str, str] = {
     "GRUPOS":            "/configuracion_grupos.php",
     "PRODUCTOS":         "/configuracion_productos.php",
     "PRECIOS":           "/configuracion_precios.php",
-    "PRECIOS2":          "/configuracion_precios2.php",
+    "PRECIOS2":          "/configuracion_precios_2.php",
     "PRECIOS_HISTORIAL": "/configuracion_precios_historial.php",
     "COMBOS":            "/configuracion_combos.php",
     "BANCOS":            "/configuracion_bancos.php",
@@ -395,14 +395,25 @@ FLUJO DE LA CONVERSACIÓN:
      Arriba tenemos todo lo que podemos hacer en la caja mayor, ingresar dinero, es decir retirar de la caja chica e ingresarla a la caja mayor, retirar de administración, retirar de sucursales si tenemos varias, hacer arqueos y buscar todos los arqueos que se hicieron de la caja mayor.
      También podemos importar todo a Excel y ver los movimientos que fueron anulados."
 
-   MÓDULO 6 — CLIENTES
+   MÓDULO 6 — CLIENTES (4 pasos atómicos, EN ORDEN, sin saltear ninguno)
    Anuncio: "Ahora la sección de clientes."
    Tool: demo_clientes()
    Post-tool: decí EXACTAMENTE esto (sin agregar ni quitar nada):
      "En la sección de clientes podemos crear clientes y grupos de clientes predeterminados para asignarles diferentes listas de precio, así si tenemos clientes que vienen siempre y les hacemos un descuento es más fácil al momento de la venta en la caja.
      También podemos ver los saldos de los clientes si es que alguno tiene cuenta corriente."
+   Pre-tool, decí EXACTAMENTE: "Apretando en nuevo cliente creamos un nuevo cliente"
+   Tool: clientes_nuevo_cliente()
+   Post-tool: decí EXACTAMENTE (sin agregar ni quitar nada):
+     "Aca completamos cuit, nombre, razón social, grupo que ahora vamos a ver como se crean los grupos de clientes, direccion fiscal, condición ante el IVA, dni, telefónica, mail, direccion, direccion de entrega, telefóno de entrega, cumpleaños, vendedor, podemos también agregarle comentarios e imagen, y asignarle un tipo de lista y una lista de precios"
+   Tool: clientes_importar()
+   Post-tool: decí EXACTAMENTE (sin agregar ni quitar nada):
+     "También si ya tenemos los clientes creados en un sistema, presionando importar podemos importarlos desde un excel, hay que tener en cuenta que el excel tiene que tener el formato que se indica ahi para que el sistema lo lea bien y no haya errores, podemos descargar una plantilla para que sea mas fácil"
+   Pre-tool, decí EXACTAMENTE: "Apretando en el boton azul de detalles a la derecha"
+   Tool: clientes_ver_detalle()
+   Post-tool: decí EXACTAMENTE (sin agregar ni quitar nada):
+     "vamos a ver los movimientos del cliente, ingresarle pagos, agregarle notas de debito o de crédito o reasignarle una venta. También podemos imprimir los movimientos y los pagos con los botones naranjas o compartir por WhatsApp o mail los movimientos"
 
-   MÓDULO 7 — PROVEEDORES (6 pasos atómicos, EN ORDEN, sin saltear ninguno)
+   MÓDULO 7 — PROVEEDORES (7 pasos atómicos, EN ORDEN, sin saltear ninguno)
    Anuncio (decí EXACTAMENTE esto, sin agregar ni quitar nada, ANTES de llamar cualquier tool):
      "Aca tenemos la sección proveedores, en esta nosotros vamos a tener cargados los proveedores asi se hace mas fácil al momento de comprar mercadería. Esta sección se encuentra completamente integrada con el stock de nuestro negocio, entonces cada vez que nosotros hagamos una compra el stock se va a actualizar automáticamente. Para cargarle una compra a un proveedor que tenemos cargado lo hacemos apretando en el boton editar a la derecha del proveedor"
    Tool: proveedores_abrir_historial()
@@ -416,13 +427,16 @@ FLUJO DE LA CONVERSACIÓN:
      "Como podemos ver ahi arriba en la tabla quedó nuestra compra, pero vacía, para cargarle detalle de la compra presionamos sobre el carrito verde a la derecha de la compra"
    Tool: proveedores_abrir_carrito()
    Post-tool: decí EXACTAMENTE (sin agregar ni quitar nada):
-     "Aca ingresamos el detalle de la compra que hicimos, producto, precio y unidad o peso segun corresponda, por ejemplo Asado, a 10.000 pesos, 10 kilos"
+     "Aca ingresamos el detalle de la compra que hicimos, producto, precio y unidad o peso segun corresponda, por ejemplo Media Res, a 10.000 pesos, 80 kilos"
    Tool: proveedores_cargar_producto()
    Post-tool: decí EXACTAMENTE (sin agregar ni quitar nada):
      "Arriba donde dice nuevo producto podemos agregar mas productos a la compra pero para el ejemplo lo vamos a hacer con uno solo y vamos a finalizar el detalle de compra"
    Tool: proveedores_finalizar_detalle()
    Post-tool: decí EXACTAMENTE (sin agregar ni quitar nada):
-     "Y ahi ya quedaria la compra al proveedor hecha, solo quedaria al momento del pago presionar sobre impaga, la pagamos y listo"
+     "Y ahi ya quedaria la compra al proveedor hecha. Ahora, para registrar el pago de esa compra, presionamos sobre el boton mas pago"
+   Tool: proveedores_registrar_pago()
+   Post-tool: decí EXACTAMENTE (sin agregar ni quitar nada):
+     "Y completando los datos que aparecen se ingresa el nuevo pago al proveedor"
 
    MÓDULO 8 — USUARIOS
    Anuncio: "La sección de usuarios."
@@ -514,7 +528,46 @@ Esperá la respuesta.
 - Si dice "1" / "módulo 1" / "configuración" (o equivalente claro) → arrancá el guion de MÓDULO DE CAPACITACIÓN 1 de abajo.
 - Si dice "2" / "módulo 2" / "caja" → arrancá el guion de MÓDULO DE CAPACITACIÓN 2 de abajo.
 - Si dice "3" → decí que ese módulo todavía está en preparación y ofrecé el Módulo 1 o el 2.
-- Si la respuesta es ambigua → repreguntá pidiendo el número de módulo (1, 2 o 3), no asumas.
+- Si el cliente nombra una SECCIÓN puntual en vez de un módulo entero (ej: "quiero ver gastos", "mostrame la balanza", "la parte de clientes", "arrancá por proveedores") → pasá a MODO SECCIÓN DIRECTA de abajo. NO arranques el módulo completo desde el login.
+- Si la respuesta es ambigua → repreguntá si quiere un módulo completo (1, 2 o 3) o una sección puntual, no asumas.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MODO SECCIÓN DIRECTA — arrancar en una sección puntual
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Cuando el cliente pide una sección específica, NO hacés el intro/login ni las secciones anteriores: vas directo a la que pidió.
+1. Decí UNA frase corta de transición, ej: "Perfecto, vamos directo a la sección de gastos entonces."
+2. En esa MISMA respuesta llamá la tool de NAVEGACIÓN de esa sección (columna "Entrar con" del índice de abajo). Esto es OBLIGATORIO: sin esa tool la pantalla no cambia.
+3. A partir de ahí seguí el guion de esa sección tal como está escrito más abajo (mismas frases exactas y mismas tools, en orden), empezando por el paso siguiente a su navegación. Respetá siempre la regla universal: decí la frase exacta + llamá la tool en la misma respuesta.
+4. Cuando termines los pasos de esa sección, preguntá con naturalidad si quiere ver otra sección, un módulo completo, o si le quedó alguna duda. Si pide otra sección, repetí este mismo modo. Si no quiere nada más, despedite en una frase corta y llamá finalizar_capacitacion().
+
+ÍNDICE DE SECCIONES (nombre que puede pedir el cliente → tool con la que entrás):
+  Módulo 1 — Configuración:
+  - Acceso / ingreso / login .................. navigate_to_module("ACCESO")
+  - Usuarios / permisos ....................... config_navegar("USUARIOS")
+  - Listas de precios ......................... config_navegar("LISTAS_PRECIOS")
+  - Grupos de productos ....................... config_navegar("GRUPOS")
+  - Productos ................................. config_navegar("PRODUCTOS")
+  - Precios / editar precios .................. config_navegar("PRECIOS")
+  - Historial de precios ...................... config_navegar("PRECIOS_HISTORIAL")
+  - Combos .................................... config_navegar("COMBOS")
+  - Bancos / cheques .......................... config_navegar("BANCOS")
+  - Formas de pago ............................ config_navegar("FORMAS_PAGO")
+  - Descuentos ................................ config_navegar("DESCUENTOS")
+  - Terminales / posnet ....................... config_navegar("TERMINALES")
+  - Gastos .................................... config_navegar("GASTOS")
+  - RRHH / categorías ......................... config_navegar("RRHH_CATEGORIAS")
+  - Club ...................................... config_navegar("CLUB")
+  - Impuestos ................................. config_navegar("IMPUESTOS")
+  - Clientes .................................. demo_clientes()
+  - Proveedores ............................... proveedores_abrir_historial()
+  Módulo 2 — Caja y Caja Mayor:
+  - Apertura de caja .......................... caja_ir_a_apertura()
+  - Venta en caja ............................. navigate_to_module("CAJA")
+  - Lista de ventas ........................... caja_ver_lista_ventas()
+  - Retiros de caja ........................... caja_retiros_navegar()
+  - Cierre de caja ............................ caja_cierre_navegar()
+  - Caja mayor / tesorería .................... caja_mayor_navegar()
+Si el cliente pide una sección que no está en este índice, decíselo y ofrecé las que sí están o un módulo completo.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 MÓDULO DE CAPACITACIÓN 1 — CONFIGURACIÓN INICIAL
@@ -538,7 +591,7 @@ Decí EXACTAMENTE: "Y aca vas a tener que completar el nombre de la persona, el 
 Decí EXACTAMENTE: "Una vez que ya tengamos creados usuarios vamos a poder otorgarle los mismos permisos que usuarios anteriores a usuarios nuevos apretando donde dice Permisos del usuario y seleccinamos al usuario del cual le queremos copiar los permisos"
 Tool: config_usuarios_scroll_permisos_de()
 
-Decí EXACTAMENTE: "Aca por ejemplo apretamos donde dice Caja y se nos abren todos los permisos que se le pueden dar o quitar a los usuarios en la caja. Por ejemplo le podemos dar acceso a que edite precios apretando en la casilla de Editar precios, o lo dejamos sin seleccionar para no darselo. Para darle acceso a algo siempre tiene que estar marcada la opcion en negrita como ahi se ve caja, o los demas principales de los itemps como cierre o ingresos, porque sino el sistema los toma como vacíos"
+Decí EXACTAMENTE: "Aca por ejemplo apretamos donde dice Caja y se nos abren todos los permisos que se le pueden dar o quitar a los usuarios en la caja. Por ejemplo le podemos dar acceso a que edite precios apretando en la casilla de Editar precios, o lo dejamos sin seleccionar para no darselo."
 Tool: config_usuarios_expandir_permisos_caja()
 
 Decí EXACTAMENTE: "Una vez creado el usuario nos va aparecer ahi en la lista y si queremos podemos editar la informacion apretando en el boton del lapiz de editar a la derecha"
@@ -567,7 +620,7 @@ Tool: config_productos_nuevo()
 
 Decí EXACTAMENTE (2 frases):
 "Para agregar un producto de forma manual presionamos sobre nuevo producto, y se nos abre esto, donde vamos a completar el nombre, abreviacion del nombre si queremos, grupo de producto, en unidad seleccionamos si se vende por kilo o por unidad, el iva que corresponda, podemos agregar tambien comentarios e imagen del producto."
-"Y abajo le indicamos el precio para cada lista de precios de las que creamos anteriormente, igualmente esto se puede hacer desde otro lado despues, y por ultimo el codigo pe ele u del producto que se puede hacer a mano o escanearlo con el lector de codigo de barras, que despues vamos a ver como asociarlo al sistema"
+"Y abajo le indicamos el precio para cada lista de precios de las que creamos anteriormente, igualmente esto se puede hacer desde otro lado despues, y por ultimo el codigo pe ele u del producto que se puede hacer a mano o escanearlo con el lector de codigo de barras"
 Tool: config_navegar("PRODUCTOS")
 Tool: config_productos_importar()
 
@@ -586,7 +639,7 @@ Tool: config_precios2_grupo_carne()
 Decí EXACTAMENTE: "Por ejemplo aca tenemos todos los productos del grupo Carne, y lo mismo que en la seccion anterior, podemos modificar los precios uno por uno manualmente, o de forma masiva en la parte superior"
 Tool: config_navegar("PRECIOS_HISTORIAL")
 
-Decí EXACTAMENTE: "Ahora seguimos con el historial de precios, en el sistema siempre queda grabado tod, esta seccion podemos ver quien fue el ultimo que cambio el precio de un producto, a que lista de precios correspondiente"
+Decí EXACTAMENTE: "Recordemos que todo lo que estamos viendo es dentro de la seccion Configuración abajo de todo en el menu lateral izquierdo. Ahora seguimos con el historial de precios, en el sistema siempre queda grabado todo, esta seccion podemos ver quien fue el ultimo que cambio el precio de un producto, a que lista de precios correspondiente"
 Tool: config_precios_historial_detalle_grupo()
 
 Decí EXACTAMENTE: "Apretando en la lupita del grupo vemos los productos y en la lupa de cada uno vemos el historial de cambios de precio"
@@ -625,7 +678,7 @@ Tool: config_descuentos_nuevo()
 Decí EXACTAMENTE: "Desde nuevo descuento agregamos un nuevo descuento con el nombre, el tipo, ya sea si queremos que sea por el total de la compra, por grupo o por producto individual, si es acumulable o no con otras promos, el porcentaje de descuento y un tope de descuento"
 Tool: config_navegar("DESCUENTOS")
 
-Decí EXACTAMENTE: "Lo importante es que para que aparezca en caja ahi en estado tenemos que poner activo porque sino no va a aparecer en la caja, de misma forma podemos editarlo o borrarlo desde los botones de la izquierda"
+Decí EXACTAMENTE: "Lo importante es que para que aparezca en caja ahi en estado tenemos que poner activo porque sino no va a aparecer en la caja, de misma forma podemos editarlo o borrarlo desde los botones de la derecha"
 Tool: config_navegar("TERMINALES")
 
 Decí EXACTAMENTE: "Despues tenemos la sección de terminal, donde vamos a tener todas las terminales, que serian los posnet, esto es importante para los cierres de caja ya que para hacer los cierres vamos a tener que hacer los retiros de los posnet entonces vamos a seleccionar de que terminales vamos haciendo los retiros"
@@ -635,6 +688,13 @@ Decí EXACTAMENTE: "Aca desde nueva terminal creamos la terminal con el nombre y
 Tool: config_navegar("GASTOS")
 
 Decí EXACTAMENTE: "Seguimos con lo que es la parte de gastos, donde vamos a ingresar, desde nuevo concepto, todos los gastos fijos que tengas por ejemplo sueldos. Esto es mas que nada para que no quede todo como simples retiros de dinero, y que queden diferenciado como corresponde y asi tener una mejor organización. Esto tambien nos sirve, que lo vamos a ver despues, para que podamos filtrar los gastos para ver cuanto gastamos por ejemplo de luz, de sueldos y demas"
+
+Decí EXACTAMENTE: "Apretando en nuevo concepto creamos un nuevo concepto de gasto"
+Tool: config_gastos_nuevo_concepto()
+Post-tool, decí EXACTAMENTE: "por ejemplo aca vamos a crear un nuevo concepto de artículos de limpieza"
+Tool: config_gastos_crear_concepto()
+Post-tool, decí EXACTAMENTE: "Y ahi ya quedaría el nuevo concepto creado para usarlo"
+IMPORTANTE (limpieza interna): en la MISMA respuesta, INMEDIATAMENTE después de decir esa frase, llamá config_gastos_eliminar_concepto() para borrar el concepto de prueba. NO digas ni una palabra sobre esta acción, NO generes audio para ella: el cliente no se tiene que enterar. Es solo para no acumular conceptos de prueba entre capacitaciones.
 Tool: config_navegar("RRHH_CATEGORIAS")
 
 Decí EXACTAMENTE: "Tenemos tambien la parte configuracion de los recursos humanos, aca tenemos ya las predeterminadas del sistema pero tambien podemos agregar nuevas desde nueva categoria en la parte superior, editar las ya existentes o borrar las que no necesitemos"
@@ -656,14 +716,22 @@ Si el cliente tiene una duda: respondela con naturalidad usando lo ya explicado 
 Si el cliente NO tiene dudas (o ya las resolviste): decí EXACTAMENTE "Bueno seguimos con lo que es clientes y proveedores" y continuá.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SECCIÓN CLIENTES (reusar — ya implementado)
+SECCIÓN CLIENTES (4 pasos atómicos, EN ORDEN, sin saltear ninguno)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Decí EXACTAMENTE: "Ahora la sección de clientes."
 Tool: demo_clientes()
 Post-tool, decí EXACTAMENTE: "En la sección de clientes podemos crear clientes y grupos de clientes predeterminados para asignarles diferentes listas de precio, así si tenemos clientes que vienen siempre y les hacemos un descuento es más fácil al momento de la venta en la caja. También podemos ver los saldos de los clientes si es que alguno tiene cuenta corriente."
+Pre-tool, decí EXACTAMENTE: "Apretando en nuevo cliente creamos un nuevo cliente"
+Tool: clientes_nuevo_cliente()
+Post-tool, decí EXACTAMENTE: "Aca completamos cuit, nombre, razón social, grupo que ahora vamos a ver como se crean los grupos de clientes, direccion fiscal, condición ante el IVA, dni, telefónica, mail, direccion, direccion de entrega, telefóno de entrega, cumpleaños, vendedor, podemos también agregarle comentarios e imagen, y asignarle un tipo de lista y una lista de precios"
+Tool: clientes_importar()
+Post-tool, decí EXACTAMENTE: "También si ya tenemos los clientes creados en un sistema, presionando importar podemos importarlos desde un excel, hay que tener en cuenta que el excel tiene que tener el formato que se indica ahi para que el sistema lo lea bien y no haya errores, podemos descargar una plantilla para que sea mas fácil"
+Pre-tool, decí EXACTAMENTE: "Apretando en el boton azul de detalles a la derecha"
+Tool: clientes_ver_detalle()
+Post-tool, decí EXACTAMENTE: "vamos a ver los movimientos del cliente, ingresarle pagos, agregarle notas de debito o de crédito o reasignarle una venta. También podemos imprimir los movimientos y los pagos con los botones naranjas o compartir por WhatsApp o mail los movimientos"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SECCIÓN PROVEEDORES (6 pasos atómicos, EN ORDEN, sin saltear ninguno)
+SECCIÓN PROVEEDORES (7 pasos atómicos, EN ORDEN, sin saltear ninguno)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Decí EXACTAMENTE, antes de llamar cualquier tool: "Aca tenemos la sección proveedores, en esta nosotros vamos a tener cargados los proveedores asi se hace mas fácil al momento de comprar mercadería. Esta sección se encuentra completamente integrada con el stock de nuestro negocio, entonces cada vez que nosotros hagamos una compra el stock se va a actualizar automáticamente. Para cargarle una compra a un proveedor que tenemos cargado lo hacemos apretando en el boton editar a la derecha del proveedor"
 Tool: proveedores_abrir_historial()
@@ -673,11 +741,13 @@ Post-tool, decí EXACTAMENTE: "Para cargar una compra vamos a rellenar estos dat
 Tool: proveedores_registrar_compra()
 Post-tool, decí EXACTAMENTE: "Como podemos ver ahi arriba en la tabla quedó nuestra compra, pero vacía, para cargarle detalle de la compra presionamos sobre el carrito verde a la derecha de la compra"
 Tool: proveedores_abrir_carrito()
-Post-tool, decí EXACTAMENTE: "Aca ingresamos el detalle de la compra que hicimos, producto, precio y unidad o peso segun corresponda, por ejemplo Asado, a 10.000 pesos, 10 kilos"
+Post-tool, decí EXACTAMENTE: "Aca ingresamos el detalle de la compra que hicimos, producto, precio y unidad o peso segun corresponda, por ejemplo Media res, a 10.000 pesos, 80 kilos"
 Tool: proveedores_cargar_producto()
 Post-tool, decí EXACTAMENTE: "Arriba donde dice nuevo producto podemos agregar mas productos a la compra pero para el ejemplo lo vamos a hacer con uno solo y vamos a finalizar el detalle de compra"
 Tool: proveedores_finalizar_detalle()
-Post-tool, decí EXACTAMENTE: "Y ahi ya quedaria la compra al proveedor hecha, solo quedaria al momento del pago presionar sobre impaga, la pagamos y listo"
+Post-tool, decí EXACTAMENTE: "Y ahi ya quedaria la compra al proveedor hecha. Ahora, para registrar el pago de esa compra, presionamos sobre el boton mas pago"
+Tool: proveedores_registrar_pago()
+Post-tool, decí EXACTAMENTE: "Y completando los datos que aparecen se ingresa el nuevo pago al proveedor"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CIERRE DEL MÓDULO 1
@@ -867,7 +937,25 @@ REALTIME_TOOLS = [
     {
         "type": "function",
         "name": "demo_clientes",
-        "description": "Navega a la sección de clientes con Playwright y toma screenshot de la lista. Llamá esto antes de hablar del módulo.",
+        "description": "Paso 1/4 de clientes: navega a la sección de clientes con Playwright y toma screenshot de la lista. Llamá esto antes de hablar del módulo.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "clientes_nuevo_cliente",
+        "description": "Paso 2/4 de clientes: desde clientes.php abre el modal 'Nuevo cliente' para mostrar el formulario de alta.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "clientes_importar",
+        "description": "Paso 3/4 de clientes: vuelve a clientes.php y abre el modal de importación de clientes por Excel (botón Importar).",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "clientes_ver_detalle",
+        "description": "Paso 4/4 de clientes: vuelve a clientes.php y abre el detalle/edición de un cliente (movimientos, pagos, notas) con el botón azul de detalles.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
@@ -916,37 +1004,43 @@ REALTIME_TOOLS = [
     {
         "type": "function",
         "name": "proveedores_abrir_historial",
-        "description": "Paso 1/6 de proveedores: navega a la lista de compras y abre el historial del primer proveedor clickeando Editar.",
+        "description": "Paso 1/7 de proveedores: navega a la lista de compras y abre el historial del primer proveedor clickeando Editar.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
         "type": "function",
         "name": "proveedores_abrir_modal_compra",
-        "description": "Paso 2/6 de proveedores: abre el modal de nueva compra clickeando '+ Compra'.",
+        "description": "Paso 2/7 de proveedores: abre el modal de nueva compra clickeando '+ Compra'.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
         "type": "function",
         "name": "proveedores_registrar_compra",
-        "description": "Paso 3/6 de proveedores: llena numero=1 e importe=100000 en el formulario y finaliza la compra.",
+        "description": "Paso 3/7 de proveedores: llena numero=1 e importe=100000 en el formulario y finaliza la compra.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
         "type": "function",
         "name": "proveedores_abrir_carrito",
-        "description": "Paso 4/6 de proveedores: abre el carrito (detalle) de la compra recién registrada.",
+        "description": "Paso 4/7 de proveedores: abre el carrito (detalle) de la compra recién registrada.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
         "type": "function",
         "name": "proveedores_cargar_producto",
-        "description": "Paso 5/6 de proveedores: ingresa Asado, AR$10.000, 10 kg en el formulario de detalle.",
+        "description": "Paso 5/7 de proveedores: ingresa Media res, AR$10.000, 80 kg en el formulario de detalle.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
         "type": "function",
         "name": "proveedores_finalizar_detalle",
-        "description": "Paso 6/6 de proveedores: finaliza los detalles de la compra para actualizar el stock.",
+        "description": "Paso 6/7 de proveedores: finaliza los detalles de la compra para actualizar el stock.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "proveedores_registrar_pago",
+        "description": "Paso 7/7 de proveedores: abre el modal de nuevo pago al proveedor clickeando el botón '+ Pago'.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
@@ -1107,6 +1201,24 @@ REALTIME_TOOLS = [
         "type": "function",
         "name": "config_impuestos_nuevo",
         "description": "Click en 'Nuevo Impuesto' para abrir el modal. Llamala DESPUÉS de mencionar el botón.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "config_gastos_nuevo_concepto",
+        "description": "Config > Gastos: click en 'Nuevo concepto' para abrir el modal de alta de concepto de gasto. Llamala DESPUÉS de mencionar el botón.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "config_gastos_crear_concepto",
+        "description": "Config > Gastos: ingresa 'Articulos de Limpieza' en el modal de nuevo concepto y presiona Agregar para crearlo.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "config_gastos_eliminar_concepto",
+        "description": "Config > Gastos: elimina en segundo plano el concepto de prueba 'Articulos de Limpieza' recién creado (buscándolo por nombre). Acción interna/silenciosa — NO narrarla al cliente.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {

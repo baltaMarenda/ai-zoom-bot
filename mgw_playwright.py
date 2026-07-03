@@ -2734,6 +2734,144 @@ async def run_demo_clientes(on_screenshot=None) -> str:
         return "Error al navegar a clientes."
 
 
+# ── Steps atómicos — Clientes ─────────────────────────────────────────────────
+
+async def clientes_nuevo_cliente(on_screenshot=None) -> str:
+    """Paso: en clientes.php abre el modal 'Nuevo cliente' (clientes_nuevo_cliente())."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    base = MGW_URL.rstrip("/")
+
+    async def snap(delay=0.0):
+        await _snap(on_screenshot, delay)
+
+    async def click_first(selectors, label):
+        for selector in selectors:
+            try:
+                el = _page.locator(selector).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    print(f"[PW] [CLIENTES] {label} via '{selector}' ✓")
+                    return True
+            except Exception:
+                continue
+        return False
+
+    print("[PW] [CLIENTES] Navegando a clientes.php para Nuevo cliente...")
+    await _page.goto(f"{base}/clientes.php", wait_until="domcontentloaded", timeout=20000)
+    await asyncio.sleep(2.0)
+
+    clicked = await click_first([
+        '[onclick*="clientes_nuevo_cliente"]',
+        'a[href="#modal_nuevo_cliente_id"]',
+        'a:has-text("Nuevo cliente")',
+        'button:has-text("Nuevo cliente")',
+    ], "Nuevo cliente")
+    if not clicked:
+        await _page.evaluate("""() => {
+            const btn = [...document.querySelectorAll('a, button')].find(e => {
+                const oc = (e.getAttribute('onclick') || '').toLowerCase();
+                const href = (e.getAttribute('href') || '').toLowerCase();
+                return oc.includes('clientes_nuevo_cliente') || href.includes('modal_nuevo_cliente');
+            });
+            if (btn) btn.click();
+        }""")
+    await asyncio.sleep(3.0)
+    await snap()
+    print("[PW] [CLIENTES] clientes_nuevo_cliente ✓")
+    return "Modal de nuevo cliente abierto."
+
+
+async def clientes_importar(on_screenshot=None) -> str:
+    """Paso: vuelve a clientes.php y abre el modal de importación por Excel (form_importar())."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    base = MGW_URL.rstrip("/")
+
+    async def snap(delay=0.0):
+        await _snap(on_screenshot, delay)
+
+    async def click_first(selectors, label):
+        for selector in selectors:
+            try:
+                el = _page.locator(selector).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    print(f"[PW] [CLIENTES] {label} via '{selector}' ✓")
+                    return True
+            except Exception:
+                continue
+        return False
+
+    print("[PW] [CLIENTES] Volviendo a clientes.php para Importar...")
+    await _page.goto(f"{base}/clientes.php", wait_until="domcontentloaded", timeout=20000)
+    await asyncio.sleep(2.0)
+
+    clicked = await click_first([
+        '[onclick*="form_importar"]',
+        'a:has-text("Importar")',
+        'button:has-text("Importar")',
+    ], "Importar")
+    if not clicked:
+        await _page.evaluate("""() => {
+            const btn = [...document.querySelectorAll('a, button')].find(e => {
+                const oc = (e.getAttribute('onclick') || '').toLowerCase();
+                const t = (e.textContent || '').trim().toLowerCase();
+                return oc.includes('form_importar') || t.includes('importar');
+            });
+            if (btn) btn.click();
+        }""")
+    await asyncio.sleep(3.0)
+    await snap()
+    print("[PW] [CLIENTES] clientes_importar ✓")
+    return "Modal de importación por Excel abierto."
+
+
+async def clientes_ver_detalle(on_screenshot=None) -> str:
+    """Paso: vuelve a clientes.php y abre el detalle/edición de un cliente (clientes_editar.php)."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    base = MGW_URL.rstrip("/")
+
+    async def snap(delay=0.0):
+        await _snap(on_screenshot, delay)
+
+    async def click_first(selectors, label):
+        for selector in selectors:
+            try:
+                el = _page.locator(selector).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    print(f"[PW] [CLIENTES] {label} via '{selector}' ✓")
+                    return True
+            except Exception:
+                continue
+        return False
+
+    print("[PW] [CLIENTES] Volviendo a clientes.php para ver detalle...")
+    await _page.goto(f"{base}/clientes.php", wait_until="domcontentloaded", timeout=20000)
+    await asyncio.sleep(2.0)
+
+    clicked = await click_first([
+        'a[href*="clientes_editar.php"]',
+        '[data-original-title="Editar"]',
+        'a.btn-teal',
+    ], "Detalle cliente")
+    if not clicked:
+        await _page.evaluate("""() => {
+            const btn = [...document.querySelectorAll('a')].find(e => {
+                const href = (e.getAttribute('href') || '').toLowerCase();
+                const dt = (e.getAttribute('data-original-title') || e.getAttribute('title') || '').toLowerCase();
+                return href.includes('clientes_editar.php') || dt.includes('editar');
+            });
+            if (btn) btn.click();
+        }""")
+    await asyncio.sleep(3.0)
+    await snap()
+    print("[PW] [CLIENTES] clientes_ver_detalle ✓")
+    return "Detalle del cliente abierto (movimientos, pagos, notas)."
+
+
 # ── Steps atómicos — Balanza ──────────────────────────────────────────────────
 
 async def balanza_step_navegar(on_screenshot=None) -> str:
@@ -3099,7 +3237,7 @@ async def proveedores_abrir_modal_compra(on_screenshot=None) -> str:
 
 
 async def proveedores_registrar_compra(on_screenshot=None) -> str:
-    """Paso 3/6: llena numero=1, importe=100000 y finaliza la compra."""
+    """Paso 3/6: llena numero=1, importe=800000 y finaliza la compra."""
     if _page is None:
         return "Error: browser no iniciado"
 
@@ -3134,8 +3272,8 @@ async def proveedores_registrar_compra(on_screenshot=None) -> str:
             el = _page.locator(sel).first
             if await el.count() > 0 and await el.is_visible():
                 await el.click()
-                await el.fill("100000")
-                print(f"[PW] [PROV] importe=100000 via '{sel}' ✓")
+                await el.fill("800000")
+                print(f"[PW] [PROV] importe=800000 via '{sel}' ✓")
                 break
         except Exception:
             continue
@@ -3156,7 +3294,7 @@ async def proveedores_registrar_compra(on_screenshot=None) -> str:
     await asyncio.sleep(3.0)
     await snap()
     print("[PW] [PROV] proveedores_registrar_compra ✓")
-    return "Compra de $100.000 registrada como Impaga."
+    return "Compra de $800.000 registrada como Impaga."
 
 
 async def proveedores_abrir_carrito(on_screenshot=None) -> str:
@@ -3204,7 +3342,7 @@ async def proveedores_abrir_carrito(on_screenshot=None) -> str:
 
 
 async def proveedores_cargar_producto(on_screenshot=None) -> str:
-    """Paso 5/6: ingresa Asado, $10000, 10 kg y presiona Agregar."""
+    """Paso 5/6: ingresa Media res, $10000, 80 kg y presiona Agregar."""
     if _page is None:
         return "Error: browser no iniciado"
 
@@ -3229,8 +3367,8 @@ async def proveedores_cargar_producto(on_screenshot=None) -> str:
             if await el.count() > 0 and await el.is_visible():
                 await el.click()
                 await el.fill("")
-                await el.type("Asado", delay=150)
-                print(f"[PW] [PROV] producto=Asado via '{sel}' ✓")
+                await el.type("Media res", delay=150)
+                print(f"[PW] [PROV] producto=Media res via '{sel}' ✓")
                 break
         except Exception:
             continue
@@ -3259,8 +3397,8 @@ async def proveedores_cargar_producto(on_screenshot=None) -> str:
             el = _page.locator(sel).first
             if await el.count() > 0 and await el.is_visible():
                 await el.click()
-                await el.fill("10")
-                print(f"[PW] [PROV] peso=10 via '{sel}' ✓")
+                await el.fill("80")
+                print(f"[PW] [PROV] peso=80 via '{sel}' ✓")
                 break
         except Exception:
             continue
@@ -3285,7 +3423,7 @@ async def proveedores_cargar_producto(on_screenshot=None) -> str:
     await asyncio.sleep(2.0)
     await snap()
     print("[PW] [PROV] proveedores_cargar_producto ✓")
-    return "Asado, AR$10.000, 10 kg ingresados y agregados a la compra."
+    return "Media res, AR$10.000, 80 kg ingresados y agregados a la compra."
 
 
 async def proveedores_finalizar_detalle(on_screenshot=None) -> str:
@@ -3327,6 +3465,46 @@ async def proveedores_finalizar_detalle(on_screenshot=None) -> str:
     await snap()
     print("[PW] [PROV] proveedores_finalizar_detalle ✓")
     return "Detalle de compra finalizado. Stock actualizado automáticamente."
+
+
+async def proveedores_registrar_pago(on_screenshot=None) -> str:
+    """Paso 7/7: abre el modal de nuevo pago al proveedor clickeando '+ Pago'."""
+    if _page is None:
+        return "Error: browser no iniciado"
+
+    async def snap(delay=0.0):
+        await _snap(on_screenshot, delay)
+
+    async def click_first(selectors, label):
+        for selector in selectors:
+            try:
+                el = _page.locator(selector).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    print(f"[PW] [PROV] {label} via '{selector}' ✓")
+                    return True
+            except Exception:
+                continue
+        return False
+
+    clicked = await click_first([
+        '[onclick*="im_proveedores_nuevo_pago"]',
+        '[data-original-title="Nuevo Pago"]',
+        'a.btn-warning:has-text("Pago")',
+    ], "Nuevo Pago proveedor")
+    if not clicked:
+        await _page.evaluate("""() => {
+            const btn = [...document.querySelectorAll('[onclick], a, button')].find(e => {
+                const oc = (e.getAttribute('onclick') || '').toLowerCase();
+                const dt = (e.getAttribute('data-original-title') || e.getAttribute('title') || '').toLowerCase();
+                return oc.includes('im_proveedores_nuevo_pago') || dt.includes('nuevo pago');
+            });
+            if (btn) btn.click();
+        }""")
+    await asyncio.sleep(3.0)
+    await snap()
+    print("[PW] [PROV] proveedores_registrar_pago ✓")
+    return "Modal de nuevo pago al proveedor abierto."
 
 
 # ── Steps atómicos — Producción ───────────────────────────────────────────────
@@ -4141,6 +4319,128 @@ async def config_impuestos_nuevo(on_screenshot=None) -> str:
     await snap()
     print("[PW] [CONFIG] config_impuestos_nuevo ✓")
     return "Modal de nuevo impuesto abierto."
+
+
+async def config_gastos_nuevo_concepto(on_screenshot=None) -> str:
+    """Abre el modal 'Nuevo concepto' de gastos (configuracion_gastos_nuevo_gasto())."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    await _ensure_on_config_page("GASTOS")
+    snap = _make_config_snap(on_screenshot)
+    click_first = _make_config_clicker("CONFIG")
+    clicked = await click_first([
+        '[onclick="configuracion_gastos_nuevo_gasto()"]',
+        '[onclick*="configuracion_gastos_nuevo_gasto"]',
+        'a[href="#modal_nuevo_gasto_id"]',
+        'a:has-text("Nuevo concepto")',
+        'button:has-text("Nuevo concepto")',
+    ], "Nuevo concepto")
+    if not clicked:
+        await _page.evaluate("""() => {
+            const btn = [...document.querySelectorAll('[onclick], a, button')].find(e => {
+                const oc = (e.getAttribute('onclick') || '');
+                const href = (e.getAttribute('href') || '');
+                const t = (e.textContent || '').trim().toLowerCase();
+                return oc.includes('configuracion_gastos_nuevo_gasto') || href.includes('modal_nuevo_gasto') || t.includes('nuevo concepto');
+            });
+            if (btn) btn.click();
+        }""")
+    await asyncio.sleep(1.5)
+    await snap()
+    print("[PW] [CONFIG] config_gastos_nuevo_concepto ✓")
+    return "Modal de nuevo concepto de gasto abierto."
+
+
+async def config_gastos_crear_concepto(on_screenshot=None) -> str:
+    """Ingresa 'Articulos de Limpieza' en el modal de nuevo concepto y presiona Agregar."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    snap = _make_config_snap(on_screenshot)
+    click_first = _make_config_clicker("CONFIG")
+
+    for sel in ['#modal_nuevo_gasto_id input[name="nombre"]', '#id_nombre', 'input[name="nombre"]']:
+        try:
+            el = _page.locator(sel).first
+            if await el.count() > 0 and await el.is_visible():
+                await el.click()
+                await el.fill("Articulos de Limpieza")
+                print(f"[PW] [CONFIG] nombre=Articulos de Limpieza via '{sel}' ✓")
+                break
+        except Exception:
+            continue
+    await asyncio.sleep(0.3)
+    await snap()
+
+    clicked = await click_first([
+        '#modal_nuevo_gasto_id button[type="submit"]',
+        '#modal_nuevo_gasto_id button:has-text("Agregar")',
+        'button[type="submit"]:has-text("Agregar")',
+    ], "Agregar concepto")
+    if not clicked:
+        await _page.evaluate("""() => {
+            const modal = document.querySelector('#modal_nuevo_gasto_id') || document;
+            const btn = [...modal.querySelectorAll('button[type=submit], button')].find(e => {
+                const t = (e.textContent || '').trim().toLowerCase();
+                return t.includes('agregar');
+            });
+            if (btn) btn.click();
+        }""")
+    await asyncio.sleep(2.0)
+    await snap()
+    print("[PW] [CONFIG] config_gastos_crear_concepto ✓")
+    return "Concepto 'Articulos de Limpieza' creado."
+
+
+async def config_gastos_eliminar_concepto(on_screenshot=None) -> str:
+    """Elimina silenciosamente el concepto de gasto 'Articulos de Limpieza' recién creado,
+    buscándolo por nombre (el id es autoincremental, no se puede hardcodear), para no
+    acumular conceptos de prueba entre capacitaciones. No toma screenshots (es interno)."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    base = MGW_URL.rstrip("/")
+    # Recargar la lista de gastos para ver el concepto recién creado
+    await _page.goto(f"{base}/configuracion_gastos.php", wait_until="domcontentloaded", timeout=20000)
+    await asyncio.sleep(1.5)
+
+    # Buscar la fila del concepto por nombre (sin acentos) y disparar su modal de eliminación
+    opened = await _page.evaluate("""() => {
+        const norm = s => (s || '').toLowerCase()
+            .normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');
+        const rows = [...document.querySelectorAll('tbody tr')];
+        const row = rows.find(r => norm(r.textContent).includes('articulos de limpieza'));
+        if (!row) return false;
+        const btn = row.querySelector('[onclick*="modal_configuracion_gastos_eliminar_gasto"]')
+                 || row.querySelector('.btn-bricky');
+        if (btn) { btn.click(); return true; }
+        return false;
+    }""")
+    if not opened:
+        print("[PW] [CONFIG] config_gastos_eliminar_concepto: no se encontró el concepto")
+        return "No se encontró el concepto de prueba para eliminar."
+    await asyncio.sleep(1.2)
+
+    # Escribir una razón (obligatoria) y confirmar la eliminación
+    for sel in ['#comentario_escondido_id', 'input[name="comentario_escondido"]']:
+        try:
+            el = _page.locator(sel).first
+            if await el.count() > 0 and await el.is_visible():
+                await el.fill("x")
+                break
+        except Exception:
+            continue
+    await asyncio.sleep(0.3)
+
+    for sel in ['#verificar_vacio_id', 'input[name="verificar_vacio"]', 'input[value="Si, eliminar"]']:
+        try:
+            el = _page.locator(sel).first
+            if await el.count() > 0 and await el.is_visible():
+                await el.click()
+                break
+        except Exception:
+            continue
+    await asyncio.sleep(1.5)
+    print("[PW] [CONFIG] config_gastos_eliminar_concepto ✓")
+    return "Concepto de prueba eliminado."
 
 
 # ── Steps atómicos — Módulo 2: Caja y Caja Mayor ─────────────────────────────

@@ -19,12 +19,14 @@ from mgw_playwright import (
     caja_step_seleccionar_pago, caja_step_cerrar,
     reset_caja_fases,
     run_demo_estadisticas, run_demo_stock, run_demo_clientes,
+    clientes_nuevo_cliente, clientes_importar, clientes_ver_detalle,
     balanza_step_navegar, balanza_step_agregar_producto,
     balanza_step_mostrar_tickets, balanza_step_ir_a_caja,
     balanza_step_abrir_cf, balanza_step_cobrar_ticket,
     proveedores_abrir_historial, proveedores_abrir_modal_compra,
     proveedores_registrar_compra, proveedores_abrir_carrito,
     proveedores_cargar_producto, proveedores_finalizar_detalle,
+    proveedores_registrar_pago,
     produccion_ver_plantillas, produccion_ver_detalle_plantilla,
     produccion_ir_a_produccion, produccion_nueva_produccion,
     produccion_seleccionar_plantilla, produccion_completar_y_registrar,
@@ -38,6 +40,8 @@ from mgw_playwright import (
     config_combos_nuevo, config_combos_editar,
     config_formas_pago_nueva, config_descuentos_nuevo,
     config_terminales_nueva, config_impuestos_nuevo,
+    config_gastos_nuevo_concepto, config_gastos_crear_concepto,
+    config_gastos_eliminar_concepto,
     # Módulo 2: Caja y Caja Mayor
     caja_ir_a_apertura, caja_abrir_turno,
     caja_ver_lista_ventas, caja_ver_detalle_venta,
@@ -238,6 +242,15 @@ async def _run_stock_demo() -> str:
 async def _run_clientes_demo() -> str:
     return await run_demo_clientes(on_screenshot=_on_screenshot)
 
+async def _clientes_nuevo_cliente() -> str:
+    return await clientes_nuevo_cliente(on_screenshot=_on_screenshot)
+
+async def _clientes_importar() -> str:
+    return await clientes_importar(on_screenshot=_on_screenshot)
+
+async def _clientes_ver_detalle() -> str:
+    return await clientes_ver_detalle(on_screenshot=_on_screenshot)
+
 async def _balanza_step_navegar() -> str:
     return await balanza_step_navegar(on_screenshot=_on_screenshot)
 
@@ -273,6 +286,9 @@ async def _proveedores_cargar_producto() -> str:
 
 async def _proveedores_finalizar_detalle() -> str:
     return await proveedores_finalizar_detalle(on_screenshot=_on_screenshot)
+
+async def _proveedores_registrar_pago() -> str:
+    return await proveedores_registrar_pago(on_screenshot=_on_screenshot)
 
 async def _produccion_ver_plantillas() -> str:
     return await produccion_ver_plantillas(on_screenshot=_on_screenshot)
@@ -346,6 +362,15 @@ async def _config_terminales_nueva() -> str:
 
 async def _config_impuestos_nuevo() -> str:
     return await config_impuestos_nuevo(on_screenshot=_on_screenshot)
+
+async def _config_gastos_nuevo_concepto() -> str:
+    return await config_gastos_nuevo_concepto(on_screenshot=_on_screenshot)
+
+async def _config_gastos_crear_concepto() -> str:
+    return await config_gastos_crear_concepto(on_screenshot=_on_screenshot)
+
+async def _config_gastos_eliminar_concepto() -> str:
+    return await config_gastos_eliminar_concepto(on_screenshot=_on_screenshot)
 
 async def _finalizar_capacitacion() -> str:
     loop = asyncio.get_event_loop()
@@ -457,6 +482,9 @@ async def handle_recall_audio(websocket):
         demo_estadisticas           = _run_estadisticas_demo,
         demo_stock                  = _run_stock_demo,
         demo_clientes               = _run_clientes_demo,
+        clientes_nuevo_cliente      = _clientes_nuevo_cliente,
+        clientes_importar           = _clientes_importar,
+        clientes_ver_detalle        = _clientes_ver_detalle,
         balanza_navegar             = _balanza_step_navegar,
         balanza_agregar_producto    = _balanza_step_agregar,
         balanza_mostrar_tickets     = _balanza_step_mostrar_tickets,
@@ -469,6 +497,7 @@ async def handle_recall_audio(websocket):
         proveedores_abrir_carrito        = _proveedores_abrir_carrito,
         proveedores_cargar_producto      = _proveedores_cargar_producto,
         proveedores_finalizar_detalle    = _proveedores_finalizar_detalle,
+        proveedores_registrar_pago       = _proveedores_registrar_pago,
         produccion_ver_plantillas         = _produccion_ver_plantillas,
         produccion_ver_detalle_plantilla  = _produccion_ver_detalle_plantilla,
         produccion_ir_a_produccion        = _produccion_ir_a_produccion,
@@ -493,6 +522,9 @@ async def handle_recall_audio(websocket):
         config_descuentos_nuevo               = _config_descuentos_nuevo,
         config_terminales_nueva               = _config_terminales_nueva,
         config_impuestos_nuevo                = _config_impuestos_nuevo,
+        config_gastos_nuevo_concepto          = _config_gastos_nuevo_concepto,
+        config_gastos_crear_concepto          = _config_gastos_crear_concepto,
+        config_gastos_eliminar_concepto       = _config_gastos_eliminar_concepto,
         finalizar_capacitacion                = _finalizar_capacitacion,
         # Módulo 2
         caja_ir_a_apertura                    = _caja_ir_a_apertura,
