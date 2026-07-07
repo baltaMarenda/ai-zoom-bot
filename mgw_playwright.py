@@ -431,6 +431,19 @@ async def caja_step_buscar(product_name: str, on_screenshot=None) -> str:
     base = MGW_URL.rstrip("/")
     print(f"[PW] [Caja] Navegando a caja...")
     await _page.goto(f"{base}/caja.php", wait_until="domcontentloaded", timeout=30000)
+    await asyncio.sleep(1.5)
+    # Si la caja está CERRADA, caja.php muestra el formulario de apertura/arqueo
+    # (#importe_arqueo_nuevo) en vez del buscador de productos (#producto), y el
+    # wait_for_selector de abajo haría timeout. Esto pasa cuando se entra directo a la
+    # venta (modo sección directa) sin haber abierto la caja antes. La abrimos sola,
+    # en silencio, reutilizando la lógica de apertura ya probada.
+    arqueo = _page.locator("#importe_arqueo_nuevo").first
+    if await arqueo.count() > 0 and await arqueo.is_visible():
+        print("[PW] [Caja] Caja cerrada — abriéndola automáticamente antes de buscar...")
+        await caja_ir_a_apertura()   # resuelve estados previos y deja el form de apertura
+        await caja_abrir_turno()     # confirma la apertura con el fondo inicial
+        await _page.goto(f"{base}/caja.php", wait_until="domcontentloaded", timeout=30000)
+        await asyncio.sleep(1.5)
     await _page.wait_for_selector('input#producto, input[name="producto"]', timeout=15000)
     await asyncio.sleep(3.0)
     if on_screenshot:
@@ -478,6 +491,49 @@ async def caja_step_agregar(on_screenshot=None) -> str:
         await _snap(on_screenshot, 0.0)
     print("[PW] [Caja] Producto agregado al ticket ✓")
     return "Producto agregado al ticket. El total actualizado se ve en pantalla."
+
+
+async def _caja_llenar_paga_con(monto: str = "5000") -> bool:
+    """Llena el campo 'Paga con' (efectivo) para que el sistema calcule el vuelto.
+
+    IMPORTANTE: debe llamarse DESPUÉS de aplicar el descuento. Si se llena antes, al
+    seleccionar el descuento el total se recalcula y el campo 'Paga con' se reinicia,
+    perdiendo el monto ingresado.
+    """
+    if _page is None:
+        return False
+    print(f"[PW] [Caja] Llenando campo 'Paga con' con {monto}...")
+    for sel in [
+        'input[placeholder*="Paga con"]', 'input[placeholder*="paga con"]',
+        'input#efectivo', 'input[name="efectivo"]',
+        'input[name="monto_efectivo"]', 'input[name="recibe"]',
+        'input[name="monto"]', 'input#pago', 'input[name="pago"]',
+    ]:
+        try:
+            pago_el = _page.locator(sel).first
+            if await pago_el.count() > 0 and await pago_el.is_visible():
+                await pago_el.click()
+                # NO limpiar el campo con fill(""): mandar un evento input con valor vacío
+                # hace que el sistema recargue/resetee el panel de cobro y se pierda el
+                # descuento ya aplicado. El campo ya viene vacío (no se llena en
+                # seleccionar_pago), así que tipeamos directo sobre él.
+                #
+                # El vuelto lo calcula el JS del sitio en CADA tecla (keyup), no cuando se
+                # setea el valor de golpe. Por eso 'fill("5000")' + eventos sintéticos no
+                # alcanzaba: el cálculo por dígito nunca corría y el vuelto no aparecía.
+                # Tipeamos dígito por dígito con delay para disparar el cálculo real, igual
+                # que cuando se escribe a mano (5 → 50 → 500 → 5000 y ahí aparece el vuelto).
+                try:
+                    await pago_el.press_sequentially(monto, delay=150)
+                except AttributeError:
+                    # Fallback para versiones viejas de Playwright
+                    await pago_el.type(monto, delay=150)
+                print(f"[PW] [Caja] 'Paga con'={monto} tipeado dígito a dígito via '{sel}' ✓")
+                return True
+        except Exception:
+            continue
+    print("[PW] [Caja] Selector 'Paga con' no encontrado — continuando sin llenar")
+    return False
 
 
 async def caja_step_seleccionar_pago(method: str, on_screenshot=None) -> str:
@@ -528,44 +584,13 @@ async def caja_step_seleccionar_pago(method: str, on_screenshot=None) -> str:
             }}
         """)
         print(f"[PW] [Caja] {method_text} forzado via JS ✓")
-    # Llenar "Paga con" con 5000 para que el vuelto se calcule y se vea en pantalla
-    # (5000 cubre precios típicos y deja vuelto visible)
-    print("[PW] [Caja] Llenando campo 'Paga con' con 5000...")
-    pago_filled = False
-    for sel in [
-        'input[placeholder*="Paga con"]', 'input[placeholder*="paga con"]',
-        'input#efectivo', 'input[name="efectivo"]',
-        'input[name="monto_efectivo"]', 'input[name="recibe"]',
-        'input[name="monto"]', 'input#pago', 'input[name="pago"]',
-    ]:
-        try:
-            pago_el = _page.locator(sel).first
-            if await pago_el.count() > 0 and await pago_el.is_visible():
-                await pago_el.click()
-                await pago_el.fill("5000")
-                # Dispatch input + change so JS vuelto recalculates immediately
-                sel_esc = sel.replace("'", "\\'")
-                await _page.evaluate(f"""() => {{
-                    const el = document.querySelector('{sel_esc}');
-                    if (el) {{
-                        el.dispatchEvent(new Event('input', {{bubbles: true}}));
-                        el.dispatchEvent(new Event('change', {{bubbles: true}}));
-                        el.dispatchEvent(new Event('keyup', {{bubbles: true}}));
-                    }}
-                }}""")
-                await pago_el.press("Enter")
-                pago_filled = True
-                print(f"[PW] [Caja] 'Paga con'=5000 via '{sel}' ✓")
-                break
-        except Exception:
-            continue
-    if not pago_filled:
-        print("[PW] [Caja] Selector 'Paga con' no encontrado — continuando sin llenar")
-    # Wait for vuelto JS to render before snapping
-    await asyncio.sleep(2.5)
+    # NOTA: el monto "Paga con" NO se llena acá. Se llena en caja_step_descuento, DESPUÉS
+    # de aplicar el descuento: si se llena antes, al seleccionar el descuento el total se
+    # recalcula y el campo se reinicia, perdiendo el monto ingresado.
+    await asyncio.sleep(1.5)
     if on_screenshot:
-        await _snap(on_screenshot, 2.0)
-    return f"Forma de pago '{method_text}' seleccionada. El panel de cobro se ve en pantalla con el vuelto calculado."
+        await _snap(on_screenshot, 1.5)
+    return f"Forma de pago '{method_text}' seleccionada. El panel de cobro se ve en pantalla."
 
 
 async def caja_step_descuento(on_screenshot=None) -> str:
@@ -605,8 +630,16 @@ async def caja_step_descuento(on_screenshot=None) -> str:
     # Esperar a que el JS recalcule el total con el descuento aplicado
     await asyncio.sleep(2.5)
     if on_screenshot:
-        await _snap(on_screenshot, 2.0)
-    return "Descuento 'Efectivo 10 (10.00%)' aplicado. El total en pantalla ya refleja el 10% de descuento."
+        await _snap(on_screenshot, 1.0)  # muestra el total ya con el descuento aplicado
+    # Recién AHORA, con el descuento ya aplicado, llenamos "Paga con". Así el vuelto se
+    # calcula sobre el total con descuento y el campo no se reinicia (que era el bug: al
+    # aplicar el descuento después del monto, el campo 'Paga con' se borraba).
+    await _caja_llenar_paga_con("5000")
+    await asyncio.sleep(2.0)
+    if on_screenshot:
+        await _snap(on_screenshot, 1.5)  # muestra el vuelto ya calculado sobre el total con descuento
+    return ("Descuento 'Efectivo 10 (10.00%)' aplicado y luego ingresado el monto con que paga "
+            "el cliente. El vuelto en pantalla ya refleja el total con el 10% de descuento.")
 
 
 async def caja_step_cerrar(method: str = "presupuesto", on_screenshot=None) -> str:

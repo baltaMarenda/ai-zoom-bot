@@ -298,6 +298,8 @@ class RealtimeBridge:
         self._nudge_pending         = False   # True si ya hay un nudge "Continuá con el protocolo" sin responder en la conversación
         self._auto_continue_empty_count = 0    # respuestas vacías consecutivas tras un nudge (para backoff)
         self._audio_end_time        = 0.0      # monotonic ts estimado de fin de reproducción del audio actual
+        self._user_needs_reply      = False    # True cuando el usuario habló/interrumpió y todavía no se le contestó
+        self._exchange_active       = False    # True mientras el usuario está consultando/interrumpiendo; frena la marcha del auto-continue
 
     # ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -429,6 +431,9 @@ class RealtimeBridge:
             if delta and not self._barge_in_active:
                 self._is_speaking = True
                 self._response_has_audio = True
+                # Malena arrancó a hablar en una respuesta real (no cancelada por barge-in):
+                # está atendiendo al usuario, así que el turno pendiente queda saldado.
+                self._user_needs_reply = False
                 # Acumular bytes para calcular duración (base64 → aprox bytes PCM)
                 self._audio_bytes_this_response += len(delta) * 3 // 4
                 await self._send_to_agent({
@@ -508,9 +513,36 @@ class RealtimeBridge:
             self._auto_continue_empty_count = 0
             self._user_turn_open = True
             self._last_user_audio_ts = time.monotonic()
-            if self._is_speaking:
+            # Malena sigue siendo AUDIBLE si todavía está generando audio (_is_speaking) o si
+            # ya terminó de generar pero el cliente aún está reproduciendo el buffer
+            # (_audio_end_time en el futuro). Esta segunda condición es clave: OpenAI termina
+            # de GENERAR mucho antes de que el usuario termine de ESCUCHAR, así que sin ella
+            # una interrupción durante la cola de reproducción no cortaba nada — Malena
+            # terminaba la frase igual porque _is_speaking ya era False.
+            malena_audible = self._is_speaking or (
+                self._audio_end_time > 0 and time.monotonic() < self._audio_end_time
+            )
+            if malena_audible:
                 print("[RT] Barge-in — deteniendo audio")
-                self._barge_in_active = True
+                # Solo marcamos barge-in "activo" (bloquea deltas y espera un
+                # response.cancelled) si hay una respuesta viva para cancelar. Si Malena ya
+                # terminó de generar y solo quedaba la cola de reproducción, no llega ningún
+                # evento de cancelación y dejar el flag en True congelaría el audio futuro.
+                if self._response_active:
+                    self._barge_in_active = True
+                # El usuario interrumpió: hay algo que dijo que todavía no se contestó. Hasta
+                # que Malena hable de nuevo, no puede saltar a una tool del guion (lo bloquea
+                # el guard en function_call_arguments.done).
+                self._user_needs_reply = True
+                # "El usuario tiene la palabra": frena la marcha de la demo hasta que la
+                # consulta se resuelva y haya un silencio real (ver _auto_continue).
+                self._exchange_active = True
+                # Descartar cualquier auto-continue diferido: el usuario quiere hablar, no
+                # que la demo le pase por encima cuando termine la respuesta activa.
+                if self._pending_response_reason == "auto-continue":
+                    self._pending_response_reason = None
+                self._is_speaking = False
+                self._audio_end_time = time.monotonic()  # ya no suena nada
                 await self._send_stop_audio()
                 # Cancelar fallback timer y señalizar done — audio fue cortado
                 if self._audio_done_fallback_handle:
@@ -540,6 +572,32 @@ class RealtimeBridge:
             args_str = event.get("arguments", "{}")
             name     = self._pending_calls.pop(call_id, "")
             if name:
+                if not self._response_has_audio and self._user_needs_reply:
+                    # PATRÓN DEL BUG "no me da bola": el usuario habló/interrumpió y el modelo,
+                    # en vez de contestarle, saltó directo a una tool del guion sin decir nada.
+                    # Posponemos la tool: le devolvemos al modelo un function_call_output que le
+                    # ordena atender primero al usuario, y pedimos una respuesta nueva. La tool
+                    # se retoma cuando el modelo la vuelva a llamar después de contestar.
+                    print(f"[RT] ⛔ Tool '{name}' pospuesta — el usuario habló y todavía no le contestaste")
+                    self._user_needs_reply = False
+                    self._mute_until = time.monotonic()  # sin mute: queremos escuchar al usuario
+                    try:
+                        await ws.send(json.dumps({
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": (
+                                    "NO EJECUTADO. El usuario te interrumpió o te dijo algo que "
+                                    "todavía no contestaste. Primero respondé o atendé lo que te dijo, "
+                                    "hablando, SIN llamar ninguna tool. Cuando lo resuelvas, retomás este paso."
+                                ),
+                            },
+                        }))
+                        await self._request_response(ws, "atender usuario tras interrupción")
+                    except Exception as e:
+                        print(f"[RT] Error posponiendo tool: {e}")
+                    return
                 if not self._response_has_audio:
                     # El modelo llamó la tool sin decir antes la frase del paso en esta
                     # misma respuesta (incumple el protocolo del prompt). No hay forma de
@@ -569,6 +627,11 @@ class RealtimeBridge:
             transcript = event.get("transcript", "")
             if transcript and not _is_prompt_echo(transcript):
                 print(f"[RT] 🎤 Usuario: '{transcript}'")
+                # El usuario dijo algo real (aunque no haya interrumpido audio): hasta que
+                # Malena le conteste, no puede avanzar el guion con una tool muda, y la demo
+                # entra en pausa (no auto-continuar por encima suyo).
+                self._user_needs_reply = True
+                self._exchange_active = True
 
         elif etype == "response.done":
             status = event.get("response", {}).get("status", "")
@@ -696,7 +759,14 @@ class RealtimeBridge:
         auto-continue en el medio. Insertar un mensaje system corto antes le da un
         turno real al que reaccionar en vez de depender de que actúe sobre silencio.
         """
-        if self._nudge_pending:
+        # Si el usuario está en medio de una consulta / acaba de interrumpir, NO pisamos:
+        # esperamos un silencio largo antes de retomar la demo. Mientras tanto, si el
+        # usuario habla, speech_started cancela esta tarea y la conversación sigue por
+        # turnos normales (pregunta → respuesta). Solo retomamos si aguanta el silencio.
+        was_exchange = self._exchange_active
+        if was_exchange:
+            delay = 8.0
+        elif self._nudge_pending:
             # Backoff exponencial: 3s → 5.5s → 8s (tope) por cada respuesta vacía
             # consecutiva tras el nudge, para no spamear la API con response.create.
             delay = min(3.0 + 2.5 * max(self._auto_continue_empty_count - 1, 0), 8.0)
@@ -708,6 +778,8 @@ class RealtimeBridge:
             await asyncio.sleep(delay)
             await self._wait_for_audio_done(timeout=15.0)
             if self._ws:
+                # Sobrevivimos el silencio: la consulta terminó, retomamos la demo.
+                self._exchange_active = False
                 print("[RT] Auto-continue: disparando siguiente respuesta...")
                 # Si ya hay un nudge sin responder (la respuesta anterior volvió vacía),
                 # no apilar otro idéntico — eso entierra cualquier turno real del usuario
@@ -716,6 +788,15 @@ class RealtimeBridge:
                 # respuesta sobre el nudge que ya está en la conversación.
                 if not self._nudge_pending:
                     self._nudge_pending = True
+                    # Tras una consulta, el nudge le recuerda retomar donde dejó sin repetir;
+                    # en marcha normal, simplemente avanza al paso siguiente.
+                    nudge_text = (
+                        "El cliente ya terminó su consulta. Retomá la explicación donde la "
+                        "dejaste antes de la interrupción, sin repetir lo que ya dijiste, y "
+                        "seguí con el protocolo."
+                        if was_exchange else
+                        "Continuá con el siguiente paso del protocolo, ahora."
+                    )
                     try:
                         await self._ws.send(json.dumps({
                             "type": "conversation.item.create",
@@ -724,7 +805,7 @@ class RealtimeBridge:
                                 "role": "system",
                                 "content": [{
                                     "type": "input_text",
-                                    "text": "Continuá con el siguiente paso del protocolo, ahora.",
+                                    "text": nudge_text,
                                 }],
                             },
                         }))
@@ -1114,6 +1195,10 @@ class RealtimeBridge:
                 await self._ensure_playwright()
                 await self._wait_for_audio_done(timeout=20.0)
                 self._demo_started = True
+                # Igual que caja_mayor_navegar/config_navegar: fijamos la vista base del
+                # iframe en caja.php. Sin esto el iframe quedaba en /home.php (de _send_logged_in)
+                # y solo dependíamos del overlay de screenshot para mostrar la apertura.
+                await self._send_navigate(DEMO_MODULE_PATHS.get("CAJA", "/caja.php"))
                 result = await self._caja_ir_a_apertura() if self._caja_ir_a_apertura else "Formulario de apertura visible."
 
             elif name == "caja_abrir_turno":
