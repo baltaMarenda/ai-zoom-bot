@@ -300,6 +300,7 @@ class RealtimeBridge:
         self._audio_end_time        = 0.0      # monotonic ts estimado de fin de reproducción del audio actual
         self._user_needs_reply      = False    # True cuando el usuario habló/interrumpió y todavía no se le contestó
         self._exchange_active       = False    # True mientras el usuario está consultando/interrumpiendo; frena la marcha del auto-continue
+        self._silent_tool_retries   = 0        # postpones consecutivos de tools "sin audio previo" (evita cascada muda)
 
     # ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -434,6 +435,8 @@ class RealtimeBridge:
                 # Malena arrancó a hablar en una respuesta real (no cancelada por barge-in):
                 # está atendiendo al usuario, así que el turno pendiente queda saldado.
                 self._user_needs_reply = False
+                # Narró algo: se resetea el presupuesto de reintentos anti-cascada muda.
+                self._silent_tool_retries = 0
                 # Acumular bytes para calcular duración (base64 → aprox bytes PCM)
                 self._audio_bytes_this_response += len(delta) * 3 // 4
                 await self._send_to_agent({
@@ -600,9 +603,39 @@ class RealtimeBridge:
                     return
                 if not self._response_has_audio:
                     # El modelo llamó la tool sin decir antes la frase del paso en esta
-                    # misma respuesta (incumple el protocolo del prompt). No hay forma de
-                    # recuperar el audio que faltó — solo lo dejamos visible en el log.
-                    print(f"[RT] ⚠️  Tool '{name}' llamada sin audio previo en esta respuesta")
+                    # misma respuesta (incumple el protocolo del prompt). Si lo dejamos
+                    # correr, cada tool_result dispara otro response.create que vuelve a
+                    # ser tool-only → cascada muda: la demo "hace las cosas" sin hablar.
+                    # En vez de ejecutar en silencio, POSPONEMOS la tool y le pedimos al
+                    # modelo que narre primero, en el mismo turno. Con un presupuesto
+                    # acotado de reintentos para no trabar la demo si el modelo se niega.
+                    _MAX_SILENT_RETRIES = 2
+                    if self._silent_tool_retries < _MAX_SILENT_RETRIES:
+                        self._silent_tool_retries += 1
+                        print(f"[RT] 🔇 Tool '{name}' sin audio previo — pospuesta, pidiendo narración "
+                              f"(reintento {self._silent_tool_retries}/{_MAX_SILENT_RETRIES})")
+                        try:
+                            await ws.send(json.dumps({
+                                "type": "conversation.item.create",
+                                "item": {
+                                    "type": "function_call_output",
+                                    "call_id": call_id,
+                                    "output": (
+                                        "NO EJECUTADO. Estás llamando la tool en silencio, sin decir "
+                                        "nada en voz alta. Primero decí en voz alta, en ESTE mismo turno, "
+                                        "la frase/explicación del paso, y RECIÉN DESPUÉS volvé a llamar "
+                                        "la tool. Nunca ejecutes un paso sin narrarlo."
+                                    ),
+                                },
+                            }))
+                            await self._request_response(ws, "narrar antes de tool")
+                        except Exception as e:
+                            print(f"[RT] Error posponiendo tool muda: {e}")
+                        return
+                    # Agotado el presupuesto: el modelo insiste en no narrar. Ejecutamos
+                    # igual para no dejar la demo trabada, y reseteamos el contador.
+                    print(f"[RT] ⚠️  Tool '{name}' sin audio previo tras {_MAX_SILENT_RETRIES} reintentos — ejecutando igual")
+                    self._silent_tool_retries = 0
                 # Mute audio while tool runs so VAD can't commit mid-execution speech
                 self._mute_until = time.monotonic() + 60.0
                 # No limpiar si hay un turno de usuario abierto — el audio real
