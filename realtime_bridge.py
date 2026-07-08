@@ -300,7 +300,7 @@ class RealtimeBridge:
         self._audio_end_time        = 0.0      # monotonic ts estimado de fin de reproducción del audio actual
         self._user_needs_reply      = False    # True cuando el usuario habló/interrumpió y todavía no se le contestó
         self._exchange_active       = False    # True mientras el usuario está consultando/interrumpiendo; frena la marcha del auto-continue
-        self._silent_tool_retries   = 0        # postpones consecutivos de tools "sin audio previo" (evita cascada muda)
+        self._silent_tool_streak    = 0        # tools ejecutadas/pospuestas sin narrar nada desde la última narración (evita cascada muda)
 
     # ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -435,8 +435,8 @@ class RealtimeBridge:
                 # Malena arrancó a hablar en una respuesta real (no cancelada por barge-in):
                 # está atendiendo al usuario, así que el turno pendiente queda saldado.
                 self._user_needs_reply = False
-                # Narró algo: se resetea el presupuesto de reintentos anti-cascada muda.
-                self._silent_tool_retries = 0
+                # Narró algo: se resetea la racha de tools mudas anti-cascada.
+                self._silent_tool_streak = 0
                 # Acumular bytes para calcular duración (base64 → aprox bytes PCM)
                 self._audio_bytes_this_response += len(delta) * 3 // 4
                 await self._send_to_agent({
@@ -602,18 +602,34 @@ class RealtimeBridge:
                         print(f"[RT] Error posponiendo tool: {e}")
                     return
                 if not self._response_has_audio:
-                    # El modelo llamó la tool sin decir antes la frase del paso en esta
-                    # misma respuesta (incumple el protocolo del prompt). Si lo dejamos
-                    # correr, cada tool_result dispara otro response.create que vuelve a
-                    # ser tool-only → cascada muda: la demo "hace las cosas" sin hablar.
-                    # En vez de ejecutar en silencio, POSPONEMOS la tool y le pedimos al
-                    # modelo que narre primero, en el mismo turno. Con un presupuesto
-                    # acotado de reintentos para no trabar la demo si el modelo se niega.
-                    _MAX_SILENT_RETRIES = 2
-                    if self._silent_tool_retries < _MAX_SILENT_RETRIES:
-                        self._silent_tool_retries += 1
-                        print(f"[RT] 🔇 Tool '{name}' sin audio previo — pospuesta, pidiendo narración "
-                              f"(reintento {self._silent_tool_retries}/{_MAX_SILENT_RETRIES})")
+                    # La tool viene en una respuesta sin audio. Hay dos casos MUY distintos:
+                    #
+                    #  (a) El modelo narró el paso en la respuesta ANTERIOR y ahora, en un
+                    #      turno aparte, dispara la tool sola. Es aceptable: el cliente ya
+                    #      escuchó la explicación, la acción simplemente ocurre después.
+                    #      Dejamos pasar UNA tool muda por narración.
+                    #
+                    #  (b) Cascada muda: varias tools seguidas, cada una en su respuesta,
+                    #      SIN narrar nada entre medio — la demo "hace las cosas" en
+                    #      silencio saltando pantallas (el bug del módulo 1). Eso lo
+                    #      frenamos: posponemos la 2da tool muda consecutiva y le pedimos
+                    #      al modelo que narre antes de seguir.
+                    #
+                    # _silent_tool_streak cuenta tools mudas desde la última narración; se
+                    # resetea a 0 en cuanto llega audio (response.audio.delta).
+                    _MAX_SILENT_STREAK = 3   # tras posponer 2 veces sin lograr narración, ejecutar igual para no trabar
+                    if self._silent_tool_streak == 0:
+                        # Primera muda desde la última narración → la narración previa la
+                        # cubrió. Dejar pasar y contar.
+                        self._silent_tool_streak = 1
+                    elif self._silent_tool_streak < _MAX_SILENT_STREAK:
+                        # 2da+ muda seguida sin narrar nada en el medio → cascada. Posponer.
+                        self._silent_tool_streak += 1
+                        print(f"[RT] 🔇 Cascada muda: tool '{name}' sin narración previa — pospuesta, "
+                              f"pidiendo narración (racha {self._silent_tool_streak}/{_MAX_SILENT_STREAK})")
+                        # No dejar auto-continue apilando otro response.create encima del que
+                        # vamos a pedir — sería más ruido de conflicto sin sentido.
+                        self._cancel_auto_continue()
                         try:
                             await ws.send(json.dumps({
                                 "type": "conversation.item.create",
@@ -621,10 +637,10 @@ class RealtimeBridge:
                                     "type": "function_call_output",
                                     "call_id": call_id,
                                     "output": (
-                                        "NO EJECUTADO. Estás llamando la tool en silencio, sin decir "
-                                        "nada en voz alta. Primero decí en voz alta, en ESTE mismo turno, "
-                                        "la frase/explicación del paso, y RECIÉN DESPUÉS volvé a llamar "
-                                        "la tool. Nunca ejecutes un paso sin narrarlo."
+                                        "NO EJECUTADO. Venís ejecutando pasos en silencio, sin explicar "
+                                        "nada en voz alta. ANTES de volver a llamar esta tool, decí en voz "
+                                        "alta la explicación de este paso. Recién cuando la hayas dicho, "
+                                        "volvé a llamar la tool. Un paso por vez, siempre narrado."
                                     ),
                                 },
                             }))
@@ -632,10 +648,11 @@ class RealtimeBridge:
                         except Exception as e:
                             print(f"[RT] Error posponiendo tool muda: {e}")
                         return
-                    # Agotado el presupuesto: el modelo insiste en no narrar. Ejecutamos
-                    # igual para no dejar la demo trabada, y reseteamos el contador.
-                    print(f"[RT] ⚠️  Tool '{name}' sin audio previo tras {_MAX_SILENT_RETRIES} reintentos — ejecutando igual")
-                    self._silent_tool_retries = 0
+                    else:
+                        # El modelo insiste en no narrar tras varios postpones. Ejecutamos
+                        # igual para no trabar la demo y reseteamos la racha.
+                        print(f"[RT] ⚠️  Tool '{name}' sin narración tras {_MAX_SILENT_STREAK} intentos — ejecutando igual")
+                        self._silent_tool_streak = 0
                 # Mute audio while tool runs so VAD can't commit mid-execution speech
                 self._mute_until = time.monotonic() + 60.0
                 # No limpiar si hay un turno de usuario abierto — el audio real
