@@ -93,6 +93,7 @@ class RealtimeBridge:
         send_logged_in,      # async fn()
         send_stop_audio,     # async fn()
         run_acceso_demo,     # async fn() → bool
+        silent_login,        # async fn() → bool  (login silencioso sin demo)
         run_caja_fase1,      # async fn() → bool  (legacy, por si acaso)
         run_caja_fase2,      # async fn() → bool  (legacy, por si acaso)
         caja_step_buscar,    # async fn(product_name: str) → str
@@ -120,6 +121,7 @@ class RealtimeBridge:
         balanza_ir_a_caja           = None,   # async fn() → str
         balanza_abrir_cf            = None,   # async fn() → str
         balanza_cobrar_ticket       = None,   # async fn() → str
+        proveedores_ver_lista            = None,   # async fn() → str
         proveedores_abrir_historial      = None,   # async fn() → str
         proveedores_abrir_modal_compra   = None,   # async fn() → str
         proveedores_registrar_compra     = None,   # async fn() → str
@@ -186,6 +188,7 @@ class RealtimeBridge:
         self._send_logged_in     = send_logged_in
         self._send_stop_audio    = send_stop_audio
         self._run_acceso_demo    = run_acceso_demo
+        self._silent_login       = silent_login
         self._run_caja_fase1     = run_caja_fase1
         self._run_caja_fase2     = run_caja_fase2
         self._caja_step_buscar   = caja_step_buscar
@@ -215,6 +218,7 @@ class RealtimeBridge:
         self._balanza_ir_a_caja          = balanza_ir_a_caja
         self._balanza_abrir_cf           = balanza_abrir_cf
         self._balanza_cobrar_ticket      = balanza_cobrar_ticket
+        self._proveedores_ver_lista          = proveedores_ver_lista
         self._proveedores_abrir_historial    = proveedores_abrir_historial
         self._proveedores_abrir_modal_compra = proveedores_abrir_modal_compra
         self._proveedores_registrar_compra   = proveedores_registrar_compra
@@ -1059,10 +1063,15 @@ class RealtimeBridge:
                 result = await self._balanza_cobrar_ticket() if self._balanza_cobrar_ticket else "Ticket cobrado."
                 await self._on_screenshot_end()
 
-            elif name == "proveedores_abrir_historial":
-                print("[DEMO] Proveedores: abriendo historial del proveedor...")
+            elif name == "proveedores_ver_lista":
+                print("[DEMO] Proveedores: mostrando lista de proveedores...")
                 await self._do_navigate("PROVEEDORES")
                 await self._ensure_playwright()
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._proveedores_ver_lista() if self._proveedores_ver_lista else "Lista de proveedores visible."
+
+            elif name == "proveedores_abrir_historial":
+                print("[DEMO] Proveedores: abriendo historial del proveedor (click Editar)...")
                 await self._wait_for_audio_done(timeout=20.0)
                 result = await self._proveedores_abrir_historial() if self._proveedores_abrir_historial else "Historial abierto."
 
@@ -1455,7 +1464,7 @@ class RealtimeBridge:
         await self._send_navigate(path)
 
         if module == "ACCESO":
-            await self._ensure_playwright()
+            await self._ensure_playwright(silent_login=False)
             asyncio.create_task(self._run_acceso_with_signal())
 
         return (
@@ -1476,7 +1485,7 @@ class RealtimeBridge:
 
     # ── Playwright lifecycle ───────────────────────────────────────────────────
 
-    async def _ensure_playwright(self):
+    async def _ensure_playwright(self, silent_login: bool = True):
         if self._pw_started:
             return
         self._pw_started = True
@@ -1486,6 +1495,12 @@ class RealtimeBridge:
         try:
             await self._pw_start()
             await self._send_logged_in()
+            # Si el usuario pidió una sección directa sin pasar por ACCESO,
+            # logueamos silenciosamente para que la navegación no quede trabada
+            # en la pantalla de login. Con silent_login=False (flujo ACCESO) el
+            # login lo hace la demo visible de acceso.
+            if silent_login and self._silent_login and not self._acceso_login_done.is_set():
+                await self._silent_login()
         except Exception as e:
             print(f"[RT] Error iniciando Playwright: {e}")
             self._pw_started = False
