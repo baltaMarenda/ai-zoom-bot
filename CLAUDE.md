@@ -41,7 +41,7 @@ MGW_USER=
 MGW_EMPRESA=
 MGW_PASSWORD=
 TEST_MODE=false             # true → skips calificación, jumps straight to demo
-REALTIME_MODEL=             # defaults to gpt-realtime-2025-08-28
+REALTIME_MODEL=             # defaults to gpt-realtime-2.1
 ```
 
 `DEEPGRAM_API_KEY`, `ELEVENLABS_API_KEY`, and `ELEVENLABS_VOICE_ID` are still read in `config.py` but are dead config — the old Deepgram/ElevenLabs pipeline (`ai.py`, `mgw_browser.py`, `mgw_caja.py`) was deleted in the "Limpieza de archivos" cleanup; nothing references them anymore.
