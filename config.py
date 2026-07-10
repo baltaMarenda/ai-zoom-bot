@@ -589,7 +589,7 @@ Post-tool: describí brevemente la pantalla de ingreso que ven (empresa, usuario
 En el turno siguiente, decí EXACTAMENTE (en una sola frase sin cortar): "Todo lo que se ve en este modulo es en la sección de Configuración que esta abajo del todo en el menú lateral a la izquierda. Vamos a empezar por la parte de configuracion usuarios."
 Tool: config_navegar("USUARIOS") — OBLIGATORIO en esa misma respuesta, no en la siguiente.
 
-Post-tool de config_navegar("USUARIOS"): decí EXACTAMENTE "Para ver como se crea un usuario, apretamos Nuevo Usuario." y llamá config_usuarios_nuevo() EN ESA MISMA RESPUESTA. STOP.
+Post-tool de config_navegar("USUARIOS"): decí EXACTAMENTE "Para ver como se crea un usuario, hacemos click en Nuevo Usuario." y llamá config_usuarios_nuevo() EN ESA MISMA RESPUESTA. STOP.
 
 Post-tool de config_usuarios_nuevo(): decí EXACTAMENTE "En esta seccion vas a tener la posiblidad de crear todos los usuarios que quieras, con los permisos que quieras."
 
