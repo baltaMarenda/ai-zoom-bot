@@ -4579,32 +4579,48 @@ async def caja_ir_a_apertura(on_screenshot=None) -> str:
         if not ok:
             return "Error: no se pudo hacer login en MGW."
 
-    print("[PW] [CAJA2] Navegando a caja.php para mostrar formulario de apertura...")
+    # El formulario de APERTURA (caja cerrada) y el arqueo de CIERRE FORZADO (caja
+    # abierta de un día anterior) comparten el mismo campo #importe_arqueo_nuevo en
+    # caja.php, así que su sola presencia NO alcanza para distinguirlos. Si confirmamos
+    # el arqueo sobre el form de apertura, en realidad ABRIMOS la caja — y después
+    # Malena narra "acá está la apertura" con la caja ya abierta en pantalla (bug).
+    # Por eso primero determinamos el estado real con una señal confiable: el botón
+    # #boton_cerrar_caja en caja_cierre.php, que solo aparece si la caja está abierta.
+    print("[PW] [CAJA2] Verificando estado de la caja en caja_cierre.php...")
+    await _page.goto(f"{base}/caja_cierre.php", wait_until="domcontentloaded", timeout=20000)
+    await asyncio.sleep(1.0)
+    cerrar_btn = _page.locator("#boton_cerrar_caja").first
+    caja_abierta = await cerrar_btn.count() > 0 and await cerrar_btn.is_visible()
+
+    print("[PW] [CAJA2] Navegando a caja.php...")
     await _page.goto(f"{base}/caja.php", wait_until="domcontentloaded", timeout=20000)
     await asyncio.sleep(1.5)
-
-    # Escenario 1: cartel de cierre forzado visible en caja.php
     arqueo_input = _page.locator("#importe_arqueo_nuevo").first
-    if await arqueo_input.count() > 0 and await arqueo_input.is_visible():
-        print("[PW] [CAJA2] Escenario 1: cartel de cierre forzado — cerrando silenciosamente...")
-        await _arqueo_confirmar(monto=1000000)
+    arqueo_visible = await arqueo_input.count() > 0 and await arqueo_input.is_visible()
+
+    if caja_abierta:
+        # La caja está abierta: hay que cerrarla en silencio para dejar el form de apertura.
+        if arqueo_visible:
+            # Cierre forzado: la propia caja.php pide el arqueo de cierre.
+            print("[PW] [CAJA2] Caja abierta con cierre forzado — cerrando silenciosamente...")
+            await _arqueo_confirmar(monto=1000000)
+        else:
+            # Turno normal abierto: se cierra desde caja_cierre.php.
+            print("[PW] [CAJA2] Caja abierta (turno normal) — cerrando silenciosamente...")
+            await _page.goto(f"{base}/caja_cierre.php", wait_until="domcontentloaded", timeout=20000)
+            await asyncio.sleep(1.0)
+            cerrar_btn = _page.locator("#boton_cerrar_caja").first
+            if await cerrar_btn.count() > 0 and await cerrar_btn.is_visible():
+                await cerrar_btn.click()
+                await asyncio.sleep(1.5)
+                await _arqueo_confirmar(monto=1000000)
+        # Recargar caja.php para mostrar el form de apertura limpio.
         await _page.goto(f"{base}/caja.php", wait_until="domcontentloaded", timeout=20000)
         await asyncio.sleep(1.5)
     else:
-        # Escenario 2: sin cartel, verificar si la caja sigue abierta
-        print("[PW] [CAJA2] Verificando caja_cierre.php...")
-        await _page.goto(f"{base}/caja_cierre.php", wait_until="domcontentloaded", timeout=20000)
-        await asyncio.sleep(1.0)
-        cierre_btn = _page.locator("#boton_cerrar_caja").first
-        if await cierre_btn.count() > 0 and await cierre_btn.is_visible():
-            print("[PW] [CAJA2] Escenario 2: caja abierta — haciendo cierre silencioso...")
-            await cierre_btn.click()
-            await asyncio.sleep(1.5)
-            await _arqueo_confirmar(monto=1000000)
-        else:
-            print("[PW] [CAJA2] Escenario 3: caja ya cerrada — nada que resolver")
-        await _page.goto(f"{base}/caja.php", wait_until="domcontentloaded", timeout=20000)
-        await asyncio.sleep(1.5)
+        # Caja cerrada: caja.php ya muestra el form de apertura. NO confirmamos nada
+        # (confirmarlo abriría la caja). Lo dejamos tal cual para que Malena lo narre.
+        print("[PW] [CAJA2] Caja cerrada — form de apertura visible, sin cambios.")
 
     # Screenshot del formulario vacío de apertura (ANTES de llenarlo)
     if on_screenshot:

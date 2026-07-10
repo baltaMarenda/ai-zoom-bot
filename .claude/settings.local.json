@@ -28,7 +28,13 @@
       "Bash(railway whoami *)",
       "Bash(echo \"exit:$?\")",
       "Bash(git push *)",
-      "Bash(xargs -n1 git branch -D)"
+      "Bash(xargs -n1 git branch -D)",
+      "Bash(git fetch *)",
+      "Bash(git rev-list *)",
+      "Bash(git checkout *)",
+      "Bash(git pull *)",
+      "Bash(git merge *)",
+      "Bash(grep -E \"^[a-f0-9]{7,}|REALTIME_MODEL|gpt-realtime|^commit|^\\\\+.*model|^-.*model\")"
     ]
   }
 }

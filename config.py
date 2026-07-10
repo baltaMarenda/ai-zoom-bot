@@ -284,7 +284,7 @@ CONFIG_MODULE_PATHS: dict[str, str] = {
 }
 
 # ─── Realtime API (OpenAI) ────────────────────────────────────────────────────
-OPENAI_REALTIME_MODEL = os.getenv("REALTIME_MODEL", "gpt-realtime-2.1")
+OPENAI_REALTIME_MODEL = os.getenv("REALTIME_MODEL", "gpt-realtime-2025-08-28")
 OPENAI_REALTIME_URL   = f"wss://api.openai.com/v1/realtime?model={OPENAI_REALTIME_MODEL}"
 
 REALTIME_SYSTEM_PROMPT = """
