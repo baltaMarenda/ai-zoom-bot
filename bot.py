@@ -12,7 +12,7 @@ import traceback
 from config import DEMO_MODULE_PATHS
 from mgw_session import mgw_login
 from mgw_playwright import (
-    pw_start, pw_stop,
+    pw_start, pw_stop, pw_login,
     demo_acceso_login,
     demo_caja_fase1_agregar, demo_caja_fase2_pagar,
     caja_step_buscar, caja_step_agregar,
@@ -23,7 +23,7 @@ from mgw_playwright import (
     balanza_step_navegar, balanza_step_agregar_producto,
     balanza_step_mostrar_tickets, balanza_step_ir_a_caja,
     balanza_step_abrir_cf, balanza_step_cobrar_ticket,
-    proveedores_abrir_historial, proveedores_abrir_modal_compra,
+    proveedores_ver_lista, proveedores_abrir_historial, proveedores_abrir_modal_compra,
     proveedores_registrar_compra, proveedores_abrir_carrito,
     proveedores_cargar_producto, proveedores_finalizar_detalle,
     proveedores_registrar_pago,
@@ -175,6 +175,26 @@ async def _run_acceso_demo() -> bool:
     return ok
 
 
+async def _silent_login() -> bool:
+    """
+    Login silencioso de Playwright — sin mostrar el formulario ni screenshots.
+    Se usa cuando el usuario pide ir directo a una sección sin pasar por ACCESO,
+    para que la navegación no quede trabada en la pantalla de login.
+    """
+    print("[LOGIN] Login silencioso de Playwright...")
+    ok = await pw_login()
+    print(f"[LOGIN] Login silencioso {'✓' if ok else '✗'}")
+    if ok:
+        # Igual que en _run_acceso_demo: el login de Playwright invalida la sesión
+        # del proxy del lado de MGW, así que la re-logueamos para que /mgw-proxy
+        # quede con cookies válidas.
+        loop = asyncio.get_event_loop()
+        relogged = await loop.run_in_executor(None, mgw_login)
+        print(f"[LOGIN] Re-login de sesión del proxy {'✓' if relogged else '✗'}")
+    _acceso_login_done.set()
+    return ok
+
+
 async def _run_caja_fase1_inner() -> bool:
     if not _acceso_login_done.is_set():
         print("[CAJA] Esperando login de ACCESO...")
@@ -277,6 +297,9 @@ async def _balanza_step_abrir_cf() -> str:
 
 async def _balanza_step_cobrar_ticket() -> str:
     return await balanza_step_cobrar_ticket(on_screenshot=_on_screenshot)
+
+async def _proveedores_ver_lista() -> str:
+    return await proveedores_ver_lista(on_screenshot=_on_screenshot)
 
 async def _proveedores_abrir_historial() -> str:
     return await proveedores_abrir_historial(on_screenshot=_on_screenshot)
@@ -501,6 +524,7 @@ async def handle_recall_audio(websocket):
         send_logged_in         = _send_logged_in,
         send_stop_audio        = _send_stop_audio,
         run_acceso_demo        = _run_acceso_demo,
+        silent_login           = _silent_login,
         run_caja_fase1         = _run_caja_fase1_inner,
         run_caja_fase2         = _run_caja_fase2_con_prerequisito,
         caja_step_buscar       = _caja_step_buscar,
@@ -528,6 +552,7 @@ async def handle_recall_audio(websocket):
         balanza_ir_a_caja           = _balanza_step_ir_a_caja,
         balanza_abrir_cf            = _balanza_step_abrir_cf,
         balanza_cobrar_ticket       = _balanza_step_cobrar_ticket,
+        proveedores_ver_lista            = _proveedores_ver_lista,
         proveedores_abrir_historial      = _proveedores_abrir_historial,
         proveedores_abrir_modal_compra   = _proveedores_abrir_modal_compra,
         proveedores_registrar_compra     = _proveedores_registrar_compra,

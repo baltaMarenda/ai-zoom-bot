@@ -65,6 +65,11 @@ REGLAS IMPORTANTES:
 - No inventes funcionalidades que no existen
 - Siempre guiá como si fuera una demo real, no solo respondas preguntas
 - Si te preguntan algo que no sabés, decí que lo consulta Juan Cruz
+
+DATOS CORRECTOS — RESPUESTAS A PREGUNTAS FRECUENTES (NO te equivoques en esto):
+- Campo "mail" en Configuración → Usuarios: es SOLO un dato de contacto informativo del usuario. NO sirve para notificaciones NI para recuperar la contraseña, NO dispara ninguna acción del sistema. Si te preguntan para qué sirve, decí que es solo un dato de contacto.
+- Precios / listas de precios: los precios NO se pueden IMPORTAR desde Excel. Solo se pueden EXPORTAR a Excel. Si te preguntan si se pueden importar precios desde Excel, la respuesta es NO (aclará que sí se pueden exportar). (Ojo: esto es distinto de PRODUCTOS y CLIENTES, que sí se pueden importar desde Excel.)
+- Pago con dos medios de pago a la vez (pago combinado): por el momento NO está la opción de registrar una venta con dos formas de pago combinadas. NO inventes que se puede poner una forma y después agregar otra. Respondé algo como: "Por el momento no está, pero quedate tranquilo que eso no afecta al cierre de caja. Si querés hacer eso tenés dos opciones: o agregás una forma de pago que se llame 'Combinada' y en el comentario aclarás cómo pagó el cliente, o ponés la forma de pago con la que más abonó el cliente y en el comentario dejás el resto."
 """
 
 SYSTEM_PROMPT_INTRO = SYSTEM_PROMPT_BASE + """
@@ -413,9 +418,12 @@ FLUJO DE LA CONVERSACIÓN:
    Post-tool: decí EXACTAMENTE (sin agregar ni quitar nada):
      "vamos a ver los movimientos del cliente, ingresarle pagos, agregarle notas de debito o de crédito o reasignarle una venta. También podemos imprimir los movimientos y los pagos con los botones naranjas o compartir por WhatsApp o mail los movimientos"
 
-   MÓDULO 7 — PROVEEDORES (7 pasos atómicos, EN ORDEN, sin saltear ninguno)
+   MÓDULO 7 — PROVEEDORES (8 pasos atómicos, EN ORDEN, sin saltear ninguno)
    Anuncio (decí EXACTAMENTE esto, sin agregar ni quitar nada, ANTES de llamar cualquier tool):
-     "Aca tenemos la sección proveedores, en esta nosotros vamos a tener cargados los proveedores asi se hace mas fácil al momento de comprar mercadería. Esta sección se encuentra completamente integrada con el stock de nuestro negocio, entonces cada vez que nosotros hagamos una compra el stock se va a actualizar automáticamente. Para cargarle una compra a un proveedor que tenemos cargado lo hacemos apretando en el boton editar a la derecha del proveedor"
+     "Aca tenemos la sección proveedores, en esta nosotros vamos a tener cargados los proveedores asi se hace mas fácil al momento de comprar mercadería. Esta sección se encuentra completamente integrada con el stock de nuestro negocio, entonces cada vez que nosotros hagamos una compra el stock se va a actualizar automáticamente"
+   Tool: proveedores_ver_lista()
+   Post-tool: decí EXACTAMENTE (sin agregar ni quitar nada):
+     "Para cargarle una compra a un proveedor que tenemos cargado lo hacemos apretando en el boton editar a la derecha del proveedor"
    Tool: proveedores_abrir_historial()
    Post-tool: decí EXACTAMENTE (sin agregar ni quitar nada):
      "Aca vamos a ver todas las compras que nosotros le hicimos al proveedor. Tambien podemos hacer pagos a proveedores, cargar notas de debito, de crédito y hacer una nueva compra, que es lo que vamos a hacer ahora."
@@ -566,7 +574,7 @@ Cuando el cliente pide una sección específica, NO hacés el intro/login ni las
   - Club ...................................... config_navegar("CLUB")
   - Impuestos ................................. config_navegar("IMPUESTOS")
   - Clientes .................................. demo_clientes()
-  - Proveedores ............................... proveedores_abrir_historial()
+  - Proveedores ............................... proveedores_ver_lista()
   Módulo 2 — Caja y Caja Mayor:
   - Apertura de caja .......................... caja_ir_a_apertura()
   - Venta en caja ............................. navigate_to_module("CAJA")
@@ -738,9 +746,11 @@ Tool: clientes_ver_detalle()
 Post-tool, decí EXACTAMENTE: "vamos a ver los movimientos del cliente, ingresarle pagos, agregarle notas de debito o de crédito o reasignarle una venta. También podemos imprimir los movimientos y los pagos con los botones naranjas o compartir por WhatsApp o mail los movimientos"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SECCIÓN PROVEEDORES (7 pasos atómicos, EN ORDEN, sin saltear ninguno)
+SECCIÓN PROVEEDORES (8 pasos atómicos, EN ORDEN, sin saltear ninguno)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Decí EXACTAMENTE, antes de llamar cualquier tool: "Aca tenemos la sección proveedores, en esta nosotros vamos a tener cargados los proveedores asi se hace mas fácil al momento de comprar mercadería. Esta sección se encuentra completamente integrada con el stock de nuestro negocio, entonces cada vez que nosotros hagamos una compra el stock se va a actualizar automáticamente. Para cargarle una compra a un proveedor que tenemos cargado lo hacemos apretando en el boton editar a la derecha del proveedor"
+Decí EXACTAMENTE, antes de llamar cualquier tool: "Aca tenemos la sección proveedores, en esta nosotros vamos a tener cargados los proveedores asi se hace mas fácil al momento de comprar mercadería. Esta sección se encuentra completamente integrada con el stock de nuestro negocio, entonces cada vez que nosotros hagamos una compra el stock se va a actualizar automáticamente"
+Tool: proveedores_ver_lista()
+Post-tool, decí EXACTAMENTE: "Para cargarle una compra a un proveedor que tenemos cargado lo hacemos apretando en el boton editar a la derecha del proveedor"
 Tool: proveedores_abrir_historial()
 Post-tool, decí EXACTAMENTE: "Aca vamos a ver todas las compras que nosotros le hicimos al proveedor. Tambien podemos hacer pagos a proveedores, cargar notas de debito, de crédito y hacer una nueva compra, que es lo que vamos a hacer ahora."
 Tool: proveedores_abrir_modal_compra()
@@ -1055,44 +1065,50 @@ REALTIME_TOOLS = [
     },
     {
         "type": "function",
+        "name": "proveedores_ver_lista",
+        "description": "Paso 1/8 de proveedores: navega a la lista de compras y muestra los proveedores cargados (sin clickear Editar todavía).",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
         "name": "proveedores_abrir_historial",
-        "description": "Paso 1/7 de proveedores: navega a la lista de compras y abre el historial del primer proveedor clickeando Editar.",
+        "description": "Paso 2/8 de proveedores: abre el historial del primer proveedor clickeando el botón Editar a su derecha.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
         "type": "function",
         "name": "proveedores_abrir_modal_compra",
-        "description": "Paso 2/7 de proveedores: abre el modal de nueva compra clickeando '+ Compra'.",
+        "description": "Paso 3/8 de proveedores: abre el modal de nueva compra clickeando '+ Compra'.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
         "type": "function",
         "name": "proveedores_registrar_compra",
-        "description": "Paso 3/7 de proveedores: llena numero=1 e importe=100000 en el formulario y finaliza la compra.",
+        "description": "Paso 4/8 de proveedores: llena numero=1 e importe=100000 en el formulario y finaliza la compra.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
         "type": "function",
         "name": "proveedores_abrir_carrito",
-        "description": "Paso 4/7 de proveedores: abre el carrito (detalle) de la compra recién registrada.",
+        "description": "Paso 5/8 de proveedores: abre el carrito (detalle) de la compra recién registrada.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
         "type": "function",
         "name": "proveedores_cargar_producto",
-        "description": "Paso 5/7 de proveedores: ingresa Media res, AR$10.000, 80 kg en el formulario de detalle.",
+        "description": "Paso 6/8 de proveedores: ingresa Media res, AR$10.000, 80 kg en el formulario de detalle.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
         "type": "function",
         "name": "proveedores_finalizar_detalle",
-        "description": "Paso 6/7 de proveedores: finaliza los detalles de la compra para actualizar el stock.",
+        "description": "Paso 7/8 de proveedores: finaliza los detalles de la compra para actualizar el stock.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
         "type": "function",
         "name": "proveedores_registrar_pago",
-        "description": "Paso 7/7 de proveedores: abre el modal de nuevo pago al proveedor clickeando el botón '+ Pago'.",
+        "description": "Paso 8/8 de proveedores: abre el modal de nuevo pago al proveedor clickeando el botón '+ Pago'.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {

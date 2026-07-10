@@ -3220,11 +3220,31 @@ async def balanza_step_cobrar_ticket(on_screenshot=None) -> str:
 
 # ── Steps atómicos — Proveedores (6 pasos) ───────────────────────────────────
 
-async def proveedores_abrir_historial(on_screenshot=None) -> str:
-    """Paso 1/6: navega a compras.php y abre el historial del primer proveedor."""
+async def proveedores_ver_lista(on_screenshot=None) -> str:
+    """Paso 1/8: navega a compras.php y muestra la lista de proveedores (sin clickear Editar)."""
     if _page is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
+
+    async def snap(delay=0.0):
+        await _snap(on_screenshot, delay)
+
+    print("[PW] [PROV] Navegando a compras.php...")
+    await _page.goto(f"{base}/compras.php", wait_until="domcontentloaded", timeout=20000)
+    try:
+        await _page.wait_for_selector('tbody tr td', timeout=12000)
+    except Exception:
+        pass
+    await asyncio.sleep(1.0)
+    await snap()
+    print("[PW] [PROV] proveedores_ver_lista ✓")
+    return "Lista de proveedores visible en pantalla."
+
+
+async def proveedores_abrir_historial(on_screenshot=None) -> str:
+    """Paso 2/8: abre el historial del primer proveedor clickeando Editar (ya en compras.php)."""
+    if _page is None:
+        return "Error: browser no iniciado"
 
     async def snap(delay=0.0):
         await _snap(on_screenshot, delay)
@@ -3240,15 +3260,6 @@ async def proveedores_abrir_historial(on_screenshot=None) -> str:
             except Exception:
                 continue
         return False
-
-    print("[PW] [PROV] Navegando a compras.php...")
-    await _page.goto(f"{base}/compras.php", wait_until="domcontentloaded", timeout=20000)
-    try:
-        await _page.wait_for_selector('tbody tr td', timeout=12000)
-    except Exception:
-        pass
-    await asyncio.sleep(1.0)
-    await snap()
 
     clicked = await click_first([
         'tbody tr:first-child [data-original-title="Editar"]',
