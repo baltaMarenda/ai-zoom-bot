@@ -15,14 +15,22 @@ playwright install chromium --with-deps
 # Run locally (port 8000)
 python main.py
 
-# Create a bot in a meeting
+# Create a bot in a meeting (multi-tenant: module/field/user_name)
 curl -X POST http://localhost:8000/bot/create \
   -H "Content-Type: application/json" \
-  -d '{"meeting_url": "https://meet.google.com/xxx-yyyy-zzz"}'
+  -d '{"meeting_url": "https://meet.google.com/xxx-yyyy-zzz", "module": "modulo_2", "field": "", "user_name": "Juan"}'
+
+# Admin (debug de varias sesiones simultáneas)
+curl http://localhost:8000/sessions          # lista de sesiones activas
+curl http://localhost:8000/sessions/<sid>     # detalle de una sesión
+curl -X DELETE http://localhost:8000/sessions/<sid>   # cierra + limpia una sesión
+curl http://localhost:8000/pool/status        # credenciales libres/ocupadas + cola
 
 # Local tunnel (required for Recall.ai webhooks)
 ngrok http --domain=chatroom-fancy-subtly.ngrok-free.dev 8000
 ```
+
+`/bot/create` body: `meeting_url` (obligatorio) + `module` (`modulo_1`=Configuración / `modulo_2`=Caja y Caja Mayor / `""`), `field` (sección puntual, ej. `balanza`; gana sobre `module` si viene), `user_name`. Respuestas: `{"status":"running","sid",...,"bot_id","sistema"}`, o `{"status":"waiting","sid","position"}` si el pool está lleno y la cola habilitada, o `503` si la cola está apagada/llena.
 
 There are no automated tests or linters configured.
 
@@ -37,9 +45,13 @@ RECALL_REGION=us-east-1
 PUBLIC_WS_URL=              # wss://your-domain/audio
 PUBLIC_BASE_URL=            # https://your-domain (no trailing slash)
 MGW_URL=                    # defaults to https://www.migestionweb.pro/
-MGW_USER=
+MGW_USER=                   # credencial única legacy (fallback single-tenant)
 MGW_EMPRESA=
 MGW_PASSWORD=
+MGW_CREDENTIALS=            # JSON array de sistemas MGW para multi-tenant (uno por bot concurrente):
+                            #   [{"empresa":"dev1","usuario":"mgw","password":"...","alias":"dev1"}, ...]
+                            #   si no está seteada, cae a MGW_USER/EMPRESA/PASSWORD (una sola sesión)
+PENDING_QUEUE_MAX=20        # cola de espera cuando el pool está lleno; 0 = cola off (503)
 TEST_MODE=false             # true → skips calificación, jumps straight to demo
 REALTIME_MODEL=             # defaults to gpt-realtime-2025-08-28
 ```
@@ -62,9 +74,31 @@ Recall.ai bot (in meeting)
                          ↑ screenshot overlays (Playwright headless Chromium)
 
 /bot/create (REST)
-  → mgw_login() [server-side requests.Session]
-  → recall.create_bot() [sends agent URL + websocket URL to Recall]
+  → SessionManager.create() [acquires a credential from the pool, or queues WAITING]
+       → MgwSession.login() [per-session requests.Session]
+       → recall.create_bot(sid=...) [sends agent URL + websocket URL, both carrying ?sid=]
 ```
+
+### Multi-tenant (por `sid`)
+
+Cada llamada es una **`BotSession`** identificada por un `sid` que se inyecta en las URLs que
+Recall usa (webpage `/agent?sid=` y WS `/audio?sid=`). Un `SessionManager` (dict `sid → BotSession`)
+rutea cada WebSocket a su sesión, así conviven N bots en paralelo sin pisarse.
+
+- **`credentials_pool.py`** — `CredentialPool`: administra SOLO las credenciales MGW (`acquire`/`release`
+  en orden, flag `busy`). Fuente: `MGW_CREDENTIALS` (JSON array), o la credencial única legacy.
+- **`session.py`** — `BotSession` (SOLO estado de una sesión + su canal a la webpage), `SessionManager`
+  (ciclo de vida + `PendingQueue` para cuando el pool está lleno + `teardown` idempotente con gracia de
+  ~20 s ante reconexión del audio de Recall + `SidLogger` que antepone `[sid=...]`).
+- **`mgw_session.py`** — clase `MgwSession` por sesión (antes era un `requests.Session` global). El proxy
+  `/mgw-proxy` resuelve la sesión por la cookie `sid` que setea `agent.html`.
+- **`mgw_playwright.py`** — estado por sesión en un `ContextVar` con holder mutable + proxy `_page` (este
+  es el ÚNICO módulo con `ContextVar`; en el resto se pasa la `BotSession` explícita). `init_pw_state()`
+  se llama en el task raíz de la sesión; `pw_stop_state(holder)` cierra el browser de una sesión desde el
+  teardown (que corre en otro task).
+- El prompt de sistema se arma por sesión (`build_system_prompt` en `session.py`) inyectando el foco del
+  campus (`module`/`field`/`user_name`) sobre `TRAINING_SYSTEM_PROMPT`, y se pasa al `RealtimeBridge`.
+- Admin: `GET /sessions`, `GET /sessions/{sid}`, `DELETE /sessions/{sid}`, `GET /pool/status`.
 
 ### Active Pipeline: OpenAI Realtime API
 
@@ -81,11 +115,13 @@ Recall.ai bot (in meeting)
 
 | File | Role |
 |------|------|
-| [main.py](main.py) | FastAPI server — HTTP endpoints + two WebSocket routes (`/audio`, `/agent-ws`) + MGW reverse proxy (`/mgw-proxy/{path}`) |
-| [bot.py](bot.py) | Thin adapter: creates `RealtimeBridge`, wires up Playwright wrappers, and manages the agent WebSocket list (`_agent_ws_list`) |
-| [realtime_bridge.py](realtime_bridge.py) | **Core pipeline**: connects to OpenAI Realtime API, streams PCM audio, dispatches tool calls, manages barge-in and auto-continue |
-| [recall.py](recall.py) | Creates Recall.ai bot with Output Media (webpage camera) and real-time audio websocket |
-| [mgw_session.py](mgw_session.py) | Server-side `requests.Session` for MGW — authenticated API calls and the `/mgw-proxy` reverse proxy |
+| [main.py](main.py) | FastAPI server — endpoints (incl. `/sessions*`, `/pool/status`) ruteados por `sid` + WS `/audio`, `/agent-ws` + MGW proxy `/mgw-proxy/{path}` |
+| [session.py](session.py) | `BotSession` (estado por sesión + canal a la webpage) y `SessionManager` (ciclo de vida, `PendingQueue`, teardown, `SidLogger`, `build_system_prompt`) |
+| [credentials_pool.py](credentials_pool.py) | `CredentialPool`: administra las credenciales MGW del pool (`acquire`/`release` en orden, flag `busy`, `status`) |
+| [bot.py](bot.py) | Thin adapter por sesión: arma el `RealtimeBridge` y los wrappers de Playwright ligados a la `BotSession`; maneja su WebSocket de audio (`handle_recall_audio(ws, session)`) |
+| [realtime_bridge.py](realtime_bridge.py) | **Core pipeline**: connects to OpenAI Realtime API, streams PCM audio, dispatches tool calls, manages barge-in and auto-continue (recibe `system_prompt` por sesión) |
+| [recall.py](recall.py) | Creates Recall.ai bot with Output Media (webpage camera) and real-time audio websocket — inyecta `?sid=` en agent URL y WS URL |
+| [mgw_session.py](mgw_session.py) | Clase `MgwSession` (una `requests.Session` por sesión) — API autenticada + el proxy `/mgw-proxy` (resuelto por cookie `sid`) |
 | [mgw_playwright.py](mgw_playwright.py) | Headless Chromium automation — all demo steps called by `RealtimeBridge` tool handlers (caja, balanza, proveedores, producción, estadísticas, stock, clientes) |
 | [config.py](config.py) | All env vars, `REALTIME_SYSTEM_PROMPT`, `REALTIME_TOOLS` list, `DEMO_MODULE_PATHS` (module name → MGW URL path) |
 | [state.py](state.py) | `ConversationState` dataclass + `Stage` enum (instantiated in `bot.py`; stage logic lives in the Realtime prompt) |

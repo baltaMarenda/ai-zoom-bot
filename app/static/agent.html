@@ -226,8 +226,16 @@
 
 <script>
 // ── Config ────────────────────────────────────────────────────────────────────
+// sid identifica la sesión (viene en ?sid= de la URL que Recall carga como cámara).
+// Se usa en el WebSocket y se guarda en una cookie para que el proxy /mgw-proxy
+// resuelva la sesión MGW correcta en los requests del iframe.
+const SID = new URLSearchParams(location.search).get('sid') || '';
+if (SID) {
+  document.cookie = 'sid=' + SID + '; path=/; SameSite=Lax';
+}
+
 const WS_URL = (location.protocol === 'https:' ? 'wss://' : 'ws://') +
-               location.host + '/agent-ws';
+               location.host + '/agent-ws' + (SID ? ('?sid=' + encodeURIComponent(SID)) : '');
 
 // Las páginas de MGW se cargan a través del proxy
 const PROXY_BASE = '/mgw-proxy';

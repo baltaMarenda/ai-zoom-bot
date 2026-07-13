@@ -3,6 +3,7 @@ config.py
 Variables de entorno y configuración global del bot.
 """
 import os
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -29,6 +30,54 @@ MGW_URL      = os.getenv("MGW_URL", "https://www.migestionweb.pro/")
 MGW_USER     = os.getenv("MGW_USER", "mgw")
 MGW_EMPRESA  = os.getenv("MGW_EMPRESA", "dev1")
 MGW_PASSWORD = os.getenv("MGW_PASSWORD", "xmgwdev1")
+
+# ─── Pool de credenciales MGW (multi-tenant) ──────────────────────────────────
+# Cada llamada concurrente usa un sistema MGW distinto (no se puede tener dos bots
+# sobre el mismo login). MGW_CREDENTIALS es un JSON array:
+#   [{"empresa": "dev1", "usuario": "mgw", "password": "...", "alias": "dev1"}, ...]
+# Si no está seteada, se usa la credencial única legacy (MGW_USER/EMPRESA/PASSWORD),
+# lo que mantiene el comportamiento single-tenant de siempre.
+
+def _parse_mgw_credentials() -> list[dict]:
+    raw = os.getenv("MGW_CREDENTIALS", "").strip()
+    if raw:
+        try:
+            data = json.loads(raw)
+            creds = []
+            for c in data:
+                creds.append({
+                    "empresa":  c["empresa"],
+                    "usuario":  c["usuario"],
+                    "password": c["password"],
+                    "alias":    c.get("alias") or c["empresa"],
+                })
+            if creds:
+                return creds
+            print("[Config] MGW_CREDENTIALS vacío — usando credencial única legacy")
+        except Exception as e:
+            print(f"[Config] Error parseando MGW_CREDENTIALS ({e}) — usando credencial única legacy")
+    # Fallback single-tenant
+    return [{
+        "empresa":  MGW_EMPRESA,
+        "usuario":  MGW_USER,
+        "password": MGW_PASSWORD,
+        "alias":    MGW_EMPRESA,
+    }]
+
+MGW_CREDENTIALS = _parse_mgw_credentials()
+
+# Cola de espera cuando todas las credenciales están ocupadas.
+# 0 = cola deshabilitada (se rechaza con 503 cuando el pool está lleno).
+PENDING_QUEUE_MAX = int(os.getenv("PENDING_QUEUE_MAX", "20"))
+
+# ─── Mapa de foco del campus (module/field → guion del prompt) ────────────────
+# El campus manda "module" (modulo_1 / modulo_2) o "field" (una sección puntual).
+# Este mapa traduce el "module" a su etiqueta y número de guion; los "field" se
+# pasan directo al MODO SECCIÓN DIRECTA del prompt (que ya conoce las secciones).
+CAMPUS_FOCUS_MAP: dict[str, dict] = {
+    "modulo_1": {"kind": "module", "n": "1", "label": "Módulo 1 — Configuración"},
+    "modulo_2": {"kind": "module", "n": "2", "label": "Módulo 2 — Caja y Caja Mayor"},
+}
 
 
 

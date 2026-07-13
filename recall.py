@@ -11,11 +11,21 @@ current_bot_id: str | None = None
 BOT_NAME = "Malena - Mi Gestión Web"
 
 
-def create_bot(meeting_url: str, bot_name: str = BOT_NAME) -> dict:
+def _with_sid(url: str, sid: str | None) -> str:
+    """Agrega ?sid=... (o &sid=...) a una URL para rutear el WS/webpage a su sesión."""
+    if not sid:
+        return url
+    sep = "&" if "?" in url else "?"
+    return f"{url}{sep}sid={sid}"
+
+
+def create_bot(meeting_url: str, bot_name: str = BOT_NAME, sid: str | None = None) -> dict:
     global current_bot_id
 
-    # URL pública de la webpage del agente
-    agent_url = f"{PUBLIC_BASE_URL}/agent"
+    # URL pública de la webpage del agente — con sid para que agent.html se conecte
+    # al /agent-ws de ESTA sesión.
+    agent_url = _with_sid(f"{PUBLIC_BASE_URL}/agent", sid)
+    ws_url    = _with_sid(PUBLIC_WS_URL, sid)
 
     payload = {
         "meeting_url": meeting_url,
@@ -42,7 +52,7 @@ def create_bot(meeting_url: str, bot_name: str = BOT_NAME) -> dict:
             "realtime_endpoints": [
                 {
                     "type": "websocket",
-                    "url": PUBLIC_WS_URL,
+                    "url": ws_url,
                     "events": ["audio_separate_raw.data"],
                 }
             ],
