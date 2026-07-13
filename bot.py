@@ -57,6 +57,9 @@ from mgw_playwright import (
     caja_mayor_detalle_arqueo, caja_mayor_ver_movimientos,
     caja_mayor_cheques_navegar, caja_mayor_cheques_emitir,
     caja_mayor_cheques_completar, caja_mayor_cheques_filtrar_todos,
+    rrhh_navegar, rrhh_personal_nuevo, rrhh_personal_editar,
+    rrhh_personal_ficha, rrhh_personal_cliente_asociado, rrhh_fichaje_navegar,
+    rrhh_fichaje_nuevo,
 )
 from recall import leave_call
 
@@ -488,6 +491,27 @@ async def _caja_mayor_cheques_completar() -> str:
 async def _caja_mayor_cheques_filtrar_todos() -> str:
     return await caja_mayor_cheques_filtrar_todos(on_screenshot=_on_screenshot)
 
+async def _rrhh_navegar() -> str:
+    return await rrhh_navegar(on_screenshot=_on_screenshot)
+
+async def _rrhh_personal_nuevo() -> str:
+    return await rrhh_personal_nuevo(on_screenshot=_on_screenshot)
+
+async def _rrhh_personal_editar() -> str:
+    return await rrhh_personal_editar(on_screenshot=_on_screenshot)
+
+async def _rrhh_personal_ficha() -> str:
+    return await rrhh_personal_ficha(on_screenshot=_on_screenshot)
+
+async def _rrhh_personal_cliente_asociado() -> str:
+    return await rrhh_personal_cliente_asociado(on_screenshot=_on_screenshot)
+
+async def _rrhh_fichaje_navegar() -> str:
+    return await rrhh_fichaje_navegar(on_screenshot=_on_screenshot)
+
+async def _rrhh_fichaje_nuevo() -> str:
+    return await rrhh_fichaje_nuevo(on_screenshot=_on_screenshot)
+
 
 # ── WebSocket handler ─────────────────────────────────────────────────────────
 
@@ -613,6 +637,13 @@ async def handle_recall_audio(websocket):
         caja_mayor_cheques_emitir             = _caja_mayor_cheques_emitir,
         caja_mayor_cheques_completar          = _caja_mayor_cheques_completar,
         caja_mayor_cheques_filtrar_todos      = _caja_mayor_cheques_filtrar_todos,
+        rrhh_navegar                          = _rrhh_navegar,
+        rrhh_personal_nuevo                   = _rrhh_personal_nuevo,
+        rrhh_personal_editar                  = _rrhh_personal_editar,
+        rrhh_personal_ficha                   = _rrhh_personal_ficha,
+        rrhh_personal_cliente_asociado        = _rrhh_personal_cliente_asociado,
+        rrhh_fichaje_navegar                  = _rrhh_fichaje_navegar,
+        rrhh_fichaje_nuevo                    = _rrhh_fichaje_nuevo,
     )
 
     async def receive_from_recall():

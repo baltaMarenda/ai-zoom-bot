@@ -182,6 +182,13 @@ class RealtimeBridge:
         caja_mayor_cheques_emitir             = None,   # async fn() → str
         caja_mayor_cheques_completar          = None,   # async fn() → str
         caja_mayor_cheques_filtrar_todos      = None,   # async fn() → str
+        rrhh_navegar                          = None,   # async fn() → str
+        rrhh_personal_nuevo                   = None,   # async fn() → str
+        rrhh_personal_editar                  = None,   # async fn() → str
+        rrhh_personal_ficha                   = None,   # async fn() → str
+        rrhh_personal_cliente_asociado        = None,   # async fn() → str
+        rrhh_fichaje_navegar                  = None,   # async fn() → str
+        rrhh_fichaje_nuevo                    = None,   # async fn() → str
     ):
         self._send_to_agent      = send_to_agent
         self._send_navigate      = send_navigate
@@ -279,6 +286,13 @@ class RealtimeBridge:
         self._caja_mayor_cheques_emitir             = caja_mayor_cheques_emitir
         self._caja_mayor_cheques_completar          = caja_mayor_cheques_completar
         self._caja_mayor_cheques_filtrar_todos      = caja_mayor_cheques_filtrar_todos
+        self._rrhh_navegar                          = rrhh_navegar
+        self._rrhh_personal_nuevo                   = rrhh_personal_nuevo
+        self._rrhh_personal_editar                  = rrhh_personal_editar
+        self._rrhh_personal_ficha                   = rrhh_personal_ficha
+        self._rrhh_personal_cliente_asociado        = rrhh_personal_cliente_asociado
+        self._rrhh_fichaje_navegar                  = rrhh_fichaje_navegar
+        self._rrhh_fichaje_nuevo                    = rrhh_fichaje_nuevo
 
         self._ws                    = None
         self._pw_started            = False
@@ -959,6 +973,17 @@ class RealtimeBridge:
         is_final = (name == "finalizar_capacitacion")
 
         try:
+            # Toda tool de acción necesita el navegador Playwright iniciado. Si el
+            # usuario pide explícitamente una sección, el modelo suele saltar la tool
+            # de entrada (*_navegar) y llamar directo a una acción; sin este guard
+            # esa acción correría con _page=None → "browser no iniciado". Es
+            # idempotente (early-return si ya arrancó), así que las llamadas
+            # explícitas en cada branch quedan como no-op. Excepciones:
+            # navigate_to_module (solo carga el iframe, gestiona ACCESO aparte) y
+            # finalizar_capacitacion (no usa el navegador).
+            if not is_nav and not is_final:
+                await self._ensure_playwright()
+
             if name == "navigate_to_module":
                 result = await self._do_navigate(args.get("module", ""))
 
@@ -1039,6 +1064,7 @@ class RealtimeBridge:
                 operario_nombre = args.get("operario_nombre", "Balta")
                 operario_id     = args.get("operario_id", "1")
                 print(f"[DEMO] Balanza: agregando producto a {operario_nombre}...")
+                await self._ensure_playwright()
                 await self._wait_for_audio_done(timeout=20.0)
                 result = await self._balanza_agregar_producto(operario_nombre, operario_id) if self._balanza_agregar_producto else f"Producto asignado a {operario_nombre}."
 
@@ -1376,6 +1402,44 @@ class RealtimeBridge:
                 print("[CAJA-MAYOR] Aplicando filtro Todos en cheques...")
                 await self._wait_for_audio_done(timeout=20.0)
                 result = await self._caja_mayor_cheques_filtrar_todos() if self._caja_mayor_cheques_filtrar_todos else "Filtro Todos aplicado."
+                await self._on_screenshot_end()
+
+            elif name == "rrhh_navegar":
+                print("[RRHH] Navegando a rrhh_personal.php...")
+                await self._ensure_playwright()
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._rrhh_navegar() if self._rrhh_navegar else "Sección de Recursos Humanos visible."
+
+            elif name == "rrhh_personal_nuevo":
+                print("[RRHH] Abriendo modal de nuevo personal...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._rrhh_personal_nuevo() if self._rrhh_personal_nuevo else "Modal de nuevo personal abierto."
+
+            elif name == "rrhh_personal_editar":
+                print("[RRHH] Entrando a editar personal id 1...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._rrhh_personal_editar() if self._rrhh_personal_editar else "Detalle del personal abierto."
+
+            elif name == "rrhh_personal_ficha":
+                print("[RRHH] Abriendo pestaña Ficha...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._rrhh_personal_ficha() if self._rrhh_personal_ficha else "Pestaña Ficha abierta."
+
+            elif name == "rrhh_personal_cliente_asociado":
+                print("[RRHH] Resaltando selector cliente asociado...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._rrhh_personal_cliente_asociado() if self._rrhh_personal_cliente_asociado else "Selector cliente asociado resaltado."
+
+            elif name == "rrhh_fichaje_navegar":
+                print("[RRHH] Navegando a fichaje...")
+                await self._ensure_playwright()
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._rrhh_fichaje_navegar() if self._rrhh_fichaje_navegar else "Sección de fichaje visible."
+
+            elif name == "rrhh_fichaje_nuevo":
+                print("[RRHH] Abriendo modal de nuevo fichaje...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._rrhh_fichaje_nuevo() if self._rrhh_fichaje_nuevo else "Modal de nuevo fichaje abierto."
                 await self._on_screenshot_end()
 
             elif name == "finalizar_capacitacion":
