@@ -108,6 +108,7 @@ class RealtimeBridge:
         acceso_login_done,   # asyncio.Event
         fase2_press_f8,      # asyncio.Event
         reset_caja_fases,        # fn()
+        system_prompt               = None,   # str — prompt de sistema de ESTA sesión (con foco module/field/user_name)
         agent_audio_done_event      = None,   # asyncio.Event — set por agent.html cuando termina de reproducir
         demo_estadisticas           = None,   # async fn() → str
         demo_stock                  = None,   # async fn() → str
@@ -293,6 +294,10 @@ class RealtimeBridge:
         self._rrhh_personal_cliente_asociado        = rrhh_personal_cliente_asociado
         self._rrhh_fichaje_navegar                  = rrhh_fichaje_navegar
         self._rrhh_fichaje_nuevo                    = rrhh_fichaje_nuevo
+
+        # Prompt de sistema propio de la sesión (foco module/field/user_name del campus).
+        # Si no se pasa, cae al prompt de capacitación por defecto.
+        self._system_prompt         = system_prompt or TRAINING_SYSTEM_PROMPT
 
         self._ws                    = None
         self._pw_started            = False
@@ -893,7 +898,7 @@ class RealtimeBridge:
             "type": "session.update",
             "session": {
                 "type": "realtime",
-                "instructions": TRAINING_SYSTEM_PROMPT,
+                "instructions": self._system_prompt,
                 "tools": REALTIME_TOOLS,
                 "tool_choice": "auto",
                 "audio": {

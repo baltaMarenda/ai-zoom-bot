@@ -5,6 +5,7 @@ Dividida en fases para sincronizar con lo que dice Malena.
 """
 import asyncio
 import base64
+import contextvars
 from playwright.async_api import async_playwright, Page
 
 from config import MGW_URL, MGW_USER, MGW_EMPRESA, MGW_PASSWORD, TEST_MODE, CONFIG_MODULE_PATHS
@@ -14,19 +15,80 @@ DEMO_PRODUCTO_NOMBRE = "Huevos"
 DEMO_PRODUCTO_ID     = 10
 DEMO_CANTIDAD        = 1
 
-_pw_instance = None
-_browser     = None
-_page: Page | None = None
+# ── Estado por sesión (multi-tenant) ─────────────────────────────────────────
+# Antes esto era un único browser/page global. Ahora cada sesión (cada llamada) tiene
+# su propio holder de estado, guardado en un ContextVar task-local. El holder es un
+# dict MUTABLE: los tasks hijos de una sesión heredan la MISMA referencia al crearse,
+# así que mutar page/browser/flags desde cualquier task de la sesión es visible en toda
+# la sesión, pero queda aislado entre sesiones distintas.
+#
+# Este es el ÚNICO módulo que usa ContextVar — en el resto del proyecto se pasa la
+# BotSession explícitamente.
 
-# Control de fases — para no repetir
-_caja_fase1_done     = False
-_caja_fase1_launched = False  # True en cuanto la task de Fase 1 entra a la función
-_caja_fase2_done     = False
-_caja_fase2_launched = False  # True en cuanto la task de Fase 2 entra a la función
+def _new_pw_state() -> dict:
+    return {
+        "pw": None, "browser": None, "page": None,
+        "fase1_done": False, "fase1_launched": False,
+        "fase2_done": False, "fase2_launched": False,
+        # Credenciales de la sesión (por defecto las legacy de config)
+        "empresa": MGW_EMPRESA, "usuario": MGW_USER, "password": MGW_PASSWORD,
+    }
+
+_pw_state: contextvars.ContextVar[dict] = contextvars.ContextVar(
+    "mgw_pw_state", default=_new_pw_state()
+)
+
+
+def init_pw_state(empresa: str | None = None, usuario: str | None = None,
+                  password: str | None = None) -> dict:
+    """
+    Instala un holder de estado NUEVO para la sesión actual. Debe llamarse en el task
+    raíz de la sesión (antes de crear tasks hijos) para que todos hereden el mismo holder.
+    """
+    st = _new_pw_state()
+    if empresa:  st["empresa"]  = empresa
+    if usuario:  st["usuario"]  = usuario
+    if password: st["password"] = password
+    _pw_state.set(st)
+    return st
+
+
+def _st() -> dict:
+    return _pw_state.get()
+
+
+def _current_page():
+    return _st()["page"]
+
+
+def caja_fase_flags() -> tuple[bool, bool, bool, bool]:
+    """(fase1_done, fase1_launched, fase2_done, fase2_launched) de la sesión actual."""
+    st = _st()
+    return st["fase1_done"], st["fase1_launched"], st["fase2_done"], st["fase2_launched"]
+
+
+class _PageProxy:
+    """
+    Delega toda operación (`_page.locator(...)`, `await _page.screenshot()`, etc.) a la
+    Page de la sesión actual. Así las ~400 referencias a `_page.metodo()` siguen igual sin
+    tener que tocarlas: sólo cambian los chequeos `_current_page() is None` (→ `_current_page() is None`)
+    y las asignaciones (→ `_st()["page"] = ...`).
+    """
+    def __getattr__(self, name):
+        pg = _st()["page"]
+        if pg is None:
+            raise RuntimeError("[PW] page no inicializada en esta sesión")
+        return getattr(pg, name)
+
+    def __bool__(self):
+        return _st()["page"] is not None
+
+
+_page = _PageProxy()
 
 
 async def _screenshot_b64() -> str:
-    if _page is None:
+    if _current_page() is None:
         return ""
     try:
         img = await _page.screenshot(type="jpeg", quality=85)
@@ -46,51 +108,68 @@ async def _snap(on_screenshot, delay: float = 0.0):
 
 
 def reset_caja_fases():
-    """Resetea el estado de fases al iniciar una nueva demo."""
-    global _caja_fase1_done, _caja_fase1_launched, _caja_fase2_done, _caja_fase2_launched
-    _caja_fase1_done     = False
-    _caja_fase1_launched = False
-    _caja_fase2_done     = False
-    _caja_fase2_launched = False
+    """Resetea el estado de fases al iniciar una nueva demo (de la sesión actual)."""
+    st = _st()
+    st["fase1_done"]     = False
+    st["fase1_launched"] = False
+    st["fase2_done"]     = False
+    st["fase2_launched"] = False
 
 
 async def pw_start():
-    global _pw_instance, _browser, _page
-    _pw_instance = await async_playwright().start()
-    _browser = await _pw_instance.chromium.launch(
+    st = _st()
+    pw = await async_playwright().start()
+    browser = await pw.chromium.launch(
         headless=True,
         args=["--no-sandbox", "--disable-dev-shm-usage"],
     )
-    context = await _browser.new_context(viewport={"width": 1280, "height": 720})
-    _page = await context.new_page()
+    context = await browser.new_context(viewport={"width": 1280, "height": 720})
+    st["pw"]      = pw
+    st["browser"] = browser
+    st["page"]    = await context.new_page()
     print("[PW] Browser iniciado ✓")
 
 
-async def pw_stop():
-    global _pw_instance, _browser, _page
-    if _browser:
-        await _browser.close()
-    if _pw_instance:
-        await _pw_instance.stop()
-    _browser = None
-    _page = None
-    _pw_instance = None
+async def _pw_stop_holder(st: dict):
+    """Cierra el browser de un holder de estado específico (no depende del ContextVar)."""
+    try:
+        if st.get("browser"):
+            await st["browser"].close()
+        if st.get("pw"):
+            await st["pw"].stop()
+    finally:
+        st["browser"] = None
+        st["page"]    = None
+        st["pw"]      = None
     print("[PW] Browser cerrado ✓")
 
 
+async def pw_stop():
+    """Cierra el browser de la sesión actual (usa el ContextVar de este task)."""
+    await _pw_stop_holder(_st())
+
+
+async def pw_stop_state(st: dict):
+    """
+    Cierra el browser de una sesión dada por su holder. Lo usa el teardown, que corre
+    en un task distinto al de la sesión y por lo tanto NO tiene el ContextVar seteado.
+    """
+    await _pw_stop_holder(st)
+
+
 async def pw_login() -> bool:
-    if _page is None:
+    if _current_page() is None:
         return False
     try:
         await _page.goto(f"{MGW_URL.rstrip('/')}/index.php",
                          wait_until="domcontentloaded", timeout=20000)
         await _page.wait_for_selector('[name="empresa"]', timeout=10000)
 
-        await _page.locator('[name="empresa"]').fill(MGW_EMPRESA)
+        await _page.locator('[name="empresa"]').fill(_st()["empresa"])
         await asyncio.sleep(0.3)
-        await _page.locator('[name="usuario"]').fill(MGW_USER)
+        await _page.locator('[name="usuario"]').fill(_st()["usuario"])
         await asyncio.sleep(0.3)
-        await _page.locator('[name="contrasena"]').fill(MGW_PASSWORD)
+        await _page.locator('[name="contrasena"]').fill(_st()["password"])
         await asyncio.sleep(0.3)
 
         await _page.locator('[name="btnlogin"], button[type="submit"], input[type="submit"]').first.click()
@@ -115,7 +194,7 @@ async def demo_acceso_login(on_screenshot=None) -> bool:
     Muestra el proceso de ingreso al sistema en vivo:
     navega al login, tipea empresa/usuario/contraseña carácter a carácter y entra.
     """
-    if _page is None:
+    if _current_page() is None:
         return False
 
     base = MGW_URL.rstrip("/")
@@ -146,19 +225,19 @@ async def demo_acceso_login(on_screenshot=None) -> bool:
 
         # Empresa — visible letra por letra (150 ms/carácter)
         await _page.locator('[name="empresa"]').click()
-        await _page.locator('[name="empresa"]').type(MGW_EMPRESA, delay=150)
+        await _page.locator('[name="empresa"]').type(_st()["empresa"], delay=150)
         await asyncio.sleep(0.4)
         await snap()  # ② empresa completa
 
         # Usuario
         await _page.locator('[name="usuario"]').click()
-        await _page.locator('[name="usuario"]').type(MGW_USER, delay=150)
+        await _page.locator('[name="usuario"]').type(_st()["usuario"], delay=150)
         await asyncio.sleep(0.4)
         await snap()  # ③ usuario completo
 
         # Contraseña
         await _page.locator('[name="contrasena"]').click()
-        await _page.locator('[name="contrasena"]').type(MGW_PASSWORD, delay=150)
+        await _page.locator('[name="contrasena"]').type(_st()["password"], delay=150)
 
         # 2 s antes de enviar — Malena termina de describir los campos mientras el usuario ve el form completo
         await asyncio.sleep(2.0)
@@ -191,12 +270,11 @@ async def demo_caja_fase1_agregar(on_screenshot=None) -> bool:
     Fase 1: muestra la caja vacía, tipea 'Huevos', agrega al ticket.
     Se llama cuando Malena habla de buscar el producto y agregar.
     """
-    global _caja_fase1_done, _caja_fase1_launched
-    if _caja_fase1_done or _caja_fase1_launched:
+    if _st()["fase1_done"] or _st()["fase1_launched"]:
         print("[PW] Fase 1 ya en curso o completada, saltando")
         return True
-    _caja_fase1_launched = True
-    if _page is None:
+    _st()["fase1_launched"] = True
+    if _current_page() is None:
         print("[PW] Browser no iniciado")
         return False
 
@@ -266,7 +344,7 @@ async def demo_caja_fase1_agregar(on_screenshot=None) -> bool:
         await asyncio.sleep(2.5)
         await snap(0.0)  # cliente ve el producto en el ticket
 
-        _caja_fase1_done = True
+        _st()["fase1_done"] = True
         print("[PW] [Fase 1] ✓ Producto agregado al ticket")
         return True
 
@@ -285,12 +363,11 @@ async def demo_caja_fase2_pagar(on_screenshot=None, initial_delay: float = 0.0, 
     Fase 2: selecciona Efectivo como forma de pago, cierra con Presupuesto (F8).
     initial_delay: segundos a esperar antes de arrancar (para sincronizar con el audio).
     """
-    global _caja_fase2_done, _caja_fase2_launched
-    if _caja_fase2_done or _caja_fase2_launched:
+    if _st()["fase2_done"] or _st()["fase2_launched"]:
         print("[PW] Fase 2 ya en curso o completada, saltando")
         return True
-    _caja_fase2_launched = True  # bloquear re-entrada antes de cualquier await
-    if _page is None:
+    _st()["fase2_launched"] = True  # bloquear re-entrada antes de cualquier await
+    if _current_page() is None:
         print("[PW] Browser no iniciado")
         return False
 
@@ -408,7 +485,7 @@ async def demo_caja_fase2_pagar(on_screenshot=None, initial_delay: float = 0.0, 
         await snap(3.0)  # cliente ve la confirmación
         await snap(3.0)  # cliente ve el historial actualizado
 
-        _caja_fase2_done = True
+        _st()["fase2_done"] = True
         print("[PW] [Fase 2] ✓ Venta cerrada con Presupuesto")
         return True
 
@@ -426,7 +503,7 @@ async def demo_caja_fase2_pagar(on_screenshot=None, initial_delay: float = 0.0, 
 
 async def caja_step_buscar(product_name: str, on_screenshot=None) -> str:
     """Navega a caja, tipea el producto y selecciona la sugerencia del autocomplete."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
     print(f"[PW] [Caja] Navegando a caja...")
@@ -464,7 +541,7 @@ async def caja_step_buscar(product_name: str, on_screenshot=None) -> str:
 
 async def caja_step_agregar(on_screenshot=None) -> str:
     """Hace clic en el botón Agregar y espera que el producto aparezca en el ticket."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     agregar_btn = None
     for selector in [
@@ -500,7 +577,7 @@ async def _caja_llenar_paga_con(monto: str = "5000") -> bool:
     seleccionar el descuento el total se recalcula y el campo 'Paga con' se reinicia,
     perdiendo el monto ingresado.
     """
-    if _page is None:
+    if _current_page() is None:
         return False
     print(f"[PW] [Caja] Llenando campo 'Paga con' con {monto}...")
     for sel in [
@@ -538,7 +615,7 @@ async def _caja_llenar_paga_con(monto: str = "5000") -> bool:
 
 async def caja_step_seleccionar_pago(method: str, on_screenshot=None) -> str:
     """Selecciona la forma de pago en la pantalla de caja."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     method_text = {
         "efectivo": "Efectivo", "mercado_pago": "Mercado Pago",
@@ -595,7 +672,7 @@ async def caja_step_seleccionar_pago(method: str, on_screenshot=None) -> str:
 
 async def caja_step_descuento(on_screenshot=None) -> str:
     """Aplica el descuento 'Efectivo 10 (10.00%)' desde el select #descuento_total."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     aplicado = False
     # Camino directo: select_option por value/label en el select de descuentos
@@ -644,7 +721,7 @@ async def caja_step_descuento(on_screenshot=None) -> str:
 
 async def caja_step_cerrar(method: str = "presupuesto", on_screenshot=None) -> str:
     """Cierra la venta con Presupuesto F8 o FCE F4."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     if method.lower() in ("presupuesto", "presupuestar", "f8"):
         selectors = [
@@ -699,7 +776,7 @@ async def demo_venta_caja(on_screenshot=None, con_factura: bool = False) -> bool
 
 async def _reset_caja_items() -> None:
     """Elimina todos los ítems del ticket de caja si los hubiera de una sesión anterior."""
-    if _page is None:
+    if _current_page() is None:
         return
     try:
         for _ in range(30):
@@ -724,7 +801,7 @@ async def _manejar_arqueo(on_screenshot=None) -> None:
     """
     Detecta la UI de apertura/arqueo de caja y la confirma.
     """
-    if _page is None:
+    if _current_page() is None:
         return
     try:
         # Buscar y hacer clic en el botón de confirmación del arqueo
@@ -785,7 +862,7 @@ async def _ensure_caja_abierta(on_screenshot=None) -> bool:
     la caja está abierta (mismo criterio que caja_ir_a_apertura). No genera screenshots
     para no interrumpir la narración. Devuelve True si tuvo que abrir la caja.
     """
-    if _page is None:
+    if _current_page() is None:
         return False
     base = MGW_URL.rstrip("/")
     try:
@@ -814,7 +891,7 @@ async def _demo_clientes_abrir_formulario(on_screenshot=None) -> bool:
     y captura el formulario AJAX con estilos completos.
     No navega a ajax_clientes_nuevo_cliente.php directamente (devuelve HTML parcial).
     """
-    if _page is None:
+    if _current_page() is None:
         return False
 
     base = MGW_URL.rstrip("/")
@@ -883,7 +960,7 @@ async def demo_estadisticas_ventas(on_screenshot=None) -> bool:
     Navega a Estadísticas > Ventas, fija el rango desde el 31/05 hasta hoy y aprieta Buscar.
     Hace scroll hasta la tabla de productos vendidos y toma el screenshot del resultado.
     """
-    if _page is None:
+    if _current_page() is None:
         return False
 
     base = MGW_URL.rstrip("/")
@@ -950,7 +1027,7 @@ async def demo_stock_existencias(on_screenshot=None) -> bool:
     Navega a Stock > Existencias en Playwright, aprieta el botón Todos
     y toma screenshots de la tabla completa para mostrar en la reunión.
     """
-    if _page is None:
+    if _current_page() is None:
         return False
 
     base = MGW_URL.rstrip("/")
@@ -1007,7 +1084,7 @@ async def _demo_proveedores(
     Editar → +Compra → form (solo importe) → Finalizar → carrito "Cargar productos"
     → agregar Vacío 10kg → Finalizar detalles → explicar Impaga (sin clickear).
     """
-    if _page is None:
+    if _current_page() is None:
         return False
 
     base = MGW_URL.rstrip("/")
@@ -1334,7 +1411,7 @@ async def _demo_produccion(
     Plantillas → nueva plantilla "Milanesas" → detalle (ingredientes entrada + salida)
     → Produccion → nueva produccion con esa plantilla.
     """
-    if _page is None:
+    if _current_page() is None:
         return False
 
     base = MGW_URL.rstrip("/")
@@ -1774,7 +1851,7 @@ async def _demo_balanza(
     → muestra Tickets → finaliza venta de Balta → ticket pendiente en Tickets
     → caja.php → CF → lupa → botón verde → Presupuesto F8.
     """
-    if _page is None:
+    if _current_page() is None:
         return False
 
     base = MGW_URL.rstrip("/")
@@ -2124,7 +2201,7 @@ async def _demo_caja_mayor(
     Demo de Caja Mayor (tesorería del negocio):
     caja_administracion_caja.php → overview de movimientos → click Nuevo arqueo → modal.
     """
-    if _page is None:
+    if _current_page() is None:
         return False
 
     base = MGW_URL.rstrip("/")
@@ -2392,9 +2469,8 @@ async def run_demo_mgw(
     Demo secuencial completa: Login → Home → Caja (agregar + pago + presupuesto) → Módulos.
     Cada bloque habla primero y actúa después, en orden estricto sin keyword detection.
     """
-    global _caja_fase1_done, _caja_fase1_launched, _caja_fase2_done, _caja_fase2_launched
 
-    if _page is None:
+    if _current_page() is None:
         print("[PW] [DEMO] Browser no iniciado")
         return False
 
@@ -2449,19 +2525,19 @@ async def run_demo_mgw(
 
         # Tipear empresa letra por letra (visible para el cliente)
         await _page.locator('[name="empresa"]').click()
-        await _page.locator('[name="empresa"]').type(MGW_EMPRESA, delay=150)
+        await _page.locator('[name="empresa"]').type(_st()["empresa"], delay=150)
         await asyncio.sleep(0.4)
         await snap()  # ② empresa completa
 
         # Tipear usuario
         await _page.locator('[name="usuario"]').click()
-        await _page.locator('[name="usuario"]').type(MGW_USER, delay=150)
+        await _page.locator('[name="usuario"]').type(_st()["usuario"], delay=150)
         await asyncio.sleep(0.4)
         await snap()  # ③ usuario completo
 
         # Tipear contraseña
         await _page.locator('[name="contrasena"]').click()
-        await _page.locator('[name="contrasena"]').type(MGW_PASSWORD, delay=150)
+        await _page.locator('[name="contrasena"]').type(_st()["password"], delay=150)
         await asyncio.sleep(0.5)
         await snap()  # ④ formulario completo antes de ingresar
 
@@ -2605,8 +2681,8 @@ async def run_demo_mgw(
         await asyncio.sleep(2.5)
         await snap()  # ⑧ Huevos en el ticket
         print("[PW] [CAJA] Producto agregado al ticket ✓")
-        _caja_fase1_done = True
-        _caja_fase1_launched = True
+        _st()["fase1_done"] = True
+        _st()["fase1_launched"] = True
         print("[PW] [CAJA] Fase 1 completada ✓")
 
         # ── 5. MÉTODOS DE PAGO ────────────────────────────────────────────────
@@ -2736,8 +2812,8 @@ async def run_demo_mgw(
         await asyncio.sleep(3.0)
         await snap()   # ⑪ ticket/historial actualizado
 
-        _caja_fase2_done = True
-        _caja_fase2_launched = True
+        _st()["fase2_done"] = True
+        _st()["fase2_launched"] = True
         await snap_end()
         print("[PW] [CAJA] Demo de caja completa ✓")
 
@@ -2816,8 +2892,7 @@ async def run_demo_stock(on_screenshot=None) -> str:
 
 async def run_demo_clientes(on_screenshot=None) -> str:
     """Navega a clientes.php y toma screenshot de la lista (sin abrir formulario)."""
-    global _page
-    if not _page:
+    if not _current_page():
         return "Demo de clientes no disponible (Playwright no iniciado)."
     try:
         base = MGW_URL.rstrip("/")
@@ -2845,7 +2920,7 @@ async def run_demo_clientes(on_screenshot=None) -> str:
 
 async def clientes_nuevo_cliente(on_screenshot=None) -> str:
     """Paso: en clientes.php abre el modal 'Nuevo cliente' (clientes_nuevo_cliente())."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
 
@@ -2891,7 +2966,7 @@ async def clientes_nuevo_cliente(on_screenshot=None) -> str:
 
 async def clientes_importar(on_screenshot=None) -> str:
     """Paso: vuelve a clientes.php y abre el modal de importación por Excel (form_importar())."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
 
@@ -2936,7 +3011,7 @@ async def clientes_importar(on_screenshot=None) -> str:
 
 async def clientes_ver_detalle(on_screenshot=None) -> str:
     """Paso: vuelve a clientes.php y abre el detalle/edición de un cliente (clientes_editar.php)."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
 
@@ -2983,7 +3058,7 @@ async def clientes_ver_detalle(on_screenshot=None) -> str:
 
 async def balanza_step_navegar(on_screenshot=None) -> str:
     """Navega a balanza.php y toma screenshot inicial."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
     # El flujo de balanza cobra el ticket desde la caja (pasos 5-7). Si se entra
@@ -3006,7 +3081,7 @@ async def balanza_step_navegar(on_screenshot=None) -> str:
 
 async def balanza_step_agregar_producto(operario_nombre: str, operario_id: str, on_screenshot=None) -> str:
     """Busca 'Vacío', hace ingreso manual de 1 kg y lo asigna al operario indicado."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
 
     # Si el LLM saltó balanza_navegar, asegurarse de estar en balanza.php
@@ -3084,7 +3159,7 @@ async def balanza_step_agregar_producto(operario_nombre: str, operario_id: str, 
 
 async def balanza_step_mostrar_tickets(on_screenshot=None) -> str:
     """Click en el botón Tickets para mostrar los tickets pendientes de la balanza."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
 
     if "balanza" not in (_page.url or ""):
@@ -3107,7 +3182,7 @@ async def balanza_step_mostrar_tickets(on_screenshot=None) -> str:
 
 async def balanza_step_ir_a_caja(on_screenshot=None) -> str:
     """Finaliza la venta de Balta y navega a caja.php."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
 
@@ -3151,7 +3226,7 @@ async def balanza_step_ir_a_caja(on_screenshot=None) -> str:
 
 async def balanza_step_abrir_cf(on_screenshot=None) -> str:
     """Espera y hace click en el botón CF, luego muestra la lupa para ver el detalle."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
 
     if "caja" not in (_page.url or ""):
@@ -3216,7 +3291,7 @@ async def balanza_step_abrir_cf(on_screenshot=None) -> str:
 
 async def balanza_step_cobrar_ticket(on_screenshot=None) -> str:
     """Llena Paga con 20000 y cierra con Presupuestar F8 (ventana de caja ya abierta por abrir_cf)."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
 
     # Llenar "Paga con" con 20000
@@ -3261,7 +3336,7 @@ async def balanza_step_cobrar_ticket(on_screenshot=None) -> str:
 
 async def proveedores_ver_lista(on_screenshot=None) -> str:
     """Paso 1/8: navega a compras.php y muestra la lista de proveedores (sin clickear Editar)."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
 
@@ -3282,7 +3357,7 @@ async def proveedores_ver_lista(on_screenshot=None) -> str:
 
 async def proveedores_abrir_historial(on_screenshot=None) -> str:
     """Paso 2/8: abre el historial del primer proveedor clickeando Editar (ya en compras.php)."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
 
     async def snap(delay=0.0):
@@ -3319,7 +3394,7 @@ async def proveedores_abrir_historial(on_screenshot=None) -> str:
 
 async def proveedores_abrir_modal_compra(on_screenshot=None) -> str:
     """Paso 2/6: abre el modal de nueva compra clickeando '+ Compra'."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
 
     async def snap(delay=0.0):
@@ -3362,7 +3437,7 @@ async def proveedores_abrir_modal_compra(on_screenshot=None) -> str:
 
 async def proveedores_registrar_compra(on_screenshot=None) -> str:
     """Paso 3/6: llena numero=1, importe=800000 y finaliza la compra."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
 
     async def snap(delay=0.0):
@@ -3423,7 +3498,7 @@ async def proveedores_registrar_compra(on_screenshot=None) -> str:
 
 async def proveedores_abrir_carrito(on_screenshot=None) -> str:
     """Paso 4/6: abre el carrito (detalle) de la compra recién registrada."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
 
     async def snap(delay=0.0):
@@ -3467,7 +3542,7 @@ async def proveedores_abrir_carrito(on_screenshot=None) -> str:
 
 async def proveedores_cargar_producto(on_screenshot=None) -> str:
     """Paso 5/6: ingresa Media res, $10000, 80 kg y presiona Agregar."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
 
     async def snap(delay=0.0):
@@ -3552,7 +3627,7 @@ async def proveedores_cargar_producto(on_screenshot=None) -> str:
 
 async def proveedores_finalizar_detalle(on_screenshot=None) -> str:
     """Paso 6/6: finaliza los detalles de la compra."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
 
     async def snap(delay=0.0):
@@ -3593,7 +3668,7 @@ async def proveedores_finalizar_detalle(on_screenshot=None) -> str:
 
 async def proveedores_registrar_pago(on_screenshot=None) -> str:
     """Paso 7/7: abre el modal de nuevo pago al proveedor clickeando '+ Pago'."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
 
     async def snap(delay=0.0):
@@ -3637,7 +3712,7 @@ async def proveedores_registrar_pago(on_screenshot=None) -> str:
 
 async def produccion_ver_plantillas(on_screenshot=None) -> str:
     """Paso 1/6: navega a la lista de plantillas de producción."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
 
@@ -3654,7 +3729,7 @@ async def produccion_ver_plantillas(on_screenshot=None) -> str:
 
 async def produccion_ver_detalle_plantilla(on_screenshot=None) -> str:
     """Paso 2/6: abre el detalle de la plantilla existente 'Milanesas' (ID 6)."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
 
     async def snap(delay=0.0):
@@ -3692,7 +3767,7 @@ async def produccion_ver_detalle_plantilla(on_screenshot=None) -> str:
 
 async def produccion_ir_a_produccion(on_screenshot=None) -> str:
     """Paso 3/6: navega a la sección de Producción."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
 
@@ -3709,7 +3784,7 @@ async def produccion_ir_a_produccion(on_screenshot=None) -> str:
 
 async def produccion_nueva_produccion(on_screenshot=None) -> str:
     """Paso 4/6: abre el formulario de nueva producción."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
 
     async def snap(delay=0.0):
@@ -3751,7 +3826,7 @@ async def produccion_nueva_produccion(on_screenshot=None) -> str:
 
 async def produccion_seleccionar_plantilla(on_screenshot=None) -> str:
     """Paso 5/6: selecciona la plantilla 'Milanesas' en el formulario de nueva producción."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
 
     async def snap(delay=0.0):
@@ -3784,7 +3859,7 @@ async def produccion_seleccionar_plantilla(on_screenshot=None) -> str:
 
 async def produccion_completar_y_registrar(on_screenshot=None) -> str:
     """Paso 6/6: completa cantidad=1, tipo=Salida de producción, agrega y recarga el resultado."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
 
@@ -3902,7 +3977,7 @@ def _make_config_clicker(label_prefix):
 
 async def _ensure_on_config_page(seccion: str):
     """Navega defensivamente a la sub-sección si el browser no está ahí ya."""
-    if _page is None:
+    if _current_page() is None:
         return
     path = CONFIG_MODULE_PATHS.get(seccion, "")
     if not path:
@@ -3916,7 +3991,7 @@ async def _ensure_on_config_page(seccion: str):
 
 async def config_navegar(seccion: str, on_screenshot=None) -> str:
     """Navega a una sub-sección de Configuración y toma screenshot."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
     path = CONFIG_MODULE_PATHS.get(seccion)
@@ -3942,7 +4017,7 @@ async def config_navegar(seccion: str, on_screenshot=None) -> str:
 
 async def config_usuarios_nuevo(on_screenshot=None) -> str:
     """Click en 'Nuevo Usuario' para abrir el modal."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     await _ensure_on_config_page("USUARIOS")
     snap = _make_config_snap(on_screenshot)
@@ -3971,7 +4046,7 @@ async def config_usuarios_nuevo(on_screenshot=None) -> str:
 
 async def config_usuarios_scroll_permisos_de(on_screenshot=None) -> str:
     """Scroll dentro del modal de Nuevo Usuario para mostrar el selector 'Permisos del usuario'."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     try:
         # El modal está abierto — NO llamar _ensure_on_config_page para no cerrarlo.
@@ -3997,7 +4072,7 @@ async def config_usuarios_scroll_permisos_de(on_screenshot=None) -> str:
 
 async def config_usuarios_expandir_permisos_caja(on_screenshot=None) -> str:
     """Click en el acordeón de Caja en permisos y scrollea para mostrar el contenido."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     await _ensure_on_config_page("USUARIOS")
     snap = _make_config_snap(on_screenshot)
@@ -4039,7 +4114,7 @@ async def config_usuarios_expandir_permisos_caja(on_screenshot=None) -> str:
 
 async def config_listas_nueva(on_screenshot=None) -> str:
     """Click en 'Nueva Lista de Precios' para abrir el modal."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     await _ensure_on_config_page("LISTAS_PRECIOS")
     snap = _make_config_snap(on_screenshot)
@@ -4067,7 +4142,7 @@ async def config_listas_nueva(on_screenshot=None) -> str:
 
 async def config_grupos_nuevo(on_screenshot=None) -> str:
     """Click en 'Nuevo Grupo' para abrir el modal."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     await _ensure_on_config_page("GRUPOS")
     snap = _make_config_snap(on_screenshot)
@@ -4095,7 +4170,7 @@ async def config_grupos_nuevo(on_screenshot=None) -> str:
 
 async def config_productos_nuevo(on_screenshot=None) -> str:
     """Click en 'Nuevo Producto' y scrollea hasta precios y código PLU."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     await _ensure_on_config_page("PRODUCTOS")
     snap = _make_config_snap(on_screenshot)
@@ -4127,7 +4202,7 @@ async def config_productos_nuevo(on_screenshot=None) -> str:
 
 async def config_productos_importar(on_screenshot=None) -> str:
     """Click en el botón de importar para abrir el modal de importación desde Excel."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     await _ensure_on_config_page("PRODUCTOS")
     snap = _make_config_snap(on_screenshot)
@@ -4155,7 +4230,7 @@ async def config_productos_importar(on_screenshot=None) -> str:
 
 async def config_precios_editar_grupo_almacen(on_screenshot=None) -> str:
     """Click en el lápiz del grupo Almacén en la sección de precios."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     await _ensure_on_config_page("PRECIOS")
     snap = _make_config_snap(on_screenshot)
@@ -4187,7 +4262,7 @@ async def config_precios_editar_grupo_almacen(on_screenshot=None) -> str:
 
 async def config_precios2_grupo_carne(on_screenshot=None) -> str:
     """Click en el botón del grupo Carne en PRECIOS2."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     await _ensure_on_config_page("PRECIOS2")
     snap = _make_config_snap(on_screenshot)
@@ -4212,7 +4287,7 @@ async def config_precios2_grupo_carne(on_screenshot=None) -> str:
 
 async def config_precios_historial_detalle_grupo(on_screenshot=None) -> str:
     """Click en la lupita del grupo para ver productos en el historial de precios."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     await _ensure_on_config_page("PRECIOS_HISTORIAL")
     snap = _make_config_snap(on_screenshot)
@@ -4236,7 +4311,7 @@ async def config_precios_historial_detalle_grupo(on_screenshot=None) -> str:
 
 async def config_precios_historial_detalle_producto(on_screenshot=None) -> str:
     """Click en la lupa de un producto para ver el historial de cambios de precio."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     await _ensure_on_config_page("PRECIOS_HISTORIAL")
     snap = _make_config_snap(on_screenshot)
@@ -4279,7 +4354,7 @@ async def config_precios_historial_detalle_producto(on_screenshot=None) -> str:
 
 async def config_combos_nuevo(on_screenshot=None) -> str:
     """Click en 'Nuevo Combo' para abrir el modal."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     await _ensure_on_config_page("COMBOS")
     snap = _make_config_snap(on_screenshot)
@@ -4307,7 +4382,7 @@ async def config_combos_nuevo(on_screenshot=None) -> str:
 
 async def config_combos_editar(on_screenshot=None) -> str:
     """Click en el lápiz de editar del primer combo."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     await _ensure_on_config_page("COMBOS")
     snap = _make_config_snap(on_screenshot)
@@ -4335,7 +4410,7 @@ async def config_combos_editar(on_screenshot=None) -> str:
 
 async def config_formas_pago_nueva(on_screenshot=None) -> str:
     """Click en 'Nueva Forma de Pago' para abrir el modal."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     await _ensure_on_config_page("FORMAS_PAGO")
     snap = _make_config_snap(on_screenshot)
@@ -4363,7 +4438,7 @@ async def config_formas_pago_nueva(on_screenshot=None) -> str:
 
 async def config_descuentos_nuevo(on_screenshot=None) -> str:
     """Click en 'Nuevo Descuento' para abrir el modal."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     await _ensure_on_config_page("DESCUENTOS")
     snap = _make_config_snap(on_screenshot)
@@ -4391,7 +4466,7 @@ async def config_descuentos_nuevo(on_screenshot=None) -> str:
 
 async def config_terminales_nueva(on_screenshot=None) -> str:
     """Click en 'Nueva Terminal' para abrir el modal."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     await _ensure_on_config_page("TERMINALES")
     snap = _make_config_snap(on_screenshot)
@@ -4419,7 +4494,7 @@ async def config_terminales_nueva(on_screenshot=None) -> str:
 
 async def config_impuestos_nuevo(on_screenshot=None) -> str:
     """Click en 'Nuevo Impuesto' para abrir el modal."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     await _ensure_on_config_page("IMPUESTOS")
     snap = _make_config_snap(on_screenshot)
@@ -4447,7 +4522,7 @@ async def config_impuestos_nuevo(on_screenshot=None) -> str:
 
 async def config_gastos_nuevo_concepto(on_screenshot=None) -> str:
     """Abre el modal 'Nuevo concepto' de gastos (configuracion_gastos_nuevo_gasto())."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     await _ensure_on_config_page("GASTOS")
     snap = _make_config_snap(on_screenshot)
@@ -4477,7 +4552,7 @@ async def config_gastos_nuevo_concepto(on_screenshot=None) -> str:
 
 async def config_gastos_crear_concepto(on_screenshot=None) -> str:
     """Ingresa 'Articulos de Limpieza' en el modal de nuevo concepto y presiona Agregar."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     snap = _make_config_snap(on_screenshot)
     click_first = _make_config_clicker("CONFIG")
@@ -4519,7 +4594,7 @@ async def config_gastos_eliminar_concepto(on_screenshot=None) -> str:
     """Elimina silenciosamente el concepto de gasto 'Articulos de Limpieza' recién creado,
     buscándolo por nombre (el id es autoincremental, no se puede hardcodear), para no
     acumular conceptos de prueba entre capacitaciones. No toma screenshots (es interno)."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
     # Recargar la lista de gastos para ver el concepto recién creado
@@ -4571,7 +4646,7 @@ async def config_gastos_eliminar_concepto(on_screenshot=None) -> str:
 
 async def _arqueo_confirmar(monto: int, on_screenshot=None) -> None:
     """Helper compartido: llena el campo de importe del arqueo, opcionalmente muestra snapshot, y confirma."""
-    if _page is None:
+    if _current_page() is None:
         return
     campo = _page.locator("#importe_arqueo_nuevo").first
     if await campo.count() > 0:
@@ -4606,7 +4681,7 @@ async def caja_ir_a_apertura(on_screenshot=None) -> str:
     Resuelve silenciosamente el estado previo de la caja y navega a caja.php
     para MOSTRAR el formulario de apertura sin confirmarlo todavía.
     """
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
 
@@ -4673,7 +4748,7 @@ async def caja_abrir_turno(on_screenshot=None) -> str:
     Llena $100.000 en el campo efectivo y confirma la apertura del turno.
     Debe llamarse DESPUÉS de caja_ir_a_apertura().
     """
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     print("[PW] [CAJA2] Confirmando apertura con $100.000...")
     # on_screenshot → snaps BEFORE clic para mostrar el monto ingresado
@@ -4688,7 +4763,7 @@ async def caja_abrir_turno(on_screenshot=None) -> str:
 
 async def caja_ver_lista_ventas(on_screenshot=None) -> str:
     """Navega a caja.php y muestra la lista de ventas realizadas."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
     print("[PW] [CAJA2] Navegando a caja.php (lista ventas)...")
@@ -4702,7 +4777,7 @@ async def caja_ver_lista_ventas(on_screenshot=None) -> str:
 
 async def caja_ver_detalle_venta(on_screenshot=None) -> str:
     """Click en el ícono de detalles de la venta más reciente (primera fila de tbody)."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     clicked = await _page.evaluate("""() => {
         const btn = document.querySelector(
@@ -4723,7 +4798,7 @@ async def caja_ver_detalle_venta(on_screenshot=None) -> str:
 
 async def caja_retiros_navegar(on_screenshot=None) -> str:
     """Navega a caja_retiros.php."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
     print("[PW] [CAJA2] Navegando a caja_retiros.php...")
@@ -4737,7 +4812,7 @@ async def caja_retiros_navegar(on_screenshot=None) -> str:
 
 async def caja_retiros_nuevo(on_screenshot=None) -> str:
     """Abre el modal de nuevo retiro clickeando el botón de efectivo."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     clicked = await _page.evaluate("""() => {
         // onclick literal que da el documento
@@ -4773,7 +4848,7 @@ async def caja_retiros_nuevo(on_screenshot=None) -> str:
 async def caja_retiros_ingresar_ejemplo(on_screenshot=None) -> str:
     """Ingresa 10000 en el importe del modal de nuevo retiro, presiona Agregar
     y vuelve a caja_retiros.php para mostrar el retiro pendiente."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
     print("[PW] [CAJA2] Ingresando retiro de ejemplo de $10.000 en efectivo...")
@@ -4802,7 +4877,7 @@ async def caja_retiros_ingresar_ejemplo(on_screenshot=None) -> str:
 async def caja_retiros_abrir_aprobar(on_screenshot=None) -> str:
     """Click en el botón verde de aprobar del retiro pendiente (mostrar_aprobar_retiro),
     abriendo el modal de confirmación."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     clicked = await _page.evaluate("""() => {
         const btn = [...document.querySelectorAll('[onclick]')].find(e =>
@@ -4820,7 +4895,7 @@ async def caja_retiros_abrir_aprobar(on_screenshot=None) -> str:
 
 async def caja_retiros_confirmar_aprobar(on_screenshot=None) -> str:
     """Click en 'Si, aprobar' (caja_retiros_aprobar_retiro) para confirmar la aprobación."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     clicked = await _page.evaluate("""() => {
         const btn = [...document.querySelectorAll('[onclick]')].find(e =>
@@ -4838,7 +4913,7 @@ async def caja_retiros_confirmar_aprobar(on_screenshot=None) -> str:
 
 async def caja_cierre_navegar(on_screenshot=None) -> str:
     """Navega a caja_cierre.php."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
     print("[PW] [CAJA2] Navegando a caja_cierre.php...")
@@ -4852,7 +4927,7 @@ async def caja_cierre_navegar(on_screenshot=None) -> str:
 
 async def caja_cierre_nuevo(on_screenshot=None) -> str:
     """Hace click en el botón 'Nuevo cierre de caja' (#boton_cerrar_caja)."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     clicked = await _page.evaluate("""() => {
         const btn = document.getElementById('boton_cerrar_caja')
@@ -4881,7 +4956,7 @@ async def caja_cierre_nuevo(on_screenshot=None) -> str:
 
 async def caja_cierre_confirmar(on_screenshot=None) -> str:
     """Ingresa $500.000 en el arqueo y confirma el cierre."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     print("[PW] [CAJA2] Confirmando cierre con $500.000 de arqueo...")
     await _arqueo_confirmar(monto=500000)
@@ -4893,7 +4968,7 @@ async def caja_cierre_confirmar(on_screenshot=None) -> str:
 
 async def caja_cierre_ver_resultado(on_screenshot=None) -> str:
     """Recarga caja_cierre.php para mostrar la fila del cierre recién realizado."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
     print("[PW] [CAJA2] Recargando caja_cierre.php...")
@@ -4907,7 +4982,7 @@ async def caja_cierre_ver_resultado(on_screenshot=None) -> str:
 
 async def caja_cierre_nuevo_movimiento(on_screenshot=None) -> str:
     """Click en el ícono de nuevo movimiento en la fila más reciente del cierre."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     clicked = await _page.evaluate("""() => {
         const btn = document.querySelector(
@@ -4932,7 +5007,7 @@ async def caja_cierre_nuevo_movimiento(on_screenshot=None) -> str:
 
 async def caja_cierre_movimiento_pago_proveedor(on_screenshot=None) -> str:
     """En el modal de nuevo movimiento, selecciona la opción 'Pago a proveedor'."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     clicked = await _page.evaluate("""() => {
         const btn = document.getElementById('boton_proveedor')
@@ -4950,7 +5025,7 @@ async def caja_cierre_movimiento_pago_proveedor(on_screenshot=None) -> str:
 
 async def caja_cierre_movimiento_finalizar_proveedor(on_screenshot=None) -> str:
     """Ingresa 100000 en el importe del pago a proveedor y presiona Finalizar."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     print("[PW] [CAJA2] Ingresando pago a proveedor de $100.000...")
     try:
@@ -4974,7 +5049,7 @@ async def caja_cierre_movimiento_finalizar_proveedor(on_screenshot=None) -> str:
 
 async def caja_mayor_navegar(on_screenshot=None) -> str:
     """Navega a caja_administracion_caja.php (Caja Mayor)."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
     print("[PW] [CAJA-MAYOR] Navegando a caja_administracion_caja.php...")
@@ -4988,7 +5063,7 @@ async def caja_mayor_navegar(on_screenshot=None) -> str:
 
 async def caja_mayor_nuevo_arqueo(on_screenshot=None) -> str:
     """Abre el modal de nuevo arqueo de caja mayor SIN completar ni enviar."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     clicked = await _page.evaluate("""() => {
         const btn = [...document.querySelectorAll('[onclick]')].find(e =>
@@ -5017,7 +5092,7 @@ async def caja_mayor_nuevo_arqueo(on_screenshot=None) -> str:
 
 async def caja_mayor_detalle_arqueo(on_screenshot=None) -> str:
     """Click en el ícono de detalle del arqueo principal."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
 
     # Cerrar el modal de nuevo arqueo si quedó abierto
@@ -5054,7 +5129,7 @@ async def caja_mayor_detalle_arqueo(on_screenshot=None) -> str:
 
 async def caja_mayor_ver_movimientos(on_screenshot=None) -> str:
     """Click en el botón 'Ver movimientos' de la caja mayor."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
 
     # Cerrar modal si quedó abierto
@@ -5090,7 +5165,7 @@ async def caja_mayor_ver_movimientos(on_screenshot=None) -> str:
 
 async def caja_mayor_cheques_navegar(on_screenshot=None) -> str:
     """Navega a caja_administracion_cheques.php (sección de cheques de la caja mayor)."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
     print("[PW] [CAJA-MAYOR] Navegando a caja_administracion_cheques.php...")
@@ -5104,7 +5179,7 @@ async def caja_mayor_cheques_navegar(on_screenshot=None) -> str:
 
 async def caja_mayor_cheques_emitir(on_screenshot=None) -> str:
     """Abre el modal de nuevo cheque (botón 'Emitir cheque' → nuevo_cheque())."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     clicked = await _page.evaluate("""() => {
         const btn = [...document.querySelectorAll('[onclick]')].find(e =>
@@ -5132,7 +5207,7 @@ async def caja_mayor_cheques_emitir(on_screenshot=None) -> str:
 
 async def caja_mayor_cheques_completar(on_screenshot=None) -> str:
     """Completa el modal de nuevo cheque (fecha de hoy, número 123456, importe 100000) y presiona Ingresar."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     from datetime import date
     hoy = date.today().strftime("%Y-%m-%d")
@@ -5173,7 +5248,7 @@ async def caja_mayor_cheques_completar(on_screenshot=None) -> str:
 
 async def caja_mayor_cheques_filtrar_todos(on_screenshot=None) -> str:
     """Click en el filtro 'Todos' (cambiar_mostrar_todos) de la tabla de cheques."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     clicked = await _page.evaluate("""() => {
         const btn = document.getElementById('boton_1')
@@ -5195,7 +5270,7 @@ async def caja_mayor_cheques_filtrar_todos(on_screenshot=None) -> str:
 
 async def rrhh_navegar(on_screenshot=None) -> str:
     """Navega a rrhh_personal.php (Recursos Humanos → Personal)."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
     print("[PW] [RRHH] Navegando a rrhh_personal.php...")
@@ -5209,7 +5284,7 @@ async def rrhh_navegar(on_screenshot=None) -> str:
 
 async def rrhh_personal_nuevo(on_screenshot=None) -> str:
     """Abre el modal de nuevo personal (botón 'Nuevo personal' → f_personal_nuevo())."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     clicked = await _page.evaluate("""() => {
         const btn = [...document.querySelectorAll('[onclick]')].find(e =>
@@ -5237,7 +5312,7 @@ async def rrhh_personal_nuevo(on_screenshot=None) -> str:
 
 async def rrhh_personal_editar(on_screenshot=None) -> str:
     """Entra a la edición del personal id_personal=1 (botón azul de editar de la fila)."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     clicked = await _page.evaluate("""() => {
         const link = [...document.querySelectorAll('a[href]')].find(a =>
@@ -5261,7 +5336,7 @@ async def rrhh_personal_editar(on_screenshot=None) -> str:
 
 async def rrhh_personal_ficha(on_screenshot=None) -> str:
     """Abre la pestaña 'Ficha' del personal (onclick cargar_ficha())."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     clicked = await _page.evaluate("""() => {
         const tab = document.getElementById('li_ficha')
@@ -5279,7 +5354,7 @@ async def rrhh_personal_ficha(on_screenshot=None) -> str:
 
 async def rrhh_personal_cliente_asociado(on_screenshot=None) -> str:
     """Hace click en el selector 'cliente_asociado' para desplegar todas las opciones de clientes."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     done = await _page.evaluate("""() => {
         const sel = document.getElementById('cliente_asociado');
@@ -5303,7 +5378,7 @@ async def rrhh_personal_cliente_asociado(on_screenshot=None) -> str:
 
 async def rrhh_fichaje_nuevo(on_screenshot=None) -> str:
     """Hace click en el botón 'Nuevo fichaje' (onclick nuevo_fichaje()) para el fichaje manual."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     clicked = await _page.evaluate("""() => {
         const btn = [...document.querySelectorAll('[onclick]')].find(e =>
@@ -5331,7 +5406,7 @@ async def rrhh_fichaje_nuevo(on_screenshot=None) -> str:
 
 async def rrhh_fichaje_navegar(on_screenshot=None) -> str:
     """Navega a rrhh_fichaje.php (sección de fichaje del personal)."""
-    if _page is None:
+    if _current_page() is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
     print("[PW] [RRHH] Navegando a rrhh_fichaje.php (fichaje)...")

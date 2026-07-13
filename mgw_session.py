@@ -1,93 +1,94 @@
 """
 mgw_session.py
-Maneja la sesión de Mi Gestión Web server-side.
+Sesión server-side de Mi Gestión Web, por instancia (multi-tenant).
+
+Antes esto era un único `requests.Session` global. Ahora cada BotSession tiene su
+propia MgwSession con su credencial del pool, para que N llamadas concurrentes no se
+pisen la sesión entre sí. El proxy /mgw-proxy usa la MgwSession de su sid.
 """
 import requests
-from config import MGW_URL, MGW_USER, MGW_EMPRESA, MGW_PASSWORD
-
-_session: requests.Session | None = None
-_cookies: dict = {}
+from config import MGW_URL
 
 
-def mgw_login() -> bool:
-    global _session, _cookies
+class MgwSession:
+    """Sesión autenticada contra MGW para UNA credencial del pool."""
 
-    _session = requests.Session()
+    def __init__(self, empresa: str, usuario: str, password: str, log=None):
+        self.empresa = empresa
+        self.usuario = usuario
+        self.password = password
+        self._session: requests.Session | None = None
+        self._cookies: dict = {}
+        # log(msg) opcional — inyecta el sid. Si no viene, cae a print.
+        self._log = log or (lambda msg: print(msg))
 
-    try:
-        # GET inicial para obtener cookies de sesión vacías
-        _session.get(MGW_URL, timeout=10)
+    def login(self) -> bool:
+        self._session = requests.Session()
+        try:
+            # GET inicial para obtener cookies de sesión vacías
+            self._session.get(MGW_URL, timeout=10)
 
-        # POST de login con los campos correctos
-        resp = _session.post(
-            MGW_URL.rstrip("/") + "/index.php",
-            data={
-                "empresa":    MGW_EMPRESA,
-                "usuario":    MGW_USER,
-                "contrasena": MGW_PASSWORD,
-                "btnlogin":   "",
-            },
-            timeout=15,
-            allow_redirects=True,
-        )
+            resp = self._session.post(
+                MGW_URL.rstrip("/") + "/index.php",
+                data={
+                    "empresa":    self.empresa,
+                    "usuario":    self.usuario,
+                    "contrasena": self.password,
+                    "btnlogin":   "",
+                },
+                timeout=15,
+                allow_redirects=True,
+            )
 
-        _cookies = dict(_session.cookies)
-        print(f"[MGW Session] URL final post-login: {resp.url}")
-        print(f"[MGW Session] Status: {resp.status_code}")
-        print(f"[MGW Session] Cookies: {list(_cookies.keys())}")
-        print(f"[MGW Session] Response snippet: {resp.text[:400]}")
+            self._cookies = dict(self._session.cookies)
+            self._log(f"[MGW Session] {self.empresa}: URL final post-login: {resp.url}")
+            self._log(f"[MGW Session] {self.empresa}: Status {resp.status_code}, cookies {list(self._cookies.keys())}")
 
-        if "home.php" in resp.url:
-            print("[MGW Session] Login OK ✓")
-            return True
-        elif "index.php" in resp.url or resp.url == MGW_URL.rstrip("/") + "/":
-            print("[MGW Session] Login falló — redirigió al login de nuevo")
+            if "home.php" in resp.url:
+                self._log(f"[MGW Session] {self.empresa}: Login OK ✓")
+                return True
+            elif "index.php" in resp.url or resp.url == MGW_URL.rstrip("/") + "/":
+                self._log(f"[MGW Session] {self.empresa}: Login falló — redirigió al login")
+                return False
+            elif self._cookies:
+                self._log(f"[MGW Session] {self.empresa}: URL inesperada pero hay cookies, asumiendo OK")
+                return True
+            else:
+                self._log(f"[MGW Session] {self.empresa}: Login falló sin cookies")
+                return False
+
+        except Exception as e:
+            self._log(f"[MGW Session] {self.empresa}: Error en login: {e}")
             return False
-        elif _cookies:
-            print("[MGW Session] URL inesperada pero hay cookies, asumiendo OK")
-            return True
-        else:
-            print("[MGW Session] Login falló sin cookies")
-            return False
 
-    except Exception as e:
-        print(f"[MGW Session] Error en login: {e}")
-        return False
+    def get(self, path: str) -> requests.Response | None:
+        if self._session is None:
+            return None
+        url = f"{MGW_URL.rstrip('/')}{path}"
+        try:
+            return self._session.get(url, timeout=15, allow_redirects=True)
+        except Exception as e:
+            self._log(f"[MGW Session] {self.empresa}: Error GET {path}: {e}")
+            return None
 
-
-def mgw_get(path: str) -> requests.Response | None:
-    if _session is None:
-        return None
-    base = MGW_URL.rstrip("/")
-    url  = f"{base}{path}"
-    try:
-        return _session.get(url, timeout=15, allow_redirects=True)
-    except Exception as e:
-        print(f"[MGW Session] Error GET {path}: {e}")
-        return None
-
-
-def mgw_post(path: str, data: dict | None = None, raw_body: bytes | None = None,
+    def post(self, path: str, data: dict | None = None, raw_body: bytes | None = None,
              content_type: str | None = None) -> requests.Response | None:
-    if _session is None:
-        return None
-    base = MGW_URL.rstrip("/")
-    url  = f"{base}{path}"
-    try:
-        headers = {}
-        if content_type:
-            headers["Content-Type"] = content_type
-        if raw_body is not None:
-            return _session.post(url, data=raw_body, headers=headers, timeout=15, allow_redirects=True)
-        return _session.post(url, data=data or {}, timeout=15, allow_redirects=True)
-    except Exception as e:
-        print(f"[MGW Session] Error POST {path}: {e}")
-        return None
+        if self._session is None:
+            return None
+        url = f"{MGW_URL.rstrip('/')}{path}"
+        try:
+            headers = {}
+            if content_type:
+                headers["Content-Type"] = content_type
+            if raw_body is not None:
+                return self._session.post(url, data=raw_body, headers=headers, timeout=15, allow_redirects=True)
+            return self._session.post(url, data=data or {}, timeout=15, allow_redirects=True)
+        except Exception as e:
+            self._log(f"[MGW Session] {self.empresa}: Error POST {path}: {e}")
+            return None
 
+    def get_cookies(self) -> dict:
+        return self._cookies
 
-def get_cookies() -> dict:
-    return _cookies
-
-
-def is_logged_in() -> bool:
-    return _session is not None
+    def is_logged_in(self) -> bool:
+        return self._session is not None
