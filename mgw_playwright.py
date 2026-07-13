@@ -773,6 +773,39 @@ async def _manejar_arqueo(on_screenshot=None) -> None:
         print(f"[PW] [ARQUEO] Error: {e}")
 
 
+async def _ensure_caja_abierta(on_screenshot=None) -> bool:
+    """
+    Verifica EN SILENCIO si la caja está abierta y, si no lo está, la abre con el
+    fondo inicial usando la lógica ya probada (caja_ir_a_apertura + caja_abrir_turno).
+
+    Se usa cuando se entra directo a una sección que necesita la caja abierta (ej:
+    balanza en modo sección directa), donde no se pasó antes por la apertura de caja.
+
+    Señal confiable de estado: #boton_cerrar_caja en caja_cierre.php solo aparece si
+    la caja está abierta (mismo criterio que caja_ir_a_apertura). No genera screenshots
+    para no interrumpir la narración. Devuelve True si tuvo que abrir la caja.
+    """
+    if _page is None:
+        return False
+    base = MGW_URL.rstrip("/")
+    try:
+        print("[PW] [ENSURE-CAJA] Verificando estado de la caja...")
+        await _page.goto(f"{base}/caja_cierre.php", wait_until="domcontentloaded", timeout=20000)
+        await asyncio.sleep(1.0)
+        cerrar_btn = _page.locator("#boton_cerrar_caja").first
+        if await cerrar_btn.count() > 0 and await cerrar_btn.is_visible():
+            print("[PW] [ENSURE-CAJA] Caja ya abierta ✓")
+            return False
+        print("[PW] [ENSURE-CAJA] Caja cerrada — abriéndola en silencio...")
+        await caja_ir_a_apertura()   # resuelve estados previos y deja el form de apertura
+        await caja_abrir_turno()     # confirma la apertura con el fondo inicial
+        print("[PW] [ENSURE-CAJA] Caja abierta ✓")
+        return True
+    except Exception as e:
+        print(f"[PW] [ENSURE-CAJA] Error verificando/abriendo caja: {e}")
+        return False
+
+
 # ── CLIENTES: abrir formulario de nuevo cliente con Playwright ────────────────
 
 async def _demo_clientes_abrir_formulario(on_screenshot=None) -> bool:
@@ -2953,6 +2986,12 @@ async def balanza_step_navegar(on_screenshot=None) -> str:
     if _page is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
+    # El flujo de balanza cobra el ticket desde la caja (pasos 5-7). Si se entra
+    # directo a balanza (modo sección directa) con la caja cerrada, esos pasos no
+    # encuentran los botones. Nos aseguramos EN SILENCIO de que la caja esté abierta
+    # antes de arrancar; si ya estaba abierta (ej: se pasó por la sección de caja), no
+    # cambia nada.
+    await _ensure_caja_abierta()
     print("[PW] [BALANZA-STEP] Navegando a balanza.php...")
     await _page.goto(f"{base}/balanza.php", wait_until="domcontentloaded", timeout=20000)
     await asyncio.sleep(2.0)
@@ -5148,3 +5187,157 @@ async def caja_mayor_cheques_filtrar_todos(on_screenshot=None) -> str:
     if on_screenshot:
         await _snap(on_screenshot, 0.0)
     return "Filtro 'Todos' aplicado: se muestran todos los cheques, tanto activos como inactivos."
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# RECURSOS HUMANOS (RRHH)
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def rrhh_navegar(on_screenshot=None) -> str:
+    """Navega a rrhh_personal.php (Recursos Humanos → Personal)."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    base = MGW_URL.rstrip("/")
+    print("[PW] [RRHH] Navegando a rrhh_personal.php...")
+    await _page.goto(f"{base}/rrhh_personal.php", wait_until="domcontentloaded", timeout=20000)
+    await asyncio.sleep(2.0)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    print("[PW] [RRHH] rrhh_navegar ✓")
+    return "Sección de Recursos Humanos → Personal visible: listado de todo el personal, con botón para crear nuevo personal."
+
+
+async def rrhh_personal_nuevo(on_screenshot=None) -> str:
+    """Abre el modal de nuevo personal (botón 'Nuevo personal' → f_personal_nuevo())."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    clicked = await _page.evaluate("""() => {
+        const btn = [...document.querySelectorAll('[onclick]')].find(e =>
+            (e.getAttribute('onclick') || '').includes('f_personal_nuevo')
+        );
+        if (btn) { btn.click(); return true; }
+        return false;
+    }""")
+    if not clicked:
+        for selector in ['a:has-text("Nuevo personal")', 'button:has-text("Nuevo personal")']:
+            try:
+                el = _page.locator(selector).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    clicked = True
+                    break
+            except Exception:
+                continue
+    print(f"[PW] [RRHH] rrhh_personal_nuevo: {'✓' if clicked else '✗'}")
+    await asyncio.sleep(1.5)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    return "Modal de nuevo personal abierto, con campos de nombre, apellido, categoría, dirección, mail, teléfono, dni, cuil o cuit, legajo, fecha de alta, cumpleaños, sueldo, periodicidad de pago, cliente asociado, comentarios y fotos."
+
+
+async def rrhh_personal_editar(on_screenshot=None) -> str:
+    """Entra a la edición del personal id_personal=1 (botón azul de editar de la fila)."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    clicked = await _page.evaluate("""() => {
+        const link = [...document.querySelectorAll('a[href]')].find(a =>
+            (a.getAttribute('href') || '').includes('rrhh_personal_editar.php?id_personal=1')
+        );
+        if (link) { link.click(); return true; }
+        return false;
+    }""")
+    if not clicked:
+        base = MGW_URL.rstrip("/")
+        print("[PW] [RRHH] editar: fallback goto rrhh_personal_editar.php?id_personal=1")
+        await _page.goto(f"{base}/rrhh_personal_editar.php?id_personal=1", wait_until="domcontentloaded", timeout=20000)
+    else:
+        await _page.wait_for_load_state("domcontentloaded", timeout=20000)
+    print(f"[PW] [RRHH] rrhh_personal_editar: {'✓ (click)' if clicked else '✓ (goto)'}")
+    await asyncio.sleep(2.0)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    return "Detalle del personal abierto: se ven todos los movimientos y las acciones para liquidar sueldos, pagarlos, ingresar faltas o ingresar descuentos."
+
+
+async def rrhh_personal_ficha(on_screenshot=None) -> str:
+    """Abre la pestaña 'Ficha' del personal (onclick cargar_ficha())."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    clicked = await _page.evaluate("""() => {
+        const tab = document.getElementById('li_ficha')
+               || [...document.querySelectorAll('[onclick]')].find(e =>
+                      (e.getAttribute('onclick') || '').includes('cargar_ficha'));
+        if (tab) { tab.click(); return true; }
+        return false;
+    }""")
+    print(f"[PW] [RRHH] rrhh_personal_ficha: {'✓' if clicked else '✗'}")
+    await asyncio.sleep(2.0)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    return "Pestaña Ficha abierta: se ven todos los datos del personal y el campo 'cliente asociado' para vincularlo a un cliente."
+
+
+async def rrhh_personal_cliente_asociado(on_screenshot=None) -> str:
+    """Hace click en el selector 'cliente_asociado' para desplegar todas las opciones de clientes."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    done = await _page.evaluate("""() => {
+        const sel = document.getElementById('cliente_asociado');
+        if (!sel) return false;
+        sel.scrollIntoView({block: 'center'});
+        sel.focus();
+        return true;
+    }""")
+    if done:
+        try:
+            # Click sobre el <select> para desplegar la lista de clientes
+            await _page.click('#cliente_asociado', timeout=5000)
+        except Exception as e:
+            print(f"[PW] [RRHH] cliente_asociado: click falló ({e})")
+    print(f"[PW] [RRHH] rrhh_personal_cliente_asociado: {'✓' if done else '✗'}")
+    await asyncio.sleep(1.5)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    return "Selector 'cliente asociado' desplegado: se ven todas las opciones de clientes y al hacer click sobre uno queda vinculado al personal."
+
+
+async def rrhh_fichaje_nuevo(on_screenshot=None) -> str:
+    """Hace click en el botón 'Nuevo fichaje' (onclick nuevo_fichaje()) para el fichaje manual."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    clicked = await _page.evaluate("""() => {
+        const btn = [...document.querySelectorAll('[onclick]')].find(e =>
+            (e.getAttribute('onclick') || '').includes('nuevo_fichaje')
+        );
+        if (btn) { btn.click(); return true; }
+        return false;
+    }""")
+    if not clicked:
+        for selector in ['a:has-text("Nuevo fichaje")', 'button:has-text("Nuevo fichaje")']:
+            try:
+                el = _page.locator(selector).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    clicked = True
+                    break
+            except Exception:
+                continue
+    print(f"[PW] [RRHH] rrhh_fichaje_nuevo: {'✓' if clicked else '✗'}")
+    await asyncio.sleep(1.5)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    return "Modal de nuevo fichaje abierto: se carga la fecha y la hora manualmente para registrar el fichaje de un empleado."
+
+
+async def rrhh_fichaje_navegar(on_screenshot=None) -> str:
+    """Navega a rrhh_fichaje.php (sección de fichaje del personal)."""
+    if _page is None:
+        return "Error: browser no iniciado"
+    base = MGW_URL.rstrip("/")
+    print("[PW] [RRHH] Navegando a rrhh_fichaje.php (fichaje)...")
+    await _page.goto(f"{base}/rrhh_fichaje.php", wait_until="domcontentloaded", timeout=20000)
+    await asyncio.sleep(2.0)
+    if on_screenshot:
+        await _snap(on_screenshot, 0.0)
+    print("[PW] [RRHH] rrhh_fichaje_navegar ✓")
+    return "Sección de fichaje visible: todos los fichajes del negocio, con opción de fichaje manual (fecha y hora) además del fichaje en tiempo real con ubicación, foto y hora."
