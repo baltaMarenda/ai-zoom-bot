@@ -418,7 +418,12 @@ class SessionManager:
     # ── Watchdog de inactividad / tope de duración ───────────────────────────
     def _cancel_watchdog(self, sid: str):
         task = self._watchdogs.pop(sid, None)
-        if task and not task.done():
+        # NO cancelar la task actual: el watchdog llama a teardown, y teardown llama
+        # acá — cancelar la propia task en curso abortaría el teardown en su primer
+        # `await` (justo tras poner CLOSING, ANTES de liberar la credencial), dejando
+        # la sesión pegada en `closing` para siempre. Al volver de teardown el watchdog
+        # sale solo (su loop ve la sesión ya removida).
+        if task and not task.done() and task is not asyncio.current_task():
             task.cancel()
 
     def _start_watchdog(self, session: "BotSession"):

@@ -45,7 +45,8 @@
       "Bash(curl -s -X DELETE https://ai-zoom-bot-production.up.railway.app/sessions/bbf227ee)",
       "Bash(curl -s -X DELETE https://ai-zoom-bot-production.up.railway.app/sessions/7d94438c)",
       "Bash(curl -s https://ai-zoom-bot-production.up.railway.app/sessions/140039d8)",
-      "Bash(curl -s https://ai-zoom-bot-production.up.railway.app/sessions/d863c1cb)"
+      "Bash(curl -s https://ai-zoom-bot-production.up.railway.app/sessions/d863c1cb)",
+      "Bash(curl -s -X DELETE https://ai-zoom-bot-production.up.railway.app/sessions/c3744d41)"
     ]
   }
 }
