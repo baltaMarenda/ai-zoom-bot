@@ -3136,23 +3136,53 @@ async def balanza_step_agregar_producto(operario_nombre: str, operario_id: str, 
         await asyncio.sleep(2.0)
         await _snap(on_screenshot, 0.0)
 
-    # Buscar Vacío
-    for sel in ['input[name="producto"]', '#producto', 'input.ui-autocomplete-input', 'input[placeholder*="roducto"]']:
-        try:
-            el = _page.locator(sel).first
-            if await el.count() > 0 and await el.is_visible():
-                await el.click()
-                await el.fill("")
-                await el.type("Vacío", delay=120)
-                break
-        except Exception:
+    # ── Buscar y seleccionar "Vacío" (con verificación + reintento) ──────────
+    # El autocomplete de MGW resuelve por AJAX; en prod la latencia hace que
+    # clickear .first sobre una lista todavía vacía/stale seleccione mal (o nada)
+    # y el Ingreso Manual dispare los carteles "apoye la mercadería / no permite
+    # ingreso manual". Reintentamos esperando el AJAX y clickeamos el item que
+    # realmente contiene "Vacío", logueando cada paso para poder diagnosticar.
+    async def _tipear_vacio() -> bool:
+        for sel in ['input[name="producto"]', '#producto', 'input.ui-autocomplete-input', 'input[placeholder*="roducto"]']:
+            try:
+                el = _page.locator(sel).first
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click()
+                    await el.fill("")
+                    await el.type("Vacío", delay=120)
+                    return True
+            except Exception:
+                continue
+        return False
+
+    seleccionado = False
+    for intento in range(1, 4):
+        if not await _tipear_vacio():
+            print(f"[PW] [BALANZA-STEP] intento {intento}: no encontré el input de producto")
+            await asyncio.sleep(0.8)
             continue
-    await asyncio.sleep(1.5)
-    try:
-        await _page.wait_for_selector('.ui-autocomplete .ui-menu-item', state="visible", timeout=4000)
-        await _page.locator('.ui-autocomplete .ui-menu-item').first.click()
-    except Exception:
-        pass
+        try:
+            await _page.wait_for_selector('.ui-autocomplete .ui-menu-item', state="visible", timeout=5000)
+        except Exception:
+            print(f"[PW] [BALANZA-STEP] intento {intento}: autocomplete no cargó (AJAX lento?)")
+            await asyncio.sleep(0.8)
+            continue
+        items = await _page.evaluate("""(() =>
+            [...document.querySelectorAll('.ui-autocomplete .ui-menu-item')]
+                .map(e => (e.innerText || '').trim()).filter(Boolean)
+        )()""")
+        print(f"[PW] [BALANZA-STEP] intento {intento}: autocomplete = {items}")
+        idx = next((i for i, t in enumerate(items) if 'vac' in t.lower()), 0 if items else -1)
+        if idx < 0:
+            print(f"[PW] [BALANZA-STEP] intento {intento}: 'Vacío' no está en la lista")
+            await asyncio.sleep(0.8)
+            continue
+        await _page.locator('.ui-autocomplete .ui-menu-item').nth(idx).click()
+        print(f"[PW] [BALANZA-STEP] seleccionado item [{idx}] = '{items[idx]}' ✓")
+        seleccionado = True
+        break
+    if not seleccionado:
+        print("[PW] [BALANZA-STEP] ⚠️ NO se seleccionó producto — el Ingreso Manual va a disparar los carteles de MGW")
     await asyncio.sleep(0.5)
 
     # Ingreso manual
@@ -3163,7 +3193,24 @@ async def balanza_step_agregar_producto(operario_nombre: str, operario_id: str, 
         if (btn) { btn.click(); return true; }
         return false;
     })()""")
+    print(f"[PW] [BALANZA-STEP] botón Ingreso Manual: {clicked}")
     await asyncio.sleep(0.8)
+
+    # Diagnóstico: ¿MGW mostró un cartel de error (producto sin ingreso manual /
+    # esperando peso)? Si aparece, lo logueamos para saber la causa exacta.
+    cartel = await _page.evaluate("""(() => {
+        const kw = ['no permite ingreso manual','apoye','estabil','pese el','coloque la mercader'];
+        for (const el of document.querySelectorAll('body *')) {
+            const st = getComputedStyle(el);
+            if (st.display === 'none' || st.visibility === 'hidden') continue;
+            const t = (el.innerText || '').trim();
+            const tl = t.toLowerCase();
+            if (t && t.length < 140 && kw.some(k => tl.includes(k))) return t;
+        }
+        return '';
+    })()""")
+    if cartel:
+        print(f"[PW] [BALANZA-STEP] ⚠️ Cartel MGW visible: '{cartel}'")
 
     # Tecla 1 (1 kg)
     await _page.evaluate("""(() => {
@@ -3220,9 +3267,23 @@ async def balanza_step_mostrar_tickets(on_screenshot=None) -> str:
         await asyncio.sleep(2.0)
         await _snap(on_screenshot, 0.0)
 
-    await _page.evaluate("if(typeof tickets === 'function') tickets();")
+    # Acotado por timeout: si tickets() deja la página en un estado que cuelga el
+    # evaluate o el screenshot, NO debe congelar la tool (eso deja a Malena muda
+    # porque el resultado nunca vuelve al modelo). Ante timeout seguimos igual.
+    try:
+        await asyncio.wait_for(
+            _page.evaluate("if(typeof tickets === 'function') tickets();"),
+            timeout=10,
+        )
+    except asyncio.TimeoutError:
+        print("[PW] [BALANZA-STEP] ⚠️ tickets() timeout 10s — sigo igual")
+    except Exception as e:
+        print(f"[PW] [BALANZA-STEP] tickets() error: {e}")
     await asyncio.sleep(1.5)
-    await _snap(on_screenshot, 0.0)
+    try:
+        await asyncio.wait_for(_snap(on_screenshot, 0.0), timeout=10)
+    except asyncio.TimeoutError:
+        print("[PW] [BALANZA-STEP] ⚠️ snap timeout 10s — sigo igual")
     print("[PW] [BALANZA-STEP] mostrar_tickets ✓")
     return (
         "Botón Tickets presionado. Tickets pendientes de ambos operarios visibles. "
