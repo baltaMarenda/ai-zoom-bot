@@ -34,7 +34,9 @@
       "Bash(git checkout *)",
       "Bash(git pull *)",
       "Bash(git merge *)",
-      "Bash(grep -E \"^[a-f0-9]{7,}|REALTIME_MODEL|gpt-realtime|^commit|^\\\\+.*model|^-.*model\")"
+      "Bash(grep -E \"^[a-f0-9]{7,}|REALTIME_MODEL|gpt-realtime|^commit|^\\\\+.*model|^-.*model\")",
+      "Bash(PYTHONPATH=/Users/baltazarmarenda/Downloads/ai-zoom-bot python /private/tmp/claude-501/-Users-baltazarmarenda-Downloads-ai-zoom-bot/bbadef3e-06cc-4ae3-b9ae-98eb7bb17be0/scratchpad/inspect_caja.py)",
+      "Bash(PYTHONPATH=/Users/baltazarmarenda/Downloads/ai-zoom-bot python /private/tmp/claude-501/-Users-baltazarmarenda-Downloads-ai-zoom-bot/bbadef3e-06cc-4ae3-b9ae-98eb7bb17be0/scratchpad/test_ensure.py)"
     ]
   }
 }

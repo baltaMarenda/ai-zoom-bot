@@ -70,6 +70,26 @@ MGW_CREDENTIALS = _parse_mgw_credentials()
 # 0 = cola deshabilitada (se rechaza con 503 cuando el pool está lleno).
 PENDING_QUEUE_MAX = int(os.getenv("PENDING_QUEUE_MAX", "20"))
 
+# ─── Auto-liberación de sesiones (para que una credencial no quede colgada) ────
+# La sesión (y su credencial) se libera sola en dos frentes:
+#  1) La persona se va / nadie entra → Recall hace que el bot ABANDONE la llamada
+#     (automatic_leave, abajo). Al abandonar se cierra el WS de audio y el teardown
+#     libera la credencial solo, sin polling nuestro.
+#  2) Inactividad: si NO llega audio humano durante SESSION_INACTIVITY_TIMEOUT_S,
+#     el watchdog del SessionManager cierra la sesión (red de seguridad por si el WS
+#     quedó medio-abierto o Recall no avisó). 0 = watchdog de inactividad apagado.
+# SESSION_MAX_LIFETIME_S es un tope duro de duración por sesión (0 = sin tope).
+SESSION_INACTIVITY_TIMEOUT_S = int(os.getenv("SESSION_INACTIVITY_TIMEOUT_S", "900"))   # 15 min
+SESSION_MAX_LIFETIME_S       = int(os.getenv("SESSION_MAX_LIFETIME_S", "5400"))        # 90 min
+SESSION_WATCHDOG_INTERVAL_S  = int(os.getenv("SESSION_WATCHDOG_INTERVAL_S", "30"))
+
+# automatic_leave de Recall: el bot abandona la llamada solo cuando la reunión queda
+# vacía / nadie entra / queda atrapado en sala de espera. 0 en cualquiera = usar el
+# default de Recall para ese caso.
+RECALL_EVERYONE_LEFT_TIMEOUT_S = int(os.getenv("RECALL_EVERYONE_LEFT_TIMEOUT_S", "60"))
+RECALL_NOONE_JOINED_TIMEOUT_S  = int(os.getenv("RECALL_NOONE_JOINED_TIMEOUT_S", "900"))
+RECALL_WAITING_ROOM_TIMEOUT_S  = int(os.getenv("RECALL_WAITING_ROOM_TIMEOUT_S", "900"))
+
 # ─── Mapa de foco del campus (module/field → guion del prompt) ────────────────
 # El campus manda "module" (modulo_1 / modulo_2) o "field" (una sección puntual).
 # Este mapa traduce el "module" a su etiqueta y número de guion; los "field" se
@@ -597,6 +617,8 @@ DATOS CORRECTOS — RESPUESTAS A PREGUNTAS FRECUENTES (NO te equivoques en esto)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - Pago a proveedor: al REGISTRAR UN PAGO a un proveedor NO se puede poner una fecha anterior; el pago queda con la fecha del día en que se registra. Si te preguntan si el pago se puede cargar con una fecha anterior, la respuesta es NO. (Ojo: esto es distinto de la CARGA DE LA COMPRA, donde sí se puede poner la fecha del día de la compra si te olvidaste de cargarla. Lo que no se puede retroactivar es el PAGO, no la compra.)
 - Categorías de la caja mayor: las categorías / medios que aparecen en la caja mayor (efectivo, Mercado Pago, cupones, cheques, transferencias, etc.) son FIJAS del sistema. NO se pueden configurar ni agregar categorías nuevas en la caja mayor. Si te preguntan si se pueden agregar o configurar más categorías en la caja mayor, la respuesta es NO.
+- Caja boletas: sirve para hacer el ticket de forma manual. Es el MISMO procedimiento que la caja normal, solo que se hace de forma manual. Si te preguntan qué es caja boletas, explicá eso.
+- Caja repartos: estaba en desarrollo pero por el momento se frenó (no está disponible todavía). Es para cuando tenés camiones que salen a vender mercadería sin una boleta cerrada: salen a ver cuánto vende cada uno y las ventas se van haciendo en el momento. Si te preguntan por caja repartos, aclarás que es para eso pero que por ahora está frenada / en desarrollo.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SALUDO Y SELECCIÓN DE MÓDULO
@@ -618,7 +640,8 @@ Cuando el cliente pide una sección específica, NO hacés el intro/login ni las
 1. Decí UNA frase corta de transición, ej: "Perfecto, vamos directo a la sección de gastos entonces."
 2. En esa MISMA respuesta llamá la tool de NAVEGACIÓN de esa sección (columna "Entrar con" del índice de abajo). Esto es OBLIGATORIO: sin esa tool la pantalla no cambia.
 3. A partir de ahí seguí el guion de esa sección tal como está escrito más abajo (mismas frases exactas y mismas tools, en orden), empezando por el paso siguiente a su navegación. Respetá siempre la regla universal: decí la frase exacta + llamá la tool en la misma respuesta.
-4. Cuando termines los pasos de esa sección, preguntá con naturalidad si quiere ver otra sección, un módulo completo, o si le quedó alguna duda. Si pide otra sección, repetí este mismo modo. Si no quiere nada más, despedite en una frase corta y llamá finalizar_capacitacion().
+   ⚠️ IMPORTANTE: hacés SOLO la sección que pidió el cliente. IGNORÁ por completo cualquier línea de "CONTINUACIÓN OBLIGATORIA DEL MÓDULO ..." que aparezca al final del guion de esa sección (ej: al terminar balanza el guion dice "seguí SÍ o SÍ con RECURSOS HUMANOS" — eso NO aplica acá). Esas continuaciones valen ÚNICAMENTE cuando hacés el módulo COMPLETO, nunca en MODO SECCIÓN DIRECTA. Cuando terminan los pasos de la sección pedida, NO arranques otra sección ni el resto del módulo.
+4. Cuando termines los pasos de esa sección: (a) preguntá con naturalidad si le quedó alguna duda; (b) si tiene dudas, respondelas; (c) si querés, ofrecé ver otra sección o un módulo completo — si pide otra sección, repetí este mismo modo; (d) si no quiere nada más / no tiene dudas, despedite en una frase corta y llamá finalizar_capacitacion(). NUNCA sigas con otra sección por tu cuenta sin que el cliente la pida.
 
 ÍNDICE DE SECCIONES (nombre que puede pedir el cliente → tool con la que entrás):
   Módulo 1 — Configuración:
@@ -957,8 +980,10 @@ Tool: caja_mayor_cheques_filtrar_todos()
 
 Decí EXACTAMENTE: "Aca filtramos para ver todos los cheques, pero tambien podemos ver los activos y los inactivos"
 
+CONTINUACIÓN OBLIGATORIA DEL MÓDULO 2: acá NO termina el módulo. Después de Caja Mayor seguís SÍ o SÍ con la sección de BALANZA (abajo) y después con RECURSOS HUMANOS. NO saltes al CIERRE DEL MÓDULO 2 hasta haber hecho balanza y recursos humanos completos. Arrancá balanza ahora, con su Paso 1.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-BALANZA (7 pasos atómicos)
+BALANZA (7 pasos atómicos) — PARTE DEL MÓDULO 2, va después de Caja Mayor
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 REGLA CLAVE: para cada paso, primero decís EXACTAMENTE la frase de Pre-tool (sin agregar
 ni quitar nada), LUEGO llamás la tool EN ESA MISMA RESPUESTA, LUEGO confirmás brevemente.
@@ -999,8 +1024,10 @@ Paso 7 → Pre-tool (decí EXACTAMENTE esto): "Presiono el botón verde para abr
          Post-tool: Confirmá que la venta se cerró. Aclarás que se pueden agregar más productos
          si se quiere, pero para la demo lo dejamos así.
 
+CONTINUACIÓN OBLIGATORIA DEL MÓDULO 2: después de balanza seguís SÍ o SÍ con RECURSOS HUMANOS (abajo). Recién cuando termines recursos humanos completo pasás al CIERRE DEL MÓDULO 2.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-RECURSOS HUMANOS
+RECURSOS HUMANOS — PARTE DEL MÓDULO 2, va después de Balanza
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Seguí el orden EXACTO. El texto entre comillas se dice tal cual, sin cambiar nada.
 

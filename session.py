@@ -14,7 +14,10 @@ import time
 import uuid
 from collections import deque
 
-from config import MGW_CREDENTIALS, PENDING_QUEUE_MAX, CAMPUS_FOCUS_MAP, TRAINING_SYSTEM_PROMPT
+from config import (
+    MGW_CREDENTIALS, PENDING_QUEUE_MAX, CAMPUS_FOCUS_MAP, TRAINING_SYSTEM_PROMPT,
+    SESSION_INACTIVITY_TIMEOUT_S, SESSION_MAX_LIFETIME_S, SESSION_WATCHDOG_INTERVAL_S,
+)
 from credentials_pool import CredentialPool, CredentialSlot
 from mgw_session import MgwSession
 import recall
@@ -72,6 +75,13 @@ def build_system_prompt(module: str, field: str, user_name: str) -> str:
             f"Después de saludar, pasá DIRECTAMENTE a MODO SECCIÓN DIRECTA con la sección '{field}' "
             f"(navegá a esa sección con su tool y seguí su guion)."
         )
+        lines.append(
+            f"- Explicás ÚNICAMENTE la sección '{field}'. Cuando termines sus pasos, IGNORÁ cualquier "
+            f"'CONTINUACIÓN OBLIGATORIA DEL MÓDULO' del guion (no sigas con otra sección ni con el resto "
+            f"del módulo por tu cuenta). Al terminar: preguntá si le quedó alguna duda, respondela si hace "
+            f"falta, y después despedite y llamá finalizar_capacitacion(). Sólo hacés otra sección si el "
+            f"cliente la pide explícitamente."
+        )
     elif module in CAMPUS_FOCUS_MAP and CAMPUS_FOCUS_MAP[module]["kind"] == "module":
         info = CAMPUS_FOCUS_MAP[module]
         lines.append(
@@ -97,6 +107,9 @@ class BotSession:
         self.system_prompt = build_system_prompt(module, field, user_name)
         self.log          = SidLogger(sid)
         self.created_at   = time.time()
+        # Última señal de actividad (audio humano). El watchdog cierra la sesión si
+        # queda inactiva demasiado tiempo. bot.py llama a touch() por cada frame humano.
+        self.last_activity = time.time()
 
         self.state: str            = STATE_WAITING
         self.bot_id: str | None    = None
@@ -119,6 +132,10 @@ class BotSession:
             "audio_done":        asyncio.Event(),
         }
         self.fase2_task_created = False
+
+    def touch(self):
+        """Marca actividad (audio humano). Reinicia el reloj de inactividad."""
+        self.last_activity = time.time()
 
     @property
     def sistema(self) -> str | None:
@@ -195,6 +212,7 @@ class SessionManager:
         self._queue: deque[str] = deque()   # sids en WAITING, en orden de llegada
         self._lock = asyncio.Lock()          # protege registro + cola
         self._pending_teardowns: dict[str, asyncio.Task] = {}  # teardown con gracia
+        self._watchdogs: dict[str, asyncio.Task] = {}          # inactividad / tope de vida
 
     # ── Consultas ────────────────────────────────────────────────────────────
     def get(self, sid: str) -> BotSession | None:
@@ -268,7 +286,9 @@ class SessionManager:
         )
         session.bot_id = data["id"]
         session.state = STATE_RUNNING
+        session.touch()   # arranca el reloj de inactividad recién al entrar en llamada
         session.log.info(f"Bot Recall creado: {session.bot_id} (sistema {slot.alias})")
+        self._start_watchdog(session)
 
     # ── Destrucción / cleanup garantizado ────────────────────────────────────
     async def teardown(self, sid: str, reason: str = ""):
@@ -284,6 +304,7 @@ class SessionManager:
             return
         session.state = STATE_CLOSING
         self._pending_teardowns.pop(sid, None)
+        self._cancel_watchdog(sid)
         session.log.info(f"teardown (motivo: {reason or 'n/a'})")
 
         # 1+2. Recursos locales de la sesión (bridge Realtime + browser context)
@@ -343,6 +364,49 @@ class SessionManager:
 
         self._pending_teardowns[sid] = asyncio.ensure_future(_later())
         session.log.info(f"teardown agendado en {delay}s (motivo: {reason})")
+
+    # ── Watchdog de inactividad / tope de duración ───────────────────────────
+    def _cancel_watchdog(self, sid: str):
+        task = self._watchdogs.pop(sid, None)
+        if task and not task.done():
+            task.cancel()
+
+    def _start_watchdog(self, session: "BotSession"):
+        """
+        Arranca el watchdog de una sesión RUNNING. Cierra la sesión (y libera su
+        credencial) si queda inactiva demasiado tiempo o supera el tope de duración.
+        Es una red de seguridad: el caso normal (la persona se va) lo resuelve el
+        automatic_leave de Recall, que cierra el WS de audio y dispara el teardown.
+        """
+        if SESSION_INACTIVITY_TIMEOUT_S <= 0 and SESSION_MAX_LIFETIME_S <= 0:
+            return
+        self._cancel_watchdog(session.sid)
+        self._watchdogs[session.sid] = asyncio.ensure_future(self._watchdog(session.sid))
+
+    async def _watchdog(self, sid: str):
+        interval = max(5, SESSION_WATCHDOG_INTERVAL_S)
+        try:
+            while True:
+                await asyncio.sleep(interval)
+                session = self._sessions.get(sid)
+                if session is None or session.state != STATE_RUNNING:
+                    return
+                now = time.time()
+                if SESSION_MAX_LIFETIME_S > 0 and now - session.created_at > SESSION_MAX_LIFETIME_S:
+                    session.log.info(
+                        f"watchdog: tope de duración ({SESSION_MAX_LIFETIME_S}s) alcanzado — cerrando"
+                    )
+                    await self.teardown(sid, reason="max-lifetime")
+                    return
+                if SESSION_INACTIVITY_TIMEOUT_S > 0 and now - session.last_activity > SESSION_INACTIVITY_TIMEOUT_S:
+                    idle = round(now - session.last_activity)
+                    session.log.info(
+                        f"watchdog: inactividad {idle}s (límite {SESSION_INACTIVITY_TIMEOUT_S}s) — cerrando"
+                    )
+                    await self.teardown(sid, reason="inactivity")
+                    return
+        except asyncio.CancelledError:
+            pass
 
     async def _start_next_pending(self):
         """Toma el próximo WAITING de la cola y lo arranca si hay credencial libre."""

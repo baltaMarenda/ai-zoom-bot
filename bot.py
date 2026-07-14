@@ -392,12 +392,14 @@ async def handle_recall_audio(websocket, session):
                             continue
                         b64_audio = data["data"]["data"]["buffer"]
                         pcm_audio = base64.b64decode(b64_audio)
+                        session.touch()   # actividad humana → reinicia reloj de inactividad
                         await audio_queue.put(pcm_audio)
                     else:
                         session.log.info(f"[WS] Evento: {event}")
                 elif "bytes" in message:
                     chunk = message["bytes"]
                     if len(chunk) > 4:
+                        session.touch()
                         await audio_queue.put(chunk[4:])
         except Exception as e:
             session.log.info(f"[WS] Recall.ai desconectado: {e}")
