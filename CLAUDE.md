@@ -54,7 +54,17 @@ MGW_CREDENTIALS=            # JSON array de sistemas MGW para multi-tenant (uno 
 PENDING_QUEUE_MAX=20        # cola de espera cuando el pool está lleno; 0 = cola off (503)
 TEST_MODE=false             # true → skips calificación, jumps straight to demo
 REALTIME_MODEL=             # defaults to gpt-realtime-2025-08-28
+
+# Auto-liberación de sesiones (para que una credencial no quede colgada):
+SESSION_INACTIVITY_TIMEOUT_S=900   # sin audio humano por N s → watchdog cierra la sesión; 0 = off
+SESSION_MAX_LIFETIME_S=5400        # tope duro de duración por sesión; 0 = sin tope
+SESSION_WATCHDOG_INTERVAL_S=30     # cada cuánto chequea el watchdog
+RECALL_EVERYONE_LEFT_TIMEOUT_S=60  # Recall hace que el bot abandone N s después de que se van todos; 0 = default Recall
+RECALL_NOONE_JOINED_TIMEOUT_S=900  # abandona si nadie entra nunca; 0 = default Recall
+RECALL_WAITING_ROOM_TIMEOUT_S=900  # abandona si queda en sala de espera; 0 = default Recall
 ```
+
+**Auto-liberación**: una sesión (y su credencial del pool) se cierra sola por dos vías, además del `DELETE /sessions/{sid}` manual y del cierre del WS de audio: (1) `recall.create_bot` manda un `automatic_leave` para que el bot abandone la llamada cuando la reunión queda vacía / nadie entra / queda en sala de espera — al abandonar se cierra el WS de audio y corre el teardown; (2) `SessionManager._watchdog` (uno por sesión RUNNING) cierra la sesión si no llega audio humano por `SESSION_INACTIVITY_TIMEOUT_S` o si supera `SESSION_MAX_LIFETIME_S`. `bot.py` llama `session.touch()` en cada frame de audio humano para reiniciar el reloj de inactividad.
 
 `DEEPGRAM_API_KEY`, `ELEVENLABS_API_KEY`, and `ELEVENLABS_VOICE_ID` are still read in `config.py` but are dead config — the old Deepgram/ElevenLabs pipeline (`ai.py`, `mgw_browser.py`, `mgw_caja.py`) was deleted in the "Limpieza de archivos" cleanup; nothing references them anymore.
 

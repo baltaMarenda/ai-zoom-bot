@@ -3,7 +3,11 @@ recall.py
 """
 import base64
 import requests
-from config import RECALL_API_KEY, RECALL_REGION, PUBLIC_WS_URL, PUBLIC_BASE_URL
+from config import (
+    RECALL_API_KEY, RECALL_REGION, PUBLIC_WS_URL, PUBLIC_BASE_URL,
+    RECALL_EVERYONE_LEFT_TIMEOUT_S, RECALL_NOONE_JOINED_TIMEOUT_S,
+    RECALL_WAITING_ROOM_TIMEOUT_S,
+)
 
 RECALL_BASE = f"https://{RECALL_REGION}.recall.ai/api/v1"
 
@@ -26,6 +30,17 @@ def create_bot(meeting_url: str, bot_name: str = BOT_NAME, sid: str | None = Non
     # al /agent-ws de ESTA sesión.
     agent_url = _with_sid(f"{PUBLIC_BASE_URL}/agent", sid)
     ws_url    = _with_sid(PUBLIC_WS_URL, sid)
+
+    # El bot abandona la llamada solo cuando la reunión queda vacía / nadie entra /
+    # queda en sala de espera. Al abandonar se cierra el WS de audio y el teardown
+    # libera la credencial. Solo incluimos los timeouts con valor > 0.
+    automatic_leave = {
+        k: v for k, v in {
+            "everyone_left_timeout": RECALL_EVERYONE_LEFT_TIMEOUT_S,
+            "noone_joined_timeout":  RECALL_NOONE_JOINED_TIMEOUT_S,
+            "waiting_room_timeout":  RECALL_WAITING_ROOM_TIMEOUT_S,
+        }.items() if v and v > 0
+    }
 
     payload = {
         "meeting_url": meeting_url,
@@ -58,6 +73,8 @@ def create_bot(meeting_url: str, bot_name: str = BOT_NAME, sid: str | None = Non
             ],
         },
     }
+    if automatic_leave:
+        payload["automatic_leave"] = automatic_leave
 
     response = requests.post(
         f"{RECALL_BASE}/bot/",

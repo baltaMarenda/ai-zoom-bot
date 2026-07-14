@@ -852,15 +852,25 @@ async def _manejar_arqueo(on_screenshot=None) -> None:
 
 async def _ensure_caja_abierta(on_screenshot=None) -> bool:
     """
-    Verifica EN SILENCIO si la caja está abierta y, si no lo está, la abre con el
-    fondo inicial usando la lógica ya probada (caja_ir_a_apertura + caja_abrir_turno).
+    Deja EN SILENCIO la caja en un estado limpio y operable, usando la lógica ya
+    probada (caja_ir_a_apertura + caja_abrir_turno).
 
     Se usa cuando se entra directo a una sección que necesita la caja abierta (ej:
     balanza en modo sección directa), donde no se pasó antes por la apertura de caja.
 
-    Señal confiable de estado: #boton_cerrar_caja en caja_cierre.php solo aparece si
-    la caja está abierta (mismo criterio que caja_ir_a_apertura). No genera screenshots
-    para no interrumpir la narración. Devuelve True si tuvo que abrir la caja.
+    Tres estados posibles:
+      1. Caja cerrada           → la abrimos con el fondo inicial.
+      2. Caja abierta sana       → la dejamos como está (ej: se pasó por la sección de
+         (turno normal)            caja en el mismo día); el flujo balanza→caja funciona.
+      3. Caja abierta pero en    → NO alcanza con abrirla: hay que cerrarla y reabrirla
+         cierre forzado (quedó      limpia, porque caja.php muestra el arqueo de cierre
+         abierta de un día          forzado y el flujo balanza→caja no encuentra los
+         anterior)                  botones. caja_ir_a_apertura ya resuelve ese cierre.
+
+    Señales de estado: #boton_cerrar_caja en caja_cierre.php solo aparece si la caja
+    está abierta; #importe_arqueo_nuevo en caja.php solo aparece si además pide el
+    cierre forzado (mismo criterio que caja_ir_a_apertura). No genera screenshots para
+    no interrumpir la narración. Devuelve True si tuvo que abrir/reabrir la caja.
     """
     if _current_page() is None:
         return False
@@ -870,13 +880,40 @@ async def _ensure_caja_abierta(on_screenshot=None) -> bool:
         await _page.goto(f"{base}/caja_cierre.php", wait_until="domcontentloaded", timeout=20000)
         await asyncio.sleep(1.0)
         cerrar_btn = _page.locator("#boton_cerrar_caja").first
-        if await cerrar_btn.count() > 0 and await cerrar_btn.is_visible():
-            print("[PW] [ENSURE-CAJA] Caja ya abierta ✓")
-            return False
-        print("[PW] [ENSURE-CAJA] Caja cerrada — abriéndola en silencio...")
-        await caja_ir_a_apertura()   # resuelve estados previos y deja el form de apertura
+        caja_abierta = await cerrar_btn.count() > 0 and await cerrar_btn.is_visible()
+
+        if caja_abierta:
+            # ¿Turno sano o quedó abierta en estado de cierre forzado? En caja.php, el
+            # form de cierre forzado (campo #importe_arqueo_nuevo + aviso "Usted tiene una
+            # caja abierta del día ...") lo renderiza AJAX; una caja sana muestra en cambio
+            # el buscador de productos #producto. Esperamos a que aparezca CUALQUIERA de los
+            # dos en vez de un sleep fijo (el form AJAX puede tardar más que 1.5s y si no lo
+            # detectamos a tiempo lo tomaríamos como "sana" y no cerraríamos nada).
+            await _page.goto(f"{base}/caja.php", wait_until="domcontentloaded", timeout=20000)
+            try:
+                await _page.wait_for_selector("#importe_arqueo_nuevo, #producto", state="visible", timeout=8000)
+            except Exception:
+                pass
+            await asyncio.sleep(0.3)
+            arqueo_input = _page.locator("#importe_arqueo_nuevo").first
+            cierre_forzado = await arqueo_input.count() > 0 and await arqueo_input.is_visible()
+            if not cierre_forzado:
+                # Fallback por texto por si cambia el id del campo.
+                try:
+                    body_txt = (await _page.inner_text("body")) or ""
+                except Exception:
+                    body_txt = ""
+                cierre_forzado = "caja abierta del" in body_txt or "Ingrese el cierre" in body_txt
+            if not cierre_forzado:
+                print("[PW] [ENSURE-CAJA] Caja ya abierta y sana ✓")
+                return False
+            print("[PW] [ENSURE-CAJA] Caja quedó abierta en cierre forzado — cerrando y reabriendo en silencio...")
+        else:
+            print("[PW] [ENSURE-CAJA] Caja cerrada — abriéndola en silencio...")
+
+        await caja_ir_a_apertura()   # resuelve el estado previo (cierra si hace falta) y deja el form de apertura
         await caja_abrir_turno()     # confirma la apertura con el fondo inicial
-        print("[PW] [ENSURE-CAJA] Caja abierta ✓")
+        print("[PW] [ENSURE-CAJA] Caja lista (abierta limpia) ✓")
         return True
     except Exception as e:
         print(f"[PW] [ENSURE-CAJA] Error verificando/abriendo caja: {e}")
@@ -3074,8 +3111,15 @@ async def balanza_step_navegar(on_screenshot=None) -> str:
     print("[PW] [BALANZA-STEP] balanza_step_navegar ✓")
     return (
         "Pantalla de balanza cargada. "
-        "Arriba aparecen los operarios configurados (Balta y Malena). "
-        "Abajo a la izquierda están los productos más vendidos para acceso rápido."
+        "Primero confirmá diciendo EXACTAMENTE: 'Acá podemos ver los operarios que tenemos para la balanza, "
+        "Balta y Malena, y abajo podemos ver Asado y Vacío, que son accesos rapidos para vender los productos "
+        "que mas salen.' "
+        "PRÓXIMO PASO — antes de llamar la próxima tool decí EXACTAMENTE esta frase, y recién en la MISMA "
+        "respuesta llamá la tool (PROHIBIDO llamar la tool sin decir antes la frase textual, PROHIBIDO "
+        "reemplazarla por un 'ahora hago el paso siguiente' u otra improvisación): "
+        "frase = 'Busco el producto Vacío en el buscador, presiono Ingreso Manual, ya que esta computadora no "
+        "esta conectada a una balanza, sino se reflejaria lo que se pesa en la misma, presiono 1 para 1 kilo y "
+        "lo asigno al operario Balta.' → tool: balanza_agregar_producto('Balta', '1')."
     )
 
 
@@ -3146,14 +3190,21 @@ async def balanza_step_agregar_producto(operario_nombre: str, operario_id: str, 
     if operario_id == "1":
         return (
             f"Hecho: Vacío buscado → Ingreso Manual → 1 kg → asignado a {operario_nombre}. "
-            "Confirmá en 1 frase que quedó asignado. "
-            "Luego explicá que el sistema permite que varios operarios trabajen simultáneamente. "
-            "SIGUIENTE OBLIGATORIO: llamá balanza_agregar_producto('Malena', '2')."
+            "Confirmá en 1 frase que quedó asignado (ej: 'Listo, Balta tiene su ticket.') y explicá que el "
+            "sistema permite que varios operarios trabajen simultáneamente, cada uno con su ticket independiente. "
+            "PRÓXIMO PASO — antes de llamar la próxima tool decí EXACTAMENTE esta frase, y recién en la MISMA "
+            "respuesta llamá la tool (PROHIBIDO llamar la tool sin decir antes la frase textual, PROHIBIDO "
+            "narrar el paso después de ejecutarlo): "
+            "frase = 'Hago lo mismo para Malena: busco Vacío, Ingreso Manual, 1 kilo, y lo asigno a Malena.' "
+            "→ tool: balanza_agregar_producto('Malena', '2')."
         )
     return (
         f"Hecho: Vacío buscado → Ingreso Manual → 1 kg → asignado a {operario_nombre}. "
-        "Confirmá en 1 frase. Mencioná que ambos tickets están pendientes de cobro. "
-        "SIGUIENTE OBLIGATORIO: llamá balanza_mostrar_tickets."
+        "Confirmá en 1 frase y mencioná que ambos tickets están pendientes de cobro. "
+        "PRÓXIMO PASO — antes de llamar la próxima tool decí EXACTAMENTE esta frase, y recién en la MISMA "
+        "respuesta llamá la tool (PROHIBIDO llamar la tool sin decir antes la frase textual): "
+        "frase = 'Presiono el botón Tickets arriba a la derecha para mostrar los pendientes.' "
+        "→ tool: balanza_mostrar_tickets."
     )
 
 
@@ -3176,7 +3227,9 @@ async def balanza_step_mostrar_tickets(on_screenshot=None) -> str:
     return (
         "Botón Tickets presionado. Tickets pendientes de ambos operarios visibles. "
         "Confirmá en 1 frase que los tickets están pendientes de cobro. "
-        "SIGUIENTE OBLIGATORIO: llamá balanza_ir_a_caja."
+        "PRÓXIMO PASO — antes de llamar la próxima tool decí EXACTAMENTE esta frase, y recién en la MISMA "
+        "respuesta llamá la tool (PROHIBIDO llamar la tool sin decir antes la frase textual): "
+        "frase = 'El ticket se cobra desde la sección de Caja. Vamos ahí.' → tool: balanza_ir_a_caja."
     )
 
 
@@ -3220,7 +3273,10 @@ async def balanza_step_ir_a_caja(on_screenshot=None) -> str:
     return (
         "En caja.php. Venta de Balta finalizada y ticket registrado. "
         "Confirmá en 1 frase que llegamos a caja. "
-        "SIGUIENTE OBLIGATORIO: llamá balanza_abrir_cf."
+        "PRÓXIMO PASO — antes de llamar la próxima tool decí EXACTAMENTE esta frase, y recién en la MISMA "
+        "respuesta llamá la tool (PROHIBIDO llamar la tool sin decir antes la frase textual): "
+        "frase = 'Para ver los tickets de balanza pendientes, presiono el botón Ticket Balanza CF arriba.' "
+        "→ tool: balanza_abrir_cf."
     )
 
 
