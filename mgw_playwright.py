@@ -1943,21 +1943,19 @@ async def _demo_balanza(
         await asyncio.sleep(0.5)
 
     async def click_ingreso_manual(label: str = "Ingreso manual"):
-        clicked = await click_first([
-            '#boton_ingreso_manual_producto',
-            '[onclick*="entrarModoIngresoManual"]',
-            'button:has-text("Ingreso manual")',
-            'span:has-text("Ingreso manual")',
-        ], label)
-        if not clicked:
-            await _page.evaluate("""
-                const btn = document.getElementById('boton_ingreso_manual_producto')
-                    || [...document.querySelectorAll('[onclick]')].find(e =>
-                        (e.getAttribute('onclick') || '').includes('entrarModoIngresoManual')
-                    );
-                if (btn) btn.click();
-            """)
-            print(f"[PW] [BALANZA] {label} via JS ✓")
+        # El botón existe oculto y solo se hace visible cuando el producto terminó de
+        # cargar (AJAX). Apretarlo antes dispara "Este producto no permite ingreso
+        # manual". Esperamos a que esté VISIBLE y recién ahí clickeamos.
+        try:
+            await _page.wait_for_selector('#boton_ingreso_manual_producto', state='visible', timeout=8000)
+        except Exception:
+            print(f"[PW] [BALANZA] {label}: no se hizo visible — producto no cargó a tiempo")
+        clicked = await _page.evaluate("""(() => {
+            const btn = document.getElementById('boton_ingreso_manual_producto');
+            if (btn && btn.offsetParent !== null) { btn.click(); return true; }
+            return false;
+        })()""")
+        print(f"[PW] [BALANZA] {label} {'✓' if clicked else '✗ (oculto/no cargó)'}")
         await asyncio.sleep(0.8)
 
     async def click_tecla_1(label: str = "Tecla 1"):
@@ -3185,15 +3183,24 @@ async def balanza_step_agregar_producto(operario_nombre: str, operario_id: str, 
         print("[PW] [BALANZA-STEP] ⚠️ NO se seleccionó producto — el Ingreso Manual va a disparar los carteles de MGW")
     await asyncio.sleep(0.5)
 
-    # Ingreso manual
+    # Ingreso manual — CLAVE: el botón #boton_ingreso_manual_producto existe oculto en
+    # el DOM y solo se vuelve VISIBLE cuando terminó el AJAX que carga el producto.
+    # Apretarlo antes (carrera en prod, donde el AJAX tarda más que el viejo sleep 0.5s)
+    # lo dispara sobre un producto vacío → cartel "Este producto no permite ingreso
+    # manual". Por eso esperamos a que el botón esté VISIBLE y solo entonces lo clickeamos
+    # (nunca por getElementById a ciegas). Verificado en migestionweb.pro/balanza3.
+    try:
+        await _page.wait_for_selector('#boton_ingreso_manual_producto', state='visible', timeout=8000)
+        producto_listo = True
+    except Exception:
+        producto_listo = False
+        print("[PW] [BALANZA-STEP] ⚠️ Ingreso Manual no se hizo visible — el producto no cargó a tiempo")
     clicked = await _page.evaluate("""(() => {
-        const btn = document.getElementById('boton_ingreso_manual_producto')
-                 || [...document.querySelectorAll('[onclick]')].find(e =>
-                        (e.getAttribute('onclick') || '').includes('entrarModoIngresoManual'));
-        if (btn) { btn.click(); return true; }
+        const btn = document.getElementById('boton_ingreso_manual_producto');
+        if (btn && btn.offsetParent !== null) { btn.click(); return true; }
         return false;
     })()""")
-    print(f"[PW] [BALANZA-STEP] botón Ingreso Manual: {clicked}")
+    print(f"[PW] [BALANZA-STEP] botón Ingreso Manual (producto_listo={producto_listo}): {clicked}")
     await asyncio.sleep(0.8)
 
     # Diagnóstico: ¿MGW mostró un cartel de error (producto sin ingreso manual /
