@@ -34,6 +34,13 @@ STATE_CLOSING = "closing"
 # credencial de más. Si reconecta dentro de esta ventana, se cancela el teardown.
 AUDIO_RECONNECT_GRACE_S = 20.0
 
+# Tope por paso del teardown. Si el cierre del bridge/Playwright o el leave_call de
+# Recall se cuelgan (Chromium wedged, WS que no responde), NO deben bloquear la
+# liberación de la credencial: cada paso se acota con este timeout y el teardown
+# sigue igual hasta pool.release(). Sin esto, un close() colgado deja la credencial
+# busy para siempre y, como el estado ya quedó en CLOSING, ni el DELETE la rescata.
+TEARDOWN_STEP_TIMEOUT_S = 15.0
+
 
 # ── Logging estructurado por sid ──────────────────────────────────────────────
 class SidLogger:
@@ -307,17 +314,26 @@ class SessionManager:
         self._cancel_watchdog(sid)
         session.log.info(f"teardown (motivo: {reason or 'n/a'})")
 
-        # 1+2. Recursos locales de la sesión (bridge Realtime + browser context)
+        # 1+2. Recursos locales de la sesión (bridge Realtime + browser context).
+        # Acotado por timeout: si Playwright/bridge se cuelgan, seguimos igual hasta
+        # liberar la credencial (paso 4) en vez de bloquear el teardown entero.
         try:
-            await session.close()
+            await asyncio.wait_for(session.close(), timeout=TEARDOWN_STEP_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            session.log.error(f"session.close: timeout tras {TEARDOWN_STEP_TIMEOUT_S}s — sigo igual")
         except Exception as e:
             session.log.error(f"session.close: {e}")
 
-        # 3. Sacar el bot de Recall
+        # 3. Sacar el bot de Recall (también acotado: leave_call no debe colgar el teardown)
         if session.bot_id:
             try:
                 loop = asyncio.get_event_loop()
-                await loop.run_in_executor(None, lambda: recall.leave_call(session.bot_id))
+                await asyncio.wait_for(
+                    loop.run_in_executor(None, lambda: recall.leave_call(session.bot_id)),
+                    timeout=TEARDOWN_STEP_TIMEOUT_S,
+                )
+            except asyncio.TimeoutError:
+                session.log.error(f"leave_call: timeout tras {TEARDOWN_STEP_TIMEOUT_S}s — sigo igual")
             except Exception as e:
                 session.log.error(f"leave_call: {e}")
 
