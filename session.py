@@ -305,59 +305,86 @@ class SessionManager:
         self._start_watchdog(session)
 
     # ── Destrucción / cleanup garantizado ────────────────────────────────────
-    async def teardown(self, sid: str, reason: str = ""):
+    async def _bounded(self, coro, timeout: float, label: str, log):
+        """Corre `coro` con un tope de tiempo REAL.
+
+        A diferencia de `asyncio.wait_for`, si la corrutina no responde a la
+        cancelación (caso típico: el shutdown de Playwright/Chromium colgado en
+        un pipe muerto), NO nos bloquea: la abandonamos y seguimos. `wait_for`
+        espera a que la cancelación termine, así que un cleanup colgado lo deja
+        pegado para siempre pese al timeout — que es exactamente lo que dejaba
+        credenciales ocupadas. Un browser zombie es mucho mejor que una
+        credencial atascada.
         """
-        Limpieza idempotente. Se llama SIEMPRE: cierre normal, DELETE, desconexión de
-        Recall o excepción. Libera Realtime, Playwright, bot de Recall y credencial,
-        y saca la sesión del registro. Cada paso aislado en su try/except.
-        """
-        session = self._sessions.get(sid)
-        if session is None:
+        task = asyncio.ensure_future(coro)
+        _, pending = await asyncio.wait({task}, timeout=timeout)
+        if pending:
+            log.error(f"{label}: no terminó en {timeout}s — lo abandono y sigo")
+            task.cancel()  # pedimos cancelación pero NO esperamos a que termine
             return
-        if session.state == STATE_CLOSING:
-            return
-        session.state = STATE_CLOSING
-        self._pending_teardowns.pop(sid, None)
-        self._cancel_watchdog(sid)
-        session.log.info(f"teardown (motivo: {reason or 'n/a'})")
+        exc = task.exception()
+        if exc:
+            log.error(f"{label}: {exc}")
 
-        # 1+2. Recursos locales de la sesión (bridge Realtime + browser context).
-        # Acotado por timeout: si Playwright/bridge se cuelgan, seguimos igual hasta
-        # liberar la credencial (paso 4) en vez de bloquear el teardown entero.
+    async def _release_and_unregister(self, sid: str, session: "BotSession"):
+        """Libera la credencial y saca la sesión del registro/cola. Idempotente:
+        se puede llamar más de una vez sin romper (pool.release lo es, y pop/remove
+        toleran ausencia). Es la parte del teardown que SIEMPRE tiene que correr."""
+        creds, session.creds = session.creds, None
         try:
-            await asyncio.wait_for(session.close(), timeout=TEARDOWN_STEP_TIMEOUT_S)
-        except asyncio.TimeoutError:
-            session.log.error(f"session.close: timeout tras {TEARDOWN_STEP_TIMEOUT_S}s — sigo igual")
-        except Exception as e:
-            session.log.error(f"session.close: {e}")
-
-        # 3. Sacar el bot de Recall (también acotado: leave_call no debe colgar el teardown)
-        if session.bot_id:
-            try:
-                loop = asyncio.get_event_loop()
-                await asyncio.wait_for(
-                    loop.run_in_executor(None, lambda: recall.leave_call(session.bot_id)),
-                    timeout=TEARDOWN_STEP_TIMEOUT_S,
-                )
-            except asyncio.TimeoutError:
-                session.log.error(f"leave_call: timeout tras {TEARDOWN_STEP_TIMEOUT_S}s — sigo igual")
-            except Exception as e:
-                session.log.error(f"leave_call: {e}")
-
-        # 4. Liberar la credencial
-        try:
-            await self.pool.release(session.creds)
+            await self.pool.release(creds)
         except Exception as e:
             session.log.error(f"pool.release: {e}")
-        session.creds = None
-
-        # 5. Sacar del registro + de la cola si estaba esperando
         async with self._lock:
             self._sessions.pop(sid, None)
             try:
                 self._queue.remove(sid)
             except ValueError:
                 pass
+
+    async def teardown(self, sid: str, reason: str = ""):
+        """
+        Limpieza idempotente. Se llama SIEMPRE: cierre normal, DELETE, desconexión de
+        Recall o excepción. Libera Realtime, Playwright, bot de Recall y credencial,
+        y saca la sesión del registro.
+
+        Garantía dura: la credencial SIEMPRE se libera, aunque el cierre de
+        Playwright/bridge/Recall se cuelgue (ver `_bounded`). Y si la sesión ya
+        está en CLOSING (un teardown previo que quedó colgado), reintentamos la
+        liberación igual — así `DELETE /sessions/{sid}` puede rescatar un slot
+        pegado en lugar de cortar sin hacer nada.
+        """
+        session = self._sessions.get(sid)
+        if session is None:
+            return
+        if session.state == STATE_CLOSING:
+            # Un teardown anterior arrancó pero pudo colgarse antes de liberar la
+            # credencial. Forzamos la liberación (idempotente) para poder rescatar
+            # el slot desde DELETE en vez de dejarlo ocupado para siempre.
+            session.log.info(
+                f"teardown re-entrante en CLOSING (motivo: {reason or 'n/a'}) — forzando liberación"
+            )
+            await self._release_and_unregister(sid, session)
+            return
+        session.state = STATE_CLOSING
+        self._pending_teardowns.pop(sid, None)
+        self._cancel_watchdog(sid)
+        session.log.info(f"teardown (motivo: {reason or 'n/a'})")
+
+        # 1+2. Recursos locales de la sesión (bridge Realtime + browser context),
+        # con tope de tiempo REAL: si se cuelgan, los abandonamos y seguimos.
+        await self._bounded(session.close(), TEARDOWN_STEP_TIMEOUT_S, "session.close", session.log)
+
+        # 3. Sacar el bot de Recall (también con tope real).
+        if session.bot_id:
+            loop = asyncio.get_event_loop()
+            await self._bounded(
+                loop.run_in_executor(None, lambda: recall.leave_call(session.bot_id)),
+                TEARDOWN_STEP_TIMEOUT_S, "leave_call", session.log,
+            )
+
+        # 4+5. Liberar credencial + sacar del registro — SIEMPRE se llega acá.
+        await self._release_and_unregister(sid, session)
 
         # 6. Arrancar el próximo WAITING si se liberó una credencial
         await self._start_next_pending()
