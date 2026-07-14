@@ -34,6 +34,13 @@ STATE_CLOSING = "closing"
 # credencial de más. Si reconecta dentro de esta ventana, se cancela el teardown.
 AUDIO_RECONNECT_GRACE_S = 20.0
 
+# Estados de Recall en los que el bot YA no está en la llamada (se fue, terminó la
+# reunión, lo sacaron, o error fatal). Cuando el bot llega a uno de estos, la sesión
+# debe liberarse sí o sí: Recall NO siempre cierra el WebSocket de audio al irse el
+# bot, así que el schedule_teardown por cierre de WS no alcanza y la credencial queda
+# ocupada para siempre. El watchdog sondea el estado y cierra al detectar uno de estos.
+RECALL_TERMINAL_CODES = {"call_ended", "done", "fatal"}
+
 # Tope por paso del teardown. Si el cierre del bridge/Playwright o el leave_call de
 # Recall se cuelgan (Chromium wedged, WS que no responde), NO deben bloquear la
 # liberación de la credencial: cada paso se acota con este timeout y el teardown
@@ -390,12 +397,12 @@ class SessionManager:
     def _start_watchdog(self, session: "BotSession"):
         """
         Arranca el watchdog de una sesión RUNNING. Cierra la sesión (y libera su
-        credencial) si queda inactiva demasiado tiempo o supera el tope de duración.
-        Es una red de seguridad: el caso normal (la persona se va) lo resuelve el
-        automatic_leave de Recall, que cierra el WS de audio y dispara el teardown.
+        credencial) por tres vías: (1) el bot dejó la llamada en Recall (se fue / lo
+        sacaron / terminó) — sondeo de estado; (2) inactividad de audio humano; (3)
+        tope de duración. Corre SIEMPRE, porque (1) es la red de seguridad principal:
+        Recall no siempre cierra el WS de audio al irse el bot, y sin este sondeo la
+        sesión queda RUNNING y la credencial ocupada para siempre.
         """
-        if SESSION_INACTIVITY_TIMEOUT_S <= 0 and SESSION_MAX_LIFETIME_S <= 0:
-            return
         self._cancel_watchdog(session.sid)
         self._watchdogs[session.sid] = asyncio.ensure_future(self._watchdog(session.sid))
 
@@ -407,6 +414,26 @@ class SessionManager:
                 session = self._sessions.get(sid)
                 if session is None or session.state != STATE_RUNNING:
                     return
+
+                # (1) ¿El bot dejó la llamada en Recall? (se fue / lo sacaron / terminó).
+                # Es la causa real del pool que no se libera: Recall no siempre cierra el
+                # WS de audio, así que sin esto la sesión queda colgada RUNNING.
+                if session.bot_id:
+                    try:
+                        loop = asyncio.get_event_loop()
+                        data = await asyncio.wait_for(
+                            loop.run_in_executor(None, lambda: recall.get_bot_status(session.bot_id)),
+                            timeout=12,
+                        )
+                        changes = data.get("status_changes") or []
+                        code = changes[-1].get("code") if changes else None
+                        if code in RECALL_TERMINAL_CODES:
+                            session.log.info(f"watchdog: bot Recall en estado '{code}' — cerrando")
+                            await self.teardown(sid, reason=f"recall-{code}")
+                            return
+                    except Exception as e:
+                        session.log.error(f"watchdog: get_bot_status: {e}")
+
                 now = time.time()
                 if SESSION_MAX_LIFETIME_S > 0 and now - session.created_at > SESSION_MAX_LIFETIME_S:
                     session.log.info(

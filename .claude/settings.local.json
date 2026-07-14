@@ -39,7 +39,11 @@
       "Bash(PYTHONPATH=/Users/baltazarmarenda/Downloads/ai-zoom-bot python /private/tmp/claude-501/-Users-baltazarmarenda-Downloads-ai-zoom-bot/bbadef3e-06cc-4ae3-b9ae-98eb7bb17be0/scratchpad/test_ensure.py)",
       "Bash(curl -s https://ai-zoom-bot-production.up.railway.app/pool/status)",
       "Bash(curl -s https://ai-zoom-bot-production.up.railway.app/sessions)",
-      "Bash(curl -s -X DELETE https://ai-zoom-bot-production.up.railway.app/sessions/06de130b)"
+      "Bash(curl -s -X DELETE https://ai-zoom-bot-production.up.railway.app/sessions/06de130b)",
+      "Bash(curl -s -X DELETE https://ai-zoom-bot-production.up.railway.app/sessions/22090f48)",
+      "Bash(curl -s -X DELETE https://ai-zoom-bot-production.up.railway.app/sessions/94beb967)",
+      "Bash(curl -s -X DELETE https://ai-zoom-bot-production.up.railway.app/sessions/bbf227ee)",
+      "Bash(curl -s -X DELETE https://ai-zoom-bot-production.up.railway.app/sessions/7d94438c)"
     ]
   }
 }
