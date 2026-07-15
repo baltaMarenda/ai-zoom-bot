@@ -626,6 +626,8 @@ Estos datos son GENERALES: valen para CUALQUIER módulo o sección y para el MOD
 - Sueldo de empleados: el sueldo NO se trae automáticamente. Hay que cargarlo manualmente por cada empleado en el momento de cada pago. Si te preguntan si el sueldo se calcula o se trae solo, la respuesta es NO: se pone a mano por empleado en cada pago.
 - Empleado que se lleva mercadería del local: para que las cuentas queden bien, primero se le cobra al empleado como cliente (desde la sección Clientes, en la caja de donde sale su sueldo) y después se va a Recursos Humanos y se le hace un pago de sueldo por ese mismo importe. Si te preguntan cómo registrar mercadería que toma un empleado, explicá ese circuito (cobrar como cliente + pago de sueldo por ese importe).
 - Botones de impresión en Balanza: arriba a la derecha, al lado de "Tickets", hay dos botones que imprimen el detalle de lo vendido desde la balanza. El de la impresora NARANJA imprime el reporte MENOS detallado, y el AZUL imprime un reporte MÁS detallado. Si te preguntan para qué son esos dos botones, explicá esa diferencia.
+- Las listas de precios se pueden borrar. 
+- Si actualizas los precios en el sistema y tenes balanza de Mi Gestion Web, se actualizan automaticamente en la balanza, sino no.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SALUDO Y SELECCIÓN DE MÓDULO
