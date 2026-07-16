@@ -163,6 +163,12 @@ class RealtimeBridge:
         config_gastos_nuevo_concepto          = None,   # async fn() → str
         config_gastos_crear_concepto          = None,   # async fn() → str
         config_gastos_eliminar_concepto       = None,   # async fn() → str
+        gastos_navegar                        = None,   # async fn() → str
+        gastos_pago_proveedor_abrir           = None,   # async fn() → str
+        gastos_pago_proveedor_seleccionar     = None,   # async fn() → str
+        gastos_nuevo_gasto_abrir              = None,   # async fn() → str
+        gastos_nuevo_gasto_completar          = None,   # async fn() → str
+        gastos_nuevo_gasto_agregar            = None,   # async fn() → str
         finalizar_capacitacion                = None,   # async fn() → str
         # Módulo 2: Caja y Caja Mayor
         caja_ir_a_apertura                    = None,   # async fn() → str
@@ -268,6 +274,12 @@ class RealtimeBridge:
         self._config_gastos_nuevo_concepto          = config_gastos_nuevo_concepto
         self._config_gastos_crear_concepto          = config_gastos_crear_concepto
         self._config_gastos_eliminar_concepto       = config_gastos_eliminar_concepto
+        self._gastos_navegar                        = gastos_navegar
+        self._gastos_pago_proveedor_abrir           = gastos_pago_proveedor_abrir
+        self._gastos_pago_proveedor_seleccionar     = gastos_pago_proveedor_seleccionar
+        self._gastos_nuevo_gasto_abrir              = gastos_nuevo_gasto_abrir
+        self._gastos_nuevo_gasto_completar          = gastos_nuevo_gasto_completar
+        self._gastos_nuevo_gasto_agregar            = gastos_nuevo_gasto_agregar
         self._finalizar_capacitacion                = finalizar_capacitacion
         # Módulo 2
         self._caja_ir_a_apertura                    = caja_ir_a_apertura
@@ -612,6 +624,14 @@ class RealtimeBridge:
                     # ordena atender primero al usuario, y pedimos una respuesta nueva. La tool
                     # se retoma cuando el modelo la vuelva a llamar después de contestar.
                     print(f"[RT] ⛔ Tool '{name}' pospuesta — el usuario habló y todavía no le contestaste")
+                    # Si el modelo ya está intentando llamar una tool, la demo está en marcha:
+                    # prendemos la red de seguridad del auto-continue. Es clave cuando la tool
+                    # POSPUESTA es la de ENTRADA de una sección directa (ej: gastos_navegar entrando
+                    # por field:"gastos"): sin esto _demo_started quedaba en False, no se agendaba
+                    # auto-continue tras contestarle al usuario, y la demo se colgaba esperando que
+                    # el usuario hablara de nuevo para retomar el paso. Con esto, apenas hay silencio
+                    # el auto-continue reengancha y el modelo vuelve a llamar la tool solo.
+                    self._demo_started = True
                     self._user_needs_reply = False
                     self._mute_until = time.monotonic()  # sin mute: queremos escuchar al usuario
                     try:
@@ -1295,6 +1315,42 @@ class RealtimeBridge:
             elif name == "config_gastos_eliminar_concepto":
                 print("[DEMO] Config: eliminando concepto de prueba (interno)...")
                 result = await self._config_gastos_eliminar_concepto() if self._config_gastos_eliminar_concepto else "Concepto eliminado."
+
+            elif name == "gastos_navegar":
+                print("[DEMO] Gastos: asegurando caja abierta y navegando a gastos.php...")
+                await self._ensure_playwright()
+                await self._wait_for_audio_done(timeout=20.0)
+                # Igual que config_navegar / caja_ir_a_apertura / caja_mayor_navegar: gastos_navegar
+                # es la tool que ENTRA a la sección, así que acá se prende _demo_started. Sin esto,
+                # entrando por field:"gastos" (donde es la primera tool) el auto-continue de
+                # response.done nunca se agenda y la demo se cuelga si el modelo narra sin llamar tool.
+                self._demo_started = True
+                result = await self._gastos_navegar() if self._gastos_navegar else "Sección de gastos visible."
+
+            elif name == "gastos_pago_proveedor_abrir":
+                print("[DEMO] Gastos: abriendo pago a proveedor...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._gastos_pago_proveedor_abrir() if self._gastos_pago_proveedor_abrir else "Pago a proveedor abierto."
+
+            elif name == "gastos_pago_proveedor_seleccionar":
+                print("[DEMO] Gastos: seleccionando proveedor...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._gastos_pago_proveedor_seleccionar() if self._gastos_pago_proveedor_seleccionar else "Proveedor seleccionado."
+
+            elif name == "gastos_nuevo_gasto_abrir":
+                print("[DEMO] Gastos: abriendo nuevo gasto por concepto...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._gastos_nuevo_gasto_abrir() if self._gastos_nuevo_gasto_abrir else "Nuevo gasto abierto."
+
+            elif name == "gastos_nuevo_gasto_completar":
+                print("[DEMO] Gastos: completando concepto Luz e importe...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._gastos_nuevo_gasto_completar() if self._gastos_nuevo_gasto_completar else "Concepto e importe cargados."
+
+            elif name == "gastos_nuevo_gasto_agregar":
+                print("[DEMO] Gastos: confirmando el gasto (Agregar)...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._gastos_nuevo_gasto_agregar() if self._gastos_nuevo_gasto_agregar else "Gasto agregado."
 
             elif name == "caja_ir_a_apertura":
                 print("[CAJA2] Navegando a formulario de apertura...")

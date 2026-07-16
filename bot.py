@@ -47,6 +47,8 @@ from mgw_playwright import (
     config_terminales_nueva, config_impuestos_nuevo,
     config_gastos_nuevo_concepto, config_gastos_crear_concepto,
     config_gastos_eliminar_concepto,
+    gastos_navegar, gastos_pago_proveedor_abrir, gastos_pago_proveedor_seleccionar,
+    gastos_nuevo_gasto_abrir, gastos_nuevo_gasto_completar, gastos_nuevo_gasto_agregar,
     # Módulo 2: Caja y Caja Mayor
     caja_ir_a_apertura, caja_abrir_turno,
     caja_ver_lista_ventas, caja_ver_detalle_venta,
@@ -159,6 +161,12 @@ _BIND0_TABLE = {
     "config_gastos_nuevo_concepto":           config_gastos_nuevo_concepto,
     "config_gastos_crear_concepto":           config_gastos_crear_concepto,
     "config_gastos_eliminar_concepto":        config_gastos_eliminar_concepto,
+    "gastos_navegar":                         gastos_navegar,
+    "gastos_pago_proveedor_abrir":            gastos_pago_proveedor_abrir,
+    "gastos_pago_proveedor_seleccionar":      gastos_pago_proveedor_seleccionar,
+    "gastos_nuevo_gasto_abrir":               gastos_nuevo_gasto_abrir,
+    "gastos_nuevo_gasto_completar":           gastos_nuevo_gasto_completar,
+    "gastos_nuevo_gasto_agregar":             gastos_nuevo_gasto_agregar,
     # Módulo 2
     "caja_ir_a_apertura":                     caja_ir_a_apertura,
     "caja_abrir_turno":                       caja_abrir_turno,

@@ -666,7 +666,8 @@ Cuando el cliente pide una sección específica, NO hacés el intro/login ni las
   - Formas de pago ............................ config_navegar("FORMAS_PAGO")
   - Descuentos ................................ config_navegar("DESCUENTOS")
   - Terminales / posnet ....................... config_navegar("TERMINALES")
-  - Gastos .................................... config_navegar("GASTOS")
+  - Configuración de gastos / conceptos de gasto (field "configuracion_gastos") ... config_navegar("GASTOS")   → seguí SOLO el bloque "CONFIGURACIÓN DE GASTOS (conceptos)" y terminá ahí; NO sigas con la SECCIÓN GASTOS.
+  - Gastos / generar un gasto (field "gastos") ................................ gastos_navegar()   → seguí SOLO el bloque "SECCIÓN GASTOS" (pago a proveedor / generar gasto); NO hagas antes la parte de conceptos.
   - RRHH / categorías ......................... config_navegar("RRHH_CATEGORIAS")
   - Club ...................................... config_navegar("CLUB")
   - Impuestos ................................. config_navegar("IMPUESTOS")
@@ -803,6 +804,7 @@ Decí EXACTAMENTE: "Despues tenemos la sección de terminal, donde vamos a tener
 Tool: config_terminales_nueva()
 
 Decí EXACTAMENTE: "Aca desde nueva terminal creamos la terminal con el nombre y le ponemos un concepto unico como total o cierre de caja"
+── CONFIGURACIÓN DE GASTOS (conceptos) — field "configuracion_gastos"; se entra con config_navegar("GASTOS") ──
 Tool: config_navegar("GASTOS")
 
 Decí EXACTAMENTE: "Seguimos con lo que es la parte de gastos, donde vamos a ingresar, desde nuevo concepto, todos los gastos fijos que tengas por ejemplo sueldos. Esto es mas que nada para que no quede todo como simples retiros de dinero, y que queden diferenciado como corresponde y asi tener una mejor organización. Esto tambien nos sirve, que lo vamos a ver despues, para que podamos filtrar los gastos para ver cuanto gastamos por ejemplo de luz, de sueldos y demas"
@@ -813,6 +815,36 @@ Post-tool, decí EXACTAMENTE: "por ejemplo aca vamos a crear un nuevo concepto d
 Tool: config_gastos_crear_concepto()
 Post-tool, decí EXACTAMENTE: "Y ahi ya quedaría el nuevo concepto creado para usarlo"
 IMPORTANTE (limpieza interna): en la MISMA respuesta, INMEDIATAMENTE después de decir esa frase, llamá config_gastos_eliminar_concepto() para borrar el concepto de prueba. NO digas ni una palabra sobre esta acción, NO generes audio para ella: el cliente no se tiene que enterar. Es solo para no acumular conceptos de prueba entre capacitaciones.
+── FIN CONFIGURACIÓN DE GASTOS (conceptos) ── (si entraste en MODO SECCIÓN DIRECTA por field "configuracion_gastos", la sección TERMINA acá: NO sigas con la SECCIÓN GASTOS de abajo.)
+
+── SECCIÓN GASTOS (field "gastos"; NO es "Configuración > Gastos", es la sección "Gastos" del menú lateral, fuera de Configuración; se entra con gastos_navegar()) ──
+Decí EXACTAMENTE: "Eso seria como crear los conceptos de gastos, pero para generar un gasto, tenemos que ir a la sección de gastos en el menú lateral izquierdo, fuera de la sección de configuración"
+Tool: gastos_navegar()
+(gastos_navegar resuelve EN SILENCIO el estado de la caja —la abre o la reabre limpia si hace falta— antes de mostrar gastos.php, para que el alta del gasto no falle. NO narres nada de eso.)
+
+Decí EXACTAMENTE: "Aca tenemos dos formas de hacer un nuevo gasto, pagarle a un proveedor, o hacer un gasto de los que configuramos anteriormente. Para pagarle a un proveedor presionamos sobre pago a proveedor"
+Tool: gastos_pago_proveedor_abrir()
+
+Decí EXACTAMENTE: "Haciendo click en seleccionar proveedor nos van a aparecer todos los proveedores, seleccionamos al que le queramos asignar el gasto"
+Tool: gastos_pago_proveedor_seleccionar()
+
+Decí EXACTAMENTE: "Y aca elegimos forma de pago, desde que caja le queremos pagar, de la chica o de la mayor, el importe, opcional algun comentario y si queremos que nos imprima el recibo o no, y presionamos finalizar."
+(NO llames ninguna tool acá: es solo la explicación del formulario, NO finalizamos el pago a proveedor. Seguí con el paso siguiente con la fluidez normal del guion — NO te quedes callada esperando.)
+
+Decí EXACTAMENTE: "Y para hacer un gasto de los que configuramos anteriormente presionamos sobre mas gasto"
+Tool: gastos_nuevo_gasto_abrir()
+⚠️ OBLIGATORIO llamar gastos_nuevo_gasto_abrir() en ESTA MISMA respuesta, junto con esa frase. Sin ella el modal de nuevo gasto no se abre. NUNCA llames gastos_nuevo_gasto_completar() ni gastos_nuevo_gasto_agregar() antes de gastos_nuevo_gasto_abrir().
+(gastos_nuevo_gasto_abrir re-navega EN SILENCIO a gastos.php antes de clickear "Gasto", porque el "Pago a proveedor" anterior deja la página en un estado donde el botón "Gasto" no está. NO narres la navegación.)
+
+Decí EXACTAMENTE: "Aca hacemos lo mismo que antes, seleccionamos desde que caja vamos a pagar, forma de pago, elegimos el concepto, en este caso vamos a elegir Luz por ejemplo, después ponemos el importe y si queremos algún comentario"
+Tool: gastos_nuevo_gasto_completar()
+
+Decí EXACTAMENTE: "Y apretamos agregar"
+Tool: gastos_nuevo_gasto_agregar()
+
+Decí EXACTAMENTE: "Y listo el gasto ya estaría cargado y el monto restado obviamente de la caja que seleccionamos para pagar, y lo vemos ahi en la tabla con los demas gastos con su fecha, el tipo de gasto que fue, el concepto y el importe"
+── FIN SECCIÓN GASTOS ──
+
 Tool: config_navegar("RRHH_CATEGORIAS")
 
 Decí EXACTAMENTE: "Tenemos tambien la parte configuracion de los recursos humanos, aca tenemos ya las predeterminadas del sistema pero tambien podemos agregar nuevas desde nueva categoria en la parte superior, editar las ya existentes o borrar las que no necesitemos"
@@ -1478,6 +1510,42 @@ REALTIME_TOOLS = [
         "type": "function",
         "name": "config_gastos_eliminar_concepto",
         "description": "Config > Gastos: elimina en segundo plano el concepto de prueba 'Articulos de Limpieza' recién creado (buscándolo por nombre). Acción interna/silenciosa — NO narrarla al cliente.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "gastos_navegar",
+        "description": "Sección Gastos (gastos.php, fuera de Configuración): asegura EN SILENCIO que la caja esté abierta (abre/reabre si hace falta, sin narrar) y navega a gastos.php. Llamala DESPUÉS de decir que vamos a la sección de gastos del menú lateral.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "gastos_pago_proveedor_abrir",
+        "description": "Sección Gastos: click en 'Pago a proveedor' para abrir el formulario de pago a un proveedor. Llamala DESPUÉS de mencionar el botón 'Pago a proveedor'.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "gastos_pago_proveedor_seleccionar",
+        "description": "Sección Gastos: selecciona un proveedor en el select del formulario de pago a proveedor. Llamala DESPUÉS de mencionar que se selecciona el proveedor.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "gastos_nuevo_gasto_abrir",
+        "description": "Sección Gastos: re-navega a gastos.php (para volver al estado limpio tras el pago a proveedor) y hace click en 'Gasto' (más gasto) para abrir el formulario de alta de un gasto por concepto. Llamala DESPUÉS de mencionar el botón 'más gasto'.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "gastos_nuevo_gasto_completar",
+        "description": "Sección Gastos: selecciona el concepto 'Luz' y carga $100.000 en el importe del formulario de gasto. Llamala DESPUÉS de mencionar que elegimos el concepto Luz y ponemos el importe.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "gastos_nuevo_gasto_agregar",
+        "description": "Sección Gastos: presiona 'Agregar' para confirmar el gasto (queda cargado y descontado de la caja). Llamala DESPUÉS de decir 'apretamos agregar'.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {

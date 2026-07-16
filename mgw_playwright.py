@@ -4809,6 +4809,279 @@ async def config_gastos_eliminar_concepto(on_screenshot=None) -> str:
     return "Concepto de prueba eliminado."
 
 
+# ── Sección GASTOS (gastos.php) — parte del Módulo 1, va después de config Gastos ─
+# NOTA: esto NO es "Configuración > Gastos" (crear conceptos), sino la sección "Gastos"
+# del menú lateral, fuera de Configuración, donde se genera un gasto real (pago a
+# proveedor o gasto por concepto). Necesita la caja abierta, igual que balanza.
+
+async def gastos_navegar(on_screenshot=None) -> str:
+    """Asegura EN SILENCIO que la caja esté abierta (como balanza) y navega a gastos.php."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    base = MGW_URL.rstrip("/")
+    # Login silencioso si el browser todavía no tiene sesión MGW (modo sección directa)
+    current_url = _page.url
+    if not current_url or current_url in ("about:blank", "") or "index.php" in current_url:
+        print("[PW] [GASTOS] Login silencioso antes de navegar...")
+        ok = await pw_login()
+        if not ok:
+            return "Error: no se pudo hacer login en MGW."
+    # La sección Gastos genera un gasto que se descuenta de la caja; sin caja abierta el
+    # flujo falla. Nos aseguramos EN SILENCIO de que esté abierta (no cambia nada si ya lo estaba).
+    await _ensure_caja_abierta()
+    print("[PW] [GASTOS] Navegando a gastos.php...")
+    await _page.goto(f"{base}/gastos.php", wait_until="domcontentloaded", timeout=20000)
+    await asyncio.sleep(1.5)
+    await _snap(on_screenshot, 0.0)
+    print("[PW] [GASTOS] gastos_navegar ✓")
+    return (
+        "Sección de gastos (gastos.php) visible, con las opciones 'Pago a proveedor' y 'Gasto'. "
+        "PRÓXIMO PASO (no esperes al cliente): decí EXACTAMENTE 'Aca tenemos dos formas de hacer un "
+        "nuevo gasto, pagarle a un proveedor, o hacer un gasto de los que configuramos anteriormente. "
+        "Para pagarle a un proveedor presionamos sobre pago a proveedor' y en esa MISMA respuesta llamá "
+        "gastos_pago_proveedor_abrir()."
+    )
+
+
+async def gastos_pago_proveedor_abrir(on_screenshot=None) -> str:
+    """Click en 'Pago a proveedor' (im_proveedores_nuevo_pago('',1,1,'gastos'))."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    clicked = await _page.evaluate("""() => {
+        const btn = [...document.querySelectorAll('[onclick]')].find(e =>
+            (e.getAttribute('onclick') || '').includes("im_proveedores_nuevo_pago")
+            && (e.getAttribute('onclick') || '').includes("'gastos'")
+        ) || [...document.querySelectorAll('[onclick]')].find(e =>
+            (e.getAttribute('onclick') || '').includes("im_proveedores_nuevo_pago")
+        );
+        if (btn) { btn.click(); return true; }
+        const byText = [...document.querySelectorAll('a, button')].find(e =>
+            (e.textContent || '').trim().toLowerCase().includes('pago a proveedor'));
+        if (byText) { byText.click(); return true; }
+        return false;
+    }""")
+    print(f"[PW] [GASTOS] gastos_pago_proveedor_abrir: {'✓' if clicked else '✗'}")
+    await asyncio.sleep(2.0)
+    await _snap(on_screenshot, 0.0)
+    return (
+        "Formulario de pago a proveedor abierto, con el select para seleccionar el proveedor. "
+        "PRÓXIMO PASO (no esperes al cliente): decí EXACTAMENTE 'Haciendo click en seleccionar proveedor "
+        "nos van a aparecer todos los proveedores, seleccionamos al que le queramos asignar el gasto' y en "
+        "esa MISMA respuesta llamá gastos_pago_proveedor_seleccionar()."
+    )
+
+
+async def gastos_pago_proveedor_seleccionar(on_screenshot=None) -> str:
+    """Selecciona el primer proveedor real del select #proveedor (dispara su onchange)."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    # El value es dinámico por sistema: tomamos la primera opción con value != 0 y no oculta.
+    value = await _page.evaluate("""() => {
+        const sel = document.querySelector('#proveedor') ||
+                    document.querySelector('select[name="proveedor"]');
+        if (!sel) return null;
+        const opt = [...sel.options].find(o => o.value && o.value !== '0' && !o.hidden);
+        return opt ? opt.value : null;
+    }""")
+    if value:
+        for sel in ['#proveedor', 'select[name="proveedor"]']:
+            try:
+                await _page.select_option(sel, value=value)
+                print(f"[PW] [GASTOS] proveedor value={value} ✓")
+                break
+            except Exception:
+                continue
+    else:
+        print("[PW] [GASTOS] gastos_pago_proveedor_seleccionar: no hay proveedores para seleccionar")
+    await asyncio.sleep(2.0)
+    await _snap(on_screenshot, 0.0)
+    return (
+        "Proveedor seleccionado. El formulario muestra forma de pago, desde qué caja pagar "
+        "(chica o mayor), importe, comentario opcional e imprimir recibo, y el botón Finalizar. "
+        "PRÓXIMO PASO (no esperes al cliente): decí EXACTAMENTE 'Y aca elegimos forma de pago, desde que "
+        "caja le queremos pagar, de la chica o de la mayor, el importe, opcional algun comentario y si "
+        "queremos que nos imprima el recibo o no, y presionamos finalizar.' (SIN llamar ninguna tool). Y "
+        "en la respuesta siguiente decí EXACTAMENTE 'Y para hacer un gasto de los que configuramos "
+        "anteriormente presionamos sobre mas gasto' y en esa MISMA respuesta llamá gastos_nuevo_gasto_abrir()."
+    )
+
+
+async def _gastos_abrir_form_nuevo_gasto() -> bool:
+    """Navega a gastos.php y clickea 'Gasto' (nuevo_gasto(1,1)) para abrir el form de nuevo gasto.
+
+    Al abrir antes 'Pago a proveedor' (im_proveedores_nuevo_pago(...,'gastos')) la página cambia de
+    estado y el botón 'Gasto' deja de estar disponible, así que el click no encuentra nada. Por eso
+    re-navegamos a gastos.php (estado limpio donde SÍ está el botón) y recién ahí lo clickeamos.
+
+    Devuelve True si el select de concepto (#gasto) quedó visible tras el click.
+    """
+    base = MGW_URL.rstrip("/")
+    print("[PW] [GASTOS] Re-navegando a gastos.php antes de abrir nuevo gasto...")
+    await _page.goto(f"{base}/gastos.php", wait_until="domcontentloaded", timeout=20000)
+    await asyncio.sleep(1.5)
+    clicked = await _page.evaluate("""() => {
+        const btn = [...document.querySelectorAll('[onclick]')].find(e =>
+            (e.getAttribute('onclick') || '').includes("nuevo_gasto("));
+        if (btn) { btn.click(); return true; }
+        const byText = [...document.querySelectorAll('a, button')].find(e => {
+            const t = (e.textContent || '').trim().toLowerCase();
+            return t === 'gasto' || t.includes('gasto');
+        });
+        if (byText) { byText.click(); return true; }
+        return false;
+    }""")
+    print(f"[PW] [GASTOS] abrir form nuevo gasto (click 'Gasto'): {'✓' if clicked else '✗'}")
+    # Esperar a que aparezca el select de concepto en vez de un sleep fijo.
+    try:
+        await _page.wait_for_selector('#gasto, select[name="gasto"]', state="visible", timeout=6000)
+    except Exception:
+        pass
+    sel = _page.locator('#gasto, select[name="gasto"]').first
+    return await sel.count() > 0 and await sel.is_visible()
+
+
+async def gastos_nuevo_gasto_abrir(on_screenshot=None) -> str:
+    """Re-navega a gastos.php y clickea 'Gasto' / 'Más gasto' (nuevo_gasto(1,1)) para el alta de un gasto por concepto."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    ok = await _gastos_abrir_form_nuevo_gasto()
+    await asyncio.sleep(0.5)
+    await _snap(on_screenshot, 0.0)
+    print(f"[PW] [GASTOS] gastos_nuevo_gasto_abrir: {'✓' if ok else '✗ (form no visible)'}")
+    return (
+        "Formulario de nuevo gasto abierto, con el select de concepto y el campo de importe. "
+        "PRÓXIMO PASO (no esperes al cliente): decí EXACTAMENTE 'Aca hacemos lo mismo que antes, "
+        "seleccionamos desde que caja vamos a pagar, forma de pago, elegimos el concepto, en este caso "
+        "vamos a elegir Luz por ejemplo, después ponemos el importe y si queremos algún comentario' y en "
+        "esa MISMA respuesta llamá gastos_nuevo_gasto_completar()."
+    )
+
+
+async def gastos_nuevo_gasto_completar(on_screenshot=None) -> str:
+    """Selecciona el concepto 'Luz' en #gasto y carga 100000 en el importe.
+
+    Autocorrección: si el form de nuevo gasto no está abierto (el modelo saltó
+    gastos_nuevo_gasto_abrir, o el pago a proveedor dejó otra pantalla), lo abrimos acá mismo
+    (re-navega a gastos.php + click 'Gasto') para no romper el flujo.
+    """
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    await _gastos_cargar_concepto_importe()   # abre el form si hace falta + Luz + $100.000
+    await _snap(on_screenshot, 0.0)
+    return (
+        "Concepto 'Luz' e importe $100.000 cargados en el formulario de gasto. "
+        "PRÓXIMO PASO (no esperes al cliente): decí EXACTAMENTE 'Y apretamos agregar' y en esa MISMA "
+        "respuesta llamá gastos_nuevo_gasto_agregar()."
+    )
+
+
+async def _gastos_cargar_concepto_importe() -> None:
+    """Asegura el form de nuevo gasto abierto y carga concepto 'Luz' + importe $100.000.
+
+    Idempotente: si el concepto ya está en 'Luz' y el importe ya vale 100000, no repite. Se usa
+    tanto en gastos_nuevo_gasto_completar como en el self-heal de gastos_nuevo_gasto_agregar, para
+    que el gasto quede completo aunque 'completar' se haya pospuesto (barge-in) y nunca corriera.
+    """
+    # Abrir el form si el select de concepto no está visible.
+    sel_concepto = _page.locator('#gasto, select[name="gasto"]').first
+    form_abierto = await sel_concepto.count() > 0 and await sel_concepto.is_visible()
+    if not form_abierto:
+        print("[PW] [GASTOS] cargar: form de nuevo gasto no visible — abriéndolo (self-heal)...")
+        await _gastos_abrir_form_nuevo_gasto()
+
+    # Concepto = "Luz" (por label; el value es dinámico por sistema). Solo si aún no está en Luz.
+    concepto_ok = await _page.evaluate("""() => {
+        const s = document.querySelector('#gasto') || document.querySelector('select[name="gasto"]');
+        if (!s) return false;
+        const opt = s.options[s.selectedIndex];
+        return !!(opt && (opt.textContent || '').trim().toLowerCase().includes('luz'));
+    }""")
+    if not concepto_ok:
+        selected = False
+        for sel in ['#gasto', 'select[name="gasto"]']:
+            try:
+                await _page.select_option(sel, label="Luz")
+                selected = True
+                print("[PW] [GASTOS] concepto=Luz ✓")
+                break
+            except Exception:
+                continue
+        if not selected:
+            # Fallback: buscar la opción cuyo texto sea 'Luz' y setear value + disparar change.
+            selected = await _page.evaluate("""() => {
+                const s = document.querySelector('#gasto') || document.querySelector('select[name="gasto"]');
+                if (!s) return false;
+                const opt = [...s.options].find(o => (o.textContent || '').trim().toLowerCase() === 'luz')
+                         || [...s.options].find(o => (o.textContent || '').trim().toLowerCase().includes('luz'));
+                if (!opt) return false;
+                s.value = opt.value;
+                s.dispatchEvent(new Event('change', { bubbles: true }));
+                return true;
+            }""")
+            print(f"[PW] [GASTOS] concepto=Luz (fallback): {'✓' if selected else '✗'}")
+        await asyncio.sleep(0.5)
+
+    # Importe = 100000 (solo si el campo no tiene ya ese valor).
+    for sel in ['#importe', 'input[name="importe"]']:
+        try:
+            el = _page.locator(sel).first
+            if await el.count() > 0 and await el.is_visible():
+                actual = (await el.input_value() or "").replace(".", "").replace(",", "").strip()
+                if actual != "100000":
+                    await el.click()
+                    await el.fill("100000")
+                    print("[PW] [GASTOS] importe=100000 ✓")
+                break
+        except Exception:
+            continue
+    await asyncio.sleep(0.5)
+
+
+async def gastos_nuevo_gasto_agregar(on_screenshot=None) -> str:
+    """Presiona 'Agregar' para confirmar el gasto (se descuenta de la caja seleccionada).
+
+    Autosuficiente: si el formulario no está abierto o quedó sin cargar (porque
+    gastos_nuevo_gasto_completar se pospuso por una interrupción del usuario y nunca corrió),
+    abre el form y carga Luz + importe antes de agregar, para que el gasto igual quede cargado.
+    """
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    await _gastos_cargar_concepto_importe()   # idempotente: completa lo que falte antes de agregar
+    clicked = False
+    for sel in ['button[type="submit"]:has-text("Agregar")',
+                'button:has-text("Agregar")',
+                'input[type="submit"][value="Agregar"]']:
+        try:
+            el = _page.locator(sel).first
+            if await el.count() > 0 and await el.is_visible():
+                await el.click()
+                clicked = True
+                break
+        except Exception:
+            continue
+    if not clicked:
+        clicked = await _page.evaluate("""() => {
+            const btn = [...document.querySelectorAll('button[type=submit], button, input[type=submit]')]
+                .find(e => {
+                    const t = ((e.textContent || '') + ' ' + (e.value || '')).trim().toLowerCase();
+                    return t.includes('agregar');
+                });
+            if (btn) { btn.click(); return true; }
+            return false;
+        }""")
+    print(f"[PW] [GASTOS] gastos_nuevo_gasto_agregar: {'✓' if clicked else '✗'}")
+    await asyncio.sleep(2.5)
+    await _snap(on_screenshot, 0.0)
+    return (
+        "Gasto cargado. Aparece en la tabla junto a los demás gastos con su fecha, el tipo de gasto, "
+        "el concepto y el importe, y el monto quedó descontado de la caja seleccionada. "
+        "PRÓXIMO PASO (no esperes al cliente): decí EXACTAMENTE 'Y listo el gasto ya estaría cargado y el "
+        "monto restado obviamente de la caja que seleccionamos para pagar, y lo vemos ahi en la tabla con "
+        "los demas gastos con su fecha, el tipo de gasto que fue, el concepto y el importe'. Con eso termina "
+        "la sección de gastos."
+    )
+
+
 # ── Steps atómicos — Módulo 2: Caja y Caja Mayor ─────────────────────────────
 
 async def _arqueo_confirmar(monto: int, on_screenshot=None) -> None:
