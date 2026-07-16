@@ -4132,6 +4132,22 @@ async def config_navegar(seccion: str, on_screenshot=None) -> str:
 
     snap = _make_config_snap(on_screenshot)
     print(f"[PW] [CONFIG] Navegando a {seccion} → {path}...")
+    # Cerrar cualquier modal abierto (ej: "Nuevo Usuario") antes de navegar: si la URL
+    # tiene un hash de modal, el goto a la misma URL sin hash no recarga y el modal queda.
+    try:
+        await _page.evaluate("""() => {
+            try { if (window.jQuery) jQuery('.modal').modal('hide'); } catch (e) {}
+            document.querySelectorAll('.modal.show, .modal.in').forEach(m => {
+                m.classList.remove('show', 'in');
+                m.style.display = 'none';
+            });
+            document.querySelectorAll('.modal-backdrop').forEach(b => b.remove());
+            document.body.classList.remove('modal-open');
+            document.body.style.overflow = '';
+            document.body.style.paddingRight = '';
+        }""")
+    except Exception:
+        pass
     await _page.goto(f"{base}{path}", wait_until="domcontentloaded", timeout=20000)
     await asyncio.sleep(1.0)
     await snap()
@@ -4178,9 +4194,9 @@ async def config_usuarios_scroll_permisos_de(on_screenshot=None) -> str:
         await _page.evaluate("""() => {
             const sel = document.getElementById('permisos_de_id');
             if (sel) {
-                sel.scrollIntoView({ behavior: 'instant', block: 'center' });
+                sel.scrollIntoView({ behavior: 'instant', block: 'start' });
                 const modal = sel.closest('.modal-body');
-                if (modal) modal.scrollTop -= 40;
+                if (modal) modal.scrollTop += 60;
             }
         }""")
         await asyncio.sleep(0.5)
@@ -4190,6 +4206,33 @@ async def config_usuarios_scroll_permisos_de(on_screenshot=None) -> str:
                 await on_screenshot(b64)
         print("[PW] [CONFIG] config_usuarios_scroll_permisos_de ✓")
         return "Visible el selector de Permisos del usuario."
+    except Exception as e:
+        return f"Error: {e}"
+
+
+async def config_usuarios_cerrar_modal(on_screenshot=None) -> str:
+    """Cierra el modal de 'Nuevo Usuario' (sin navegar) para dejar visible la lista de usuarios debajo."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    try:
+        await _page.evaluate("""() => {
+            try { if (window.jQuery) jQuery('.modal').modal('hide'); } catch (e) {}
+            document.querySelectorAll('.modal.show, .modal.in').forEach(m => {
+                m.classList.remove('show', 'in');
+                m.style.display = 'none';
+            });
+            document.querySelectorAll('.modal-backdrop').forEach(b => b.remove());
+            document.body.classList.remove('modal-open');
+            document.body.style.overflow = '';
+            document.body.style.paddingRight = '';
+        }""")
+        await asyncio.sleep(0.4)
+        if on_screenshot:
+            b64 = await _screenshot_b64()
+            if b64:
+                await on_screenshot(b64)
+        print("[PW] [CONFIG] config_usuarios_cerrar_modal ✓")
+        return "Modal de nuevo usuario cerrado; visible la lista de usuarios."
     except Exception as e:
         return f"Error: {e}"
 
