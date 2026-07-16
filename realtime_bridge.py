@@ -30,6 +30,11 @@ from config import (
 _RECALL_SAMPLE_RATE = 16000
 _OPENAI_SAMPLE_RATE = 24000
 
+# Tools de puro "cleanup" (ej: cerrar un modal para revelar lo que hay debajo) que
+# pueden correr en silencio SIN disparar la protección anti "cascada muda": no avanzan
+# el guion ni saltan de pantalla, solo dejan visible lo que se va a narrar a continuación.
+_SILENT_OK_TOOLS = frozenset({"config_usuarios_cerrar_modal"})
+
 
 def _resample_16k_to_24k(pcm16: bytes) -> bytes:
     if not pcm16:
@@ -140,6 +145,7 @@ class RealtimeBridge:
         config_usuarios_nuevo                 = None,   # async fn() → str
         config_usuarios_scroll_permisos_de    = None,   # async fn() → str
         config_usuarios_expandir_permisos_caja = None,  # async fn() → str
+        config_usuarios_cerrar_modal          = None,   # async fn() → str
         config_listas_nueva                   = None,   # async fn() → str
         config_grupos_nuevo                   = None,   # async fn() → str
         config_productos_nuevo                = None,   # async fn() → str
@@ -244,6 +250,7 @@ class RealtimeBridge:
         self._config_usuarios_nuevo                 = config_usuarios_nuevo
         self._config_usuarios_scroll_permisos_de    = config_usuarios_scroll_permisos_de
         self._config_usuarios_expandir_permisos_caja = config_usuarios_expandir_permisos_caja
+        self._config_usuarios_cerrar_modal          = config_usuarios_cerrar_modal
         self._config_listas_nueva                   = config_listas_nueva
         self._config_grupos_nuevo                   = config_grupos_nuevo
         self._config_productos_nuevo                = config_productos_nuevo
@@ -641,7 +648,12 @@ class RealtimeBridge:
                     # _silent_tool_streak cuenta tools mudas desde la última narración; se
                     # resetea a 0 en cuanto llega audio (response.audio.delta).
                     _MAX_SILENT_STREAK = 3   # tras posponer 2 veces sin lograr narración, ejecutar igual para no trabar
-                    if self._silent_tool_streak == 0:
+                    if name in _SILENT_OK_TOOLS:
+                        # Tool exenta: dejarla correr en silencio sin tocar la racha. Necesitamos
+                        # que ocurra ANTES de la próxima narración (ej: cerrar el modal para que la
+                        # frase siguiente describa la lista que quedó visible).
+                        print(f"[RT] 🔈 Tool '{name}' exenta de cascada muda — ejecutando en silencio")
+                    elif self._silent_tool_streak == 0:
                         # Primera muda desde la última narración → la narración previa la
                         # cubrió. Dejar pasar y contar.
                         self._silent_tool_streak = 1
@@ -1195,6 +1207,10 @@ class RealtimeBridge:
                 print("[DEMO] Config: expandiendo permisos de Caja...")
                 await self._wait_for_audio_done(timeout=20.0)
                 result = await self._config_usuarios_expandir_permisos_caja() if self._config_usuarios_expandir_permisos_caja else "Acordeón de permisos de Caja expandido."
+
+            elif name == "config_usuarios_cerrar_modal":
+                print("[DEMO] Config: cerrando modal de nuevo usuario...")
+                result = await self._config_usuarios_cerrar_modal() if self._config_usuarios_cerrar_modal else "Modal cerrado."
 
             elif name == "config_listas_nueva":
                 print("[DEMO] Config: abriendo modal nueva lista de precios...")

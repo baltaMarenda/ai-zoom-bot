@@ -700,6 +700,7 @@ Post-tool de config_navegar("USUARIOS"): decí EXACTAMENTE "Para ver como se cre
 Post-tool de config_usuarios_nuevo(): decí EXACTAMENTE "En esta seccion vas a tener la posiblidad de crear todos los usuarios que quieras, con los permisos que quieras."
 
 Decí EXACTAMENTE: "Y aca vas a tener que completar el nombre de la persona, el usuario y la contraseña que es con la que va a entrar al sistema, email, categoria que tenes encargado, cajero, reparto y otros, y lo mas importante que es el tipo de usuario, en donde tenes el usuario de tipo usuario o el usuario administrador. El usuario administrador tiene acceso a todo el sistema, y al de tipo usuario le vamos a asignar nosotros que tanto acceso al sistema tiene, seleccinando de ahi abajo en donde dice permisos. Tené en cuenta que los items que se ven ahi son los que vemos en el menu lateral, entonces si nosotros no le damos permiso a la parte de Caja Mayor al usuario, a el no le va a aparecer esa opcion en el menu lateral y no va a poder ingresar a ella"
+Tool: config_usuarios_scroll_permisos_de() — OBLIGATORIO en esa misma respuesta, para que se vea el selector "Permisos del usuario" y la lista de permisos (Administración, Alertas, Balance, ... Venta).
 
 Decí EXACTAMENTE: "Una vez que ya tengamos creados usuarios vamos a poder otorgarle los mismos permisos que usuarios anteriores a usuarios nuevos apretando donde dice Permisos del usuario y seleccinamos al usuario del cual le queremos copiar los permisos"
 Tool: config_usuarios_scroll_permisos_de()
@@ -707,8 +708,10 @@ Tool: config_usuarios_scroll_permisos_de()
 Decí EXACTAMENTE: "Aca por ejemplo apretamos donde dice Caja y se nos abren todos los permisos que se le pueden dar o quitar a los usuarios en la caja. Por ejemplo le podemos dar acceso a que edite precios apretando en la casilla de Editar precios, o lo dejamos sin seleccionar para no darselo."
 Tool: config_usuarios_expandir_permisos_caja()
 
-Decí EXACTAMENTE: "Una vez creado el usuario nos va aparecer ahi en la lista y si queremos podemos editar la informacion apretando en el boton del lapiz de editar a la derecha"
-Tool: config_navegar("USUARIOS")
+Después de config_usuarios_expandir_permisos_caja(), NO digas todavía la frase de la lista.
+Tool: config_usuarios_cerrar_modal() — llamala SOLA y en SILENCIO (sin decir NADA), para cerrar el modal de crear usuario y que quede visible la lista de usuarios. STOP.
+
+Post-tool de config_usuarios_cerrar_modal() (recién ahí, con el modal ya cerrado y la lista visible): decí EXACTAMENTE: "Una vez creado el usuario nos va aparecer ahi en la lista y si queremos podemos editar la informacion, como nombre, mail, contraseña, etcetera, apretando en el boton del lapiz de editar a la derecha"
 
 Decí EXACTAMENTE: "Luego lo que sigue es Productos lista de precios"
 Tool: config_navegar("LISTAS_PRECIOS")
@@ -1367,6 +1370,12 @@ REALTIME_TOOLS = [
         "type": "function",
         "name": "config_usuarios_expandir_permisos_caja",
         "description": "Click en el acordeón de Caja en la sección de permisos para expandirlo. Llamala DESPUÉS de config_usuarios_scroll_permisos_de.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "config_usuarios_cerrar_modal",
+        "description": "Cierra el modal de 'Nuevo Usuario' (sin navegar) para dejar visible la lista de usuarios que hay debajo. Llamala SOLA y en SILENCIO (sin narrar nada) DESPUÉS de config_usuarios_expandir_permisos_caja y ANTES de decir la frase sobre que el usuario aparece en la lista.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
