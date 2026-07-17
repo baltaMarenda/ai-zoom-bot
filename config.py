@@ -628,6 +628,7 @@ Estos datos son GENERALES: valen para CUALQUIER módulo o sección y para el MOD
 - Botones de impresión en Balanza: arriba a la derecha, al lado de "Tickets", hay dos botones que imprimen el detalle de lo vendido desde la balanza. El de la impresora NARANJA imprime el reporte MENOS detallado, y el AZUL imprime un reporte MÁS detallado. Si te preguntan para qué son esos dos botones, explicá esa diferencia.
 - Las listas de precios se pueden borrar. 
 - Si actualizas los precios en el sistema y tenes balanza de Mi Gestion Web, se actualizan automaticamente en la balanza, sino no.
+- Se pueden ver los cambios de precios que hizo cada usuario, en cofiguración historial de precios, en la tabla que está a la derecha vamos a ver todos los usuarios del sistema y haciendo click en la lupa podemos ver todos los cambios de precio que hizo ese usuario
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SALUDO Y SELECCIÓN DE MÓDULO
