@@ -202,6 +202,37 @@ class RealtimeBridge:
         rrhh_personal_cliente_asociado        = None,   # async fn() → str
         rrhh_fichaje_navegar                  = None,   # async fn() → str
         rrhh_fichaje_nuevo                    = None,   # async fn() → str
+        # Módulo 3: Mayorista
+        mayorista_prep_caja                   = None,   # async fn() → str (reset de caja para background)
+        prep_mayorista_caja                   = False,  # bool: arrancar prep de caja en el intro
+        mayorista_navegar_productos           = None,   # async fn() → str
+        mayorista_navegar_pedidos             = None,   # async fn() → str
+        mayorista_pedidos_nuevo               = None,   # async fn() → str
+        mayorista_pedido_confirmar_cliente    = None,   # async fn() → str
+        mayorista_pedido_agregar_item         = None,   # async fn() → str
+        mayorista_pedido_editar               = None,   # async fn() → str
+        mayorista_pedido_cerrar_editar        = None,   # async fn() → str
+        mayorista_navegar_romaneo             = None,   # async fn() → str
+        mayorista_romaneo_seleccionar_pedido  = None,   # async fn() → str
+        mayorista_romaneo_abrir_cliente       = None,   # async fn() → str
+        mayorista_romaneo_abrir_pedido        = None,   # async fn() → str
+        mayorista_romaneo_agregar_producto_pedido = None,   # async fn() → str
+        mayorista_romaneo_ingresar_peso       = None,   # async fn() → str
+        mayorista_romaneo_finalizar           = None,   # async fn() → str
+        mayorista_romaneo_nuevo               = None,   # async fn() → str
+        mayorista_romaneo_nuevo_cargar_finalizar = None,   # async fn() → str
+        mayorista_navegar_tickets             = None,   # async fn() → str
+        mayorista_tickets_nuevo               = None,   # async fn() → str
+        mayorista_tickets_seleccionar_cliente = None,   # async fn() → str
+        mayorista_tickets_cargar_finalizar    = None,   # async fn() → str
+        mayorista_tickets_ver_dia             = None,   # async fn() → str
+        mayorista_ir_a_caja                   = None,   # async fn() → str
+        mayorista_caja_abrir_pendientes       = None,   # async fn() → str
+        mayorista_caja_ingresar_venta         = None,   # async fn() → str
+        mayorista_caja_finalizar_venta        = None,   # async fn() → str
+        mayorista_navegar_historial           = None,   # async fn() → str
+        mayorista_historial_ver_detalle       = None,   # async fn() → str
+        mayorista_historial_cerrar_detalle    = None,   # async fn() → str
     ):
         self._send_to_agent      = send_to_agent
         self._send_navigate      = send_navigate
@@ -313,6 +344,39 @@ class RealtimeBridge:
         self._rrhh_personal_cliente_asociado        = rrhh_personal_cliente_asociado
         self._rrhh_fichaje_navegar                  = rrhh_fichaje_navegar
         self._rrhh_fichaje_nuevo                    = rrhh_fichaje_nuevo
+        # Módulo 3: Mayorista
+        self._mayorista_prep_caja                   = mayorista_prep_caja
+        self._prep_mayorista_caja                   = prep_mayorista_caja
+        self._mayorista_prep_done                   = asyncio.Event()
+        self._mayorista_prep_task: asyncio.Task | None = None
+        self._mayorista_navegar_productos           = mayorista_navegar_productos
+        self._mayorista_navegar_pedidos             = mayorista_navegar_pedidos
+        self._mayorista_pedidos_nuevo               = mayorista_pedidos_nuevo
+        self._mayorista_pedido_confirmar_cliente    = mayorista_pedido_confirmar_cliente
+        self._mayorista_pedido_agregar_item         = mayorista_pedido_agregar_item
+        self._mayorista_pedido_editar               = mayorista_pedido_editar
+        self._mayorista_pedido_cerrar_editar        = mayorista_pedido_cerrar_editar
+        self._mayorista_navegar_romaneo             = mayorista_navegar_romaneo
+        self._mayorista_romaneo_seleccionar_pedido  = mayorista_romaneo_seleccionar_pedido
+        self._mayorista_romaneo_abrir_cliente       = mayorista_romaneo_abrir_cliente
+        self._mayorista_romaneo_abrir_pedido        = mayorista_romaneo_abrir_pedido
+        self._mayorista_romaneo_agregar_producto_pedido = mayorista_romaneo_agregar_producto_pedido
+        self._mayorista_romaneo_ingresar_peso       = mayorista_romaneo_ingresar_peso
+        self._mayorista_romaneo_finalizar           = mayorista_romaneo_finalizar
+        self._mayorista_romaneo_nuevo               = mayorista_romaneo_nuevo
+        self._mayorista_romaneo_nuevo_cargar_finalizar = mayorista_romaneo_nuevo_cargar_finalizar
+        self._mayorista_navegar_tickets             = mayorista_navegar_tickets
+        self._mayorista_tickets_nuevo               = mayorista_tickets_nuevo
+        self._mayorista_tickets_seleccionar_cliente = mayorista_tickets_seleccionar_cliente
+        self._mayorista_tickets_cargar_finalizar    = mayorista_tickets_cargar_finalizar
+        self._mayorista_tickets_ver_dia             = mayorista_tickets_ver_dia
+        self._mayorista_ir_a_caja                   = mayorista_ir_a_caja
+        self._mayorista_caja_abrir_pendientes       = mayorista_caja_abrir_pendientes
+        self._mayorista_caja_ingresar_venta         = mayorista_caja_ingresar_venta
+        self._mayorista_caja_finalizar_venta        = mayorista_caja_finalizar_venta
+        self._mayorista_navegar_historial           = mayorista_navegar_historial
+        self._mayorista_historial_ver_detalle       = mayorista_historial_ver_detalle
+        self._mayorista_historial_cerrar_detalle    = mayorista_historial_cerrar_detalle
 
         # Prompt de sistema propio de la sesión (foco module/field/user_name del campus).
         # Si no se pasa, cae al prompt de capacitación por defecto.
@@ -980,6 +1044,27 @@ class RealtimeBridge:
         await self._request_response(ws, "saludo inicial")
         print("[RT] Sesión configurada, intro disparada ✓")
 
+        # Módulo 3 (mayorista): el primer paso necesita la caja reseteada (cerrada y
+        # reabierta), lo que toma ~20s de navegaciones. Si eso corre DENTRO del primer
+        # tool, Malena queda muda ~20s justo después del intro. Lo arrancamos ACÁ, en
+        # background, para que se solape con el intro y ya esté listo cuando el modelo
+        # llame mayorista_navegar_productos (que espera este evento antes de navegar).
+        if self._prep_mayorista_caja:
+            self._mayorista_prep_task = asyncio.create_task(self._run_mayorista_prep())
+
+    async def _run_mayorista_prep(self):
+        """Background: inicializa Playwright y resetea la caja para el Módulo 3, y
+        señaliza `_mayorista_prep_done` al terminar (pase lo que pase)."""
+        try:
+            await self._ensure_playwright()
+            if self._mayorista_prep_caja:
+                await self._mayorista_prep_caja()
+        except Exception as e:
+            print(f"[MAYORISTA] Error en prep de caja background: {e}")
+        finally:
+            self._mayorista_prep_done.set()
+            print("[MAYORISTA] Prep de caja background listo ✓")
+
     async def inject_context(self, text: str):
         """Inyecta un mensaje de usuario para guiar al AI (transiciones de stage, etc.)."""
         if self._ws:
@@ -1517,6 +1602,161 @@ class RealtimeBridge:
                 print("[RRHH] Abriendo modal de nuevo fichaje...")
                 await self._wait_for_audio_done(timeout=20.0)
                 result = await self._rrhh_fichaje_nuevo() if self._rrhh_fichaje_nuevo else "Modal de nuevo fichaje abierto."
+                await self._on_screenshot_end()
+
+            # ── Módulo 3: Mayorista ────────────────────────────────────────────
+            elif name == "mayorista_navegar_productos":
+                print("[MAYORISTA] Navegando a productos (esperando prep de caja si corresponde)...")
+                await self._ensure_playwright()
+                await self._wait_for_audio_done(timeout=20.0)
+                # Tool de ENTRADA del módulo: prende _demo_started para que el
+                # auto-continue se agende (igual que caja_mayor_navegar/gastos_navegar).
+                self._demo_started = True
+                # Si el reset de caja se lanzó en background durante el intro, esperá a que
+                # termine ANTES de navegar (comparten la misma page — no pueden solaparse).
+                # Normalmente ya terminó, así que esta espera es corta o nula. Si NO se lanzó
+                # (entrada por sección directa), mayorista_navegar_productos hace el reset inline.
+                if self._prep_mayorista_caja:
+                    try:
+                        await asyncio.wait_for(self._mayorista_prep_done.wait(), timeout=45.0)
+                    except asyncio.TimeoutError:
+                        print("[MAYORISTA] Timeout esperando prep de caja background — sigo igual")
+                result = await self._mayorista_navegar_productos() if self._mayorista_navegar_productos else "Sección Mayorista → Productos visible."
+
+            elif name == "mayorista_navegar_pedidos":
+                print("[MAYORISTA] Navegando a pedidos...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._mayorista_navegar_pedidos() if self._mayorista_navegar_pedidos else "Sección Pedidos visible."
+
+            elif name == "mayorista_pedidos_nuevo":
+                print("[MAYORISTA] Nuevo pedido...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._mayorista_pedidos_nuevo() if self._mayorista_pedidos_nuevo else "Formulario de nuevo pedido abierto."
+
+            elif name == "mayorista_pedido_confirmar_cliente":
+                print("[MAYORISTA] Seleccionando cliente Consumidor final...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._mayorista_pedido_confirmar_cliente() if self._mayorista_pedido_confirmar_cliente else "Cliente confirmado."
+
+            elif name == "mayorista_pedido_agregar_item":
+                print("[MAYORISTA] Cargando Media res 100kg al pedido...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._mayorista_pedido_agregar_item() if self._mayorista_pedido_agregar_item else "Producto agregado al pedido."
+
+            elif name == "mayorista_pedido_editar":
+                print("[MAYORISTA] Abriendo edición del pedido...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._mayorista_pedido_editar() if self._mayorista_pedido_editar else "Detalle del pedido abierto."
+
+            elif name == "mayorista_pedido_cerrar_editar":
+                print("[MAYORISTA] Cerrando edición del pedido...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._mayorista_pedido_cerrar_editar() if self._mayorista_pedido_cerrar_editar else "Edición cerrada."
+
+            elif name == "mayorista_navegar_romaneo":
+                print("[MAYORISTA] Navegando a romaneo...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._mayorista_navegar_romaneo() if self._mayorista_navegar_romaneo else "Sección Romaneo visible."
+
+            elif name == "mayorista_romaneo_seleccionar_pedido":
+                print("[MAYORISTA] Seleccionando pedido pendiente en romaneo...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._mayorista_romaneo_seleccionar_pedido() if self._mayorista_romaneo_seleccionar_pedido else "Pedido seleccionado."
+
+            elif name == "mayorista_romaneo_abrir_cliente":
+                print("[MAYORISTA] Abriendo romaneo del cliente...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._mayorista_romaneo_abrir_cliente() if self._mayorista_romaneo_abrir_cliente else "Romaneo del cliente abierto."
+
+            elif name == "mayorista_romaneo_abrir_pedido":
+                print("[MAYORISTA] Abriendo modal del pedido en romaneo...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._mayorista_romaneo_abrir_pedido() if self._mayorista_romaneo_abrir_pedido else "Modal del pedido abierto."
+
+            elif name == "mayorista_romaneo_agregar_producto_pedido":
+                print("[MAYORISTA] Agregando producto del pedido al romaneo...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._mayorista_romaneo_agregar_producto_pedido() if self._mayorista_romaneo_agregar_producto_pedido else "Producto del pedido agregado."
+
+            elif name == "mayorista_romaneo_ingresar_peso":
+                print("[MAYORISTA] Ingresando 100kg en el romaneo...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._mayorista_romaneo_ingresar_peso() if self._mayorista_romaneo_ingresar_peso else "Peso ingresado."
+
+            elif name == "mayorista_romaneo_finalizar":
+                print("[MAYORISTA] Finalizando romaneo...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._mayorista_romaneo_finalizar() if self._mayorista_romaneo_finalizar else "Romaneo finalizado."
+
+            elif name == "mayorista_romaneo_nuevo":
+                print("[MAYORISTA] Abriendo nuevo romaneo...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._mayorista_romaneo_nuevo() if self._mayorista_romaneo_nuevo else "Nuevo romaneo abierto."
+
+            elif name == "mayorista_romaneo_nuevo_cargar_finalizar":
+                print("[MAYORISTA] Cargando y finalizando nuevo romaneo...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._mayorista_romaneo_nuevo_cargar_finalizar() if self._mayorista_romaneo_nuevo_cargar_finalizar else "Nuevo romaneo finalizado."
+
+            elif name == "mayorista_navegar_tickets":
+                print("[MAYORISTA] Navegando a tickets...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._mayorista_navegar_tickets() if self._mayorista_navegar_tickets else "Sección Tickets visible."
+
+            elif name == "mayorista_tickets_nuevo":
+                print("[MAYORISTA] Nuevo ticket...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._mayorista_tickets_nuevo() if self._mayorista_tickets_nuevo else "Nuevo ticket abierto."
+
+            elif name == "mayorista_tickets_seleccionar_cliente":
+                print("[MAYORISTA] Seleccionando cliente del ticket...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._mayorista_tickets_seleccionar_cliente() if self._mayorista_tickets_seleccionar_cliente else "Cliente del ticket seleccionado."
+
+            elif name == "mayorista_tickets_cargar_finalizar":
+                print("[MAYORISTA] Cargando y finalizando ticket...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._mayorista_tickets_cargar_finalizar() if self._mayorista_tickets_cargar_finalizar else "Ticket finalizado."
+
+            elif name == "mayorista_tickets_ver_dia":
+                print("[MAYORISTA] Viendo tickets del día...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._mayorista_tickets_ver_dia() if self._mayorista_tickets_ver_dia else "Tickets del día visibles."
+
+            elif name == "mayorista_ir_a_caja":
+                print("[MAYORISTA] Navegando a caja para cobrar...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._mayorista_ir_a_caja() if self._mayorista_ir_a_caja else "En caja."
+
+            elif name == "mayorista_caja_abrir_pendientes":
+                print("[MAYORISTA] Abriendo mayorista pendientes en caja...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._mayorista_caja_abrir_pendientes() if self._mayorista_caja_abrir_pendientes else "Pendientes mayorista visibles."
+
+            elif name == "mayorista_caja_ingresar_venta":
+                print("[MAYORISTA] Ingresando el romaneo/ticket a la venta...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._mayorista_caja_ingresar_venta() if self._mayorista_caja_ingresar_venta else "Venta cargada."
+
+            elif name == "mayorista_caja_finalizar_venta":
+                print("[MAYORISTA] Cerrando venta mayorista con Presupuestar F8...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._mayorista_caja_finalizar_venta() if self._mayorista_caja_finalizar_venta else "Venta mayorista cerrada."
+
+            elif name == "mayorista_navegar_historial":
+                print("[MAYORISTA] Navegando al historial mayorista...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._mayorista_navegar_historial() if self._mayorista_navegar_historial else "Historial mayorista visible."
+
+            elif name == "mayorista_historial_ver_detalle":
+                print("[MAYORISTA] Viendo detalle del historial...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._mayorista_historial_ver_detalle() if self._mayorista_historial_ver_detalle else "Detalle del historial abierto."
+
+            elif name == "mayorista_historial_cerrar_detalle":
+                print("[MAYORISTA] Cerrando detalle del historial...")
+                await self._wait_for_audio_done(timeout=20.0)
+                result = await self._mayorista_historial_cerrar_detalle() if self._mayorista_historial_cerrar_detalle else "Detalle del historial cerrado."
                 await self._on_screenshot_end()
 
             elif name == "finalizar_capacitacion":

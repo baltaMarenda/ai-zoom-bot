@@ -97,6 +97,7 @@ RECALL_WAITING_ROOM_TIMEOUT_S  = int(os.getenv("RECALL_WAITING_ROOM_TIMEOUT_S", 
 CAMPUS_FOCUS_MAP: dict[str, dict] = {
     "modulo_1": {"kind": "module", "n": "1", "label": "Módulo 1 — Configuración"},
     "modulo_2": {"kind": "module", "n": "2", "label": "Módulo 2 — Caja y Caja Mayor"},
+    "modulo_3": {"kind": "module", "n": "3", "label": "Módulo 3 — Mayorista"},
 }
 
 
@@ -639,7 +640,7 @@ Esperá la respuesta.
 
 - Si dice "1" / "módulo 1" / "configuración" (o equivalente claro) → arrancá el guion de MÓDULO DE CAPACITACIÓN 1 de abajo.
 - Si dice "2" / "módulo 2" / "caja" → arrancá el guion de MÓDULO DE CAPACITACIÓN 2 de abajo.
-- Si dice "3" → decí que ese módulo todavía está en preparación y ofrecé el Módulo 1 o el 2.
+- Si dice "3" / "módulo 3" / "mayorista" → arrancá el guion de MÓDULO DE CAPACITACIÓN 3 de abajo.
 - Si el cliente nombra una SECCIÓN puntual en vez de un módulo entero (ej: "quiero ver gastos", "mostrame la balanza", "la parte de clientes", "arrancá por proveedores") → pasá a MODO SECCIÓN DIRECTA de abajo. NO arranques el módulo completo desde el login.
 - Si la respuesta es ambigua → repreguntá si quiere un módulo completo (1, 2 o 3) o una sección puntual, no asumas.
 
@@ -682,6 +683,8 @@ Cuando el cliente pide una sección específica, NO hacés el intro/login ni las
   - Cierre de caja ............................ caja_cierre_navegar()
   - Caja mayor / tesorería .................... caja_mayor_navegar()
   - Balanza ................................... balanza_navegar()
+  Módulo 3 — Mayorista:
+  - Mayorista (pedidos / romaneo / tickets) ... mayorista_navegar_productos()   → seguí el guion completo del MÓDULO DE CAPACITACIÓN 3 de abajo, de principio a fin.
 Si el cliente pide una sección que no está en este índice, decíselo y ofrecé las que sí están o un módulo completo.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1113,6 +1116,111 @@ Decí EXACTAMENTE: "Lo hacemos desde nuevo fichaje, poniendo fecha y hora manual
 CIERRE DEL MÓDULO 2
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Decí EXACTAMENTE: "Bueno, eso sería todo en cuanto a Caja, Caja Mayor, Balanza y Recursos Humanos. ¿Te quedó alguna duda?"
+
+STOP — no llamés ninguna tool en esta respuesta. Esperá la respuesta del cliente en el turno siguiente.
+Si tiene duda: respondela con naturalidad y volvé a preguntar si quedó alguna otra.
+Si no tiene dudas: despedite con calidez en una frase corta y ahí sí, en esa misma respuesta, llamá la tool finalizar_capacitacion().
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MÓDULO DE CAPACITACIÓN 3 — MAYORISTA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Seguí el orden EXACTO, de arriba hacia abajo. Cada línea "Decí EXACTAMENTE" se dice tal cual, sin cambiar
+ni una palabra. Cuando una línea "Decí EXACTAMENTE" tiene una "Tool:" debajo, decís la frase y llamás esa
+tool EN LA MISMA RESPUESTA (nunca la frase sola sin la tool, nunca la tool sin la frase). Las líneas "Decí
+EXACTAMENTE" sin Tool son narración pura: las decís y esperás el turno siguiente. Un paso por respuesta.
+
+Decí EXACTAMENTE: "En este modulo vamos a ver la seccion mayorista del sistema"
+Tool: mayorista_navegar_productos()
+(La tool, además de navegar, deja la caja lista en silencio para poder cobrar al final. Puede tardar unos segundos.)
+
+Decí EXACTAMENTE: "Lo primero que vamos a hacer es definir que productos van a estar disponibles para cada modalidad de trabajo. Eso lo hacemos desde la parte de productos, aca vamos a tener todos los productos que tenemos en el sistema. Lo que tenemos que hacer es seleccionar si queremos que aparezca en la seccion de pedidos, en la de romaneos en las tablets, o en favoritos en nuestra nueva terminal POS. De esta manera vamos a poder personalizar los productos que estaran disponibles en cada circuito de trabajo. Una vez configurados los productos dentro de la seccion mayorista, vamos a tener la herramienta de pedidos, romaneo y tickets, que cada una va a cumplir una funcion en especifico. Empezamos con la de pedidos"
+Tool: mayorista_navegar_pedidos()
+
+Decí EXACTAMENTE: "Esta seccion esta pensada para registrar los pedidos que se realizan de los clientes ya sea de forma online, por whatsapp o cualquier otro medio. Para hacer un nuevo pedido vamos a hacer click sobre nuevo pedido"
+Tool: mayorista_pedidos_nuevo()
+
+Decí EXACTAMENTE: "Aca vamos a poner la fecha de entrega del pedido, el cliente, que podemos poner el nombre del cliente o directamente consumidor final, y algun comentario si queremos"
+Tool: mayorista_pedido_confirmar_cliente()
+
+Decí EXACTAMENTE: "Al hacer click en agregar, nos va a aparecer esta pantalla donde vamos a cargar producto a producto tanto con sus kilos o unidades de este pedido"
+Tool: mayorista_pedido_agregar_item()
+
+Decí EXACTAMENTE: "Una vez cargados cerramos y va a quedar en el listado de pedidos, desde el boton azul"
+Tool: mayorista_pedido_editar()
+
+Decí EXACTAMENTE: "podemos ingresar a los detalles del pedido y editar la información"
+Tool: mayorista_pedido_cerrar_editar()
+
+Decí EXACTAMENTE: "O tambien desde el boton naranja podemos imprimirlo o eliminarlo desde el de la Cruz"
+(Narración pura, SIN tool: seguimos en la pantalla de pedidos. No llamés ninguna tool en esta respuesta.)
+
+Decí EXACTAMENTE: "Si trabajamos con pedidos el siguiente paso seria el de romaneo, que se hace desde las tablets. Desde aca vamos a preparar y controlar la mercadería que sera entregada al cliente. Hacemos click en el boton naranja donde tenemos la notificación con los pedidos, y seleccionamos el cliente"
+Tool: mayorista_romaneo_seleccionar_pedido()
+(Esta tool ya navega sola a romaneo, abre el modal de pedidos pendientes con el botón naranja, selecciona el cliente Consumidor final y cierra el modal — todo en un paso.)
+
+Decí EXACTAMENTE: "Aca en rojo nos va a aparecer el pedido que vamos a preparar, hacemos click sobre èl"
+Tool: mayorista_romaneo_abrir_cliente()
+
+Decí EXACTAMENTE: "Presionamos sobre pedido arriba a la derecha"
+Tool: mayorista_romaneo_abrir_pedido()
+
+Decí EXACTAMENTE: "Apretamos en agregar"
+Tool: mayorista_romaneo_agregar_producto_pedido()
+
+Decí EXACTAMENTE: "E ingresamos los kilos o unidades del pedido"
+Tool: mayorista_romaneo_ingresar_peso()
+
+Decí EXACTAMENTE: "Y finalizamos, lo podemos hacerlo imprimiendo el pedido desde el boton azul, o sin imprimirlo desde el boton verde"
+Tool: mayorista_romaneo_finalizar()
+
+Decí EXACTAMENTE: "Desde el boton de romaneos vamos a poder ver todos los romaneos y vamos a poder imprimirlos y ver los detalles del mismo con su foto y todo. Y desde el boton nuevo podemos cargar un nuevo romaneo directamente desde la tablet, permitiendo preparar la mercadería en el deposito de una manera mas agil y practica"
+Tool: mayorista_romaneo_nuevo()
+
+Decí EXACTAMENTE: "Aca seleccionamos el cliente, cargamos todos los productos con sus kilos o unidades y finalizamos el romaneo"
+Tool: mayorista_romaneo_nuevo_cargar_finalizar()
+
+Decí EXACTAMENTE: "Por otro lado, tenemos la sección de tickets, pensada para trabajar con nuestra nueva terminal POS"
+Tool: mayorista_navegar_tickets()
+
+Decí EXACTAMENTE: "Esto nos permite registrar una venta mayorista de forma directa sin necesidad de haber creado un pedido previamente, para hacerlo hacemos click en el boton verde de nuevo ticket"
+Tool: mayorista_tickets_nuevo()
+
+Decí EXACTAMENTE: "Seleccionamos el cliente"
+Tool: mayorista_tickets_seleccionar_cliente()
+
+Decí EXACTAMENTE: "Luego los productos, y registramos la operación de manera rápida y sencilla"
+Tool: mayorista_tickets_cargar_finalizar()
+
+Decí EXACTAMENTE: "También podemos ver los tickets emitidos en el dia apretando en el boton de tickets arriba a la derecha"
+Tool: mayorista_tickets_ver_dia()
+
+Decí EXACTAMENTE: "Una vez terminamos en la sección mayorista, para cobrarlo vamos a ir a la parte de caja"
+Tool: mayorista_ir_a_caja()
+
+Decí EXACTAMENTE: "Desde aca vamos a poder escanear el ticket o ingresar manualmente desde el boton de tickets mayorista romaneos pendientes"
+Tool: mayorista_caja_abrir_pendientes()
+
+Decí EXACTAMENTE: "Donde nos va a aparecer de esta manera y vamos a apretar el boton verde para cobrarlo"
+Tool: mayorista_caja_ingresar_venta()
+
+Decí EXACTAMENTE: "Aca nos va a aparecer el producto con el precio y la cantidad de kilos o unidades finales, y del otro lado vamos a tener la sección como tenemos en la caja, con los distintos descuentos o medios de pago que tengamos configurados. Esto lo vamos a poder facturar de ser necesario, o simplemente presupuestarlo, y finalizamos"
+Tool: mayorista_caja_finalizar_venta()
+
+Decí EXACTAMENTE: "Y por ultimo de la sección mayorista vamos a tener el historial"
+Tool: mayorista_navegar_historial()
+
+Decí EXACTAMENTE: "Aca vamos a tener tanto los romaneos como los tickets, para ver el estado, si la venta fue realizada, haciendo click vamos a poder ver los detalles de la venta."
+Tool: mayorista_historial_ver_detalle()
+
+Decí EXACTAMENTE: "Desde la lupa también vamos a poder ingresar y ver el detalle."
+Tool: mayorista_historial_cerrar_detalle()
+
+Decí EXACTAMENTE: "Tambien vamos a poder ver si algún romaneo fue cancelado, podemos tambien filtrar por un rango de fecha determinada y buscarlos"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CIERRE DEL MÓDULO 3
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Decí EXACTAMENTE: "Bueno, eso sería todo en cuanto a la sección Mayorista. ¿Te quedó alguna duda?"
 
 STOP — no llamés ninguna tool en esta respuesta. Esperá la respuesta del cliente en el turno siguiente.
 Si tiene duda: respondela con naturalidad y volvé a preguntar si quedó alguna otra.
@@ -1740,6 +1848,175 @@ REALTIME_TOOLS = [
         "type": "function",
         "name": "rrhh_fichaje_nuevo",
         "description": "Hace click en el botón 'Nuevo fichaje' (onclick nuevo_fichaje()) para abrir el fichaje manual. Llamala DESPUÉS de mencionar que además podés fichar de forma manual.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    # ── Módulo 3: Mayorista ───────────────────────────────────────────────────
+    {
+        "type": "function",
+        "name": "mayorista_navegar_productos",
+        "description": "PRIMER paso del módulo Mayorista: resetea la caja en silencio (la cierra y reabre, o la abre si estaba cerrada) y navega a Mayorista → Productos. Llamala DESPUÉS de decir que lo primero es definir qué productos van a cada modalidad.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_navegar_pedidos",
+        "description": "Navega a la sección Mayorista → Pedidos. Llamala DESPUÉS de anunciar que empezamos con la herramienta de pedidos.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_pedidos_nuevo",
+        "description": "Click en 'Nuevo' pedido para abrir el formulario. Llamala DESPUÉS de decir que hacemos click sobre nuevo pedido.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_pedido_confirmar_cliente",
+        "description": "Selecciona 'Consumidor final' como cliente del pedido y aprieta Agregar. Llamala DESPUÉS de explicar la fecha de entrega, el cliente y el comentario.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_pedido_agregar_item",
+        "description": "Carga 'Media res' con 100 kg al pedido, aprieta Agregar y cierra el modal. Llamala DESPUÉS de decir que vamos a cargar producto a producto con sus kilos o unidades.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_pedido_editar",
+        "description": "Abre el detalle/edición del pedido con el botón azul. Llamala DESPUÉS de decir que va a quedar en el listado y lo abrimos desde el botón azul.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_pedido_cerrar_editar",
+        "description": "Cierra el modal de edición del pedido. Llamala DESPUÉS de decir que podemos ingresar a los detalles y editar la información.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_navegar_romaneo",
+        "description": "SOLO para RE-MOSTRAR la pantalla de Romaneo si el cliente lo pide. NO es parte del guion normal: en el flujo del módulo usá mayorista_romaneo_seleccionar_pedido, que ya navega sola a romaneo.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_romaneo_seleccionar_pedido",
+        "description": "Abre el modal de pedidos pendientes (botón naranja), selecciona el cliente y cierra el modal. Llamala DESPUÉS de decir que hacemos click en el botón naranja con los pedidos y seleccionamos el cliente.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_romaneo_abrir_cliente",
+        "description": "Click en el pedido en rojo del cliente a preparar. Llamala DESPUÉS de decir que en rojo aparece el pedido a preparar y hacemos click sobre él.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_romaneo_abrir_pedido",
+        "description": "Click en el botón 'Pedido' arriba a la derecha del romaneo. Llamala DESPUÉS de decir que presionamos sobre pedido arriba a la derecha.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_romaneo_agregar_producto_pedido",
+        "description": "Click en 'Agregar' del producto del pedido dentro del romaneo. Llamala DESPUÉS de decir que apretamos en agregar.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_romaneo_ingresar_peso",
+        "description": "Ingresa 100 con el teclado del romaneo, aprieta Agregar y cierra el modal. Llamala DESPUÉS de decir que ingresamos los kilos o unidades del pedido.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_romaneo_finalizar",
+        "description": "Finaliza el romaneo (botón verde). Llamala DESPUÉS de decir que finalizamos, imprimiendo con el botón azul o sin imprimir con el verde.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_romaneo_nuevo",
+        "description": "Abre el formulario de nuevo romaneo directo desde la tablet. Llamala DESPUÉS de explicar que desde 'Nuevo' se carga un romaneo directo desde la tablet.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_romaneo_nuevo_cargar_finalizar",
+        "description": "En el nuevo romaneo: elige Consumidor Final, carga el favorito 'Asado' con 1, agrega y finaliza. Llamala DESPUÉS de decir que seleccionamos el cliente, cargamos los productos con sus kilos o unidades y finalizamos.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_navegar_tickets",
+        "description": "Navega a la sección Mayorista → Tickets (terminal POS). Llamala DESPUÉS de anunciar la sección de tickets pensada para la terminal POS.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_tickets_nuevo",
+        "description": "Abre un nuevo ticket (botón verde). Llamala DESPUÉS de decir que hacemos click en el botón verde de nuevo ticket.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_tickets_seleccionar_cliente",
+        "description": "Selecciona Consumidor Final en el ticket. Llamala DESPUÉS de decir que seleccionamos el cliente.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_tickets_cargar_finalizar",
+        "description": "En el ticket: carga el favorito 'Vacío' con 1, agrega y finaliza. Llamala DESPUÉS de decir que cargamos los productos y registramos la operación rápido.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_tickets_ver_dia",
+        "description": "Muestra los tickets emitidos en el día (botón Tickets arriba a la derecha). Llamala DESPUÉS de decir que podemos ver los tickets del día apretando el botón de tickets.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_ir_a_caja",
+        "description": "Navega a Caja para cobrar la venta mayorista. Llamala DESPUÉS de decir que para cobrarlo vamos a la parte de caja.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_caja_abrir_pendientes",
+        "description": "Abre los romaneos/tickets mayorista CF pendientes en la caja. Llamala DESPUÉS de decir que ingresamos manualmente desde el botón de tickets/romaneos mayorista pendientes.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_caja_ingresar_venta",
+        "description": "Ingresa el romaneo/ticket a la venta con el botón verde. Llamala DESPUÉS de decir que apretamos el botón verde para cobrarlo.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_caja_finalizar_venta",
+        "description": "Cierra la venta mayorista con Presupuestar F8. Llamala DESPUÉS de explicar que se puede facturar o presupuestar y que finalizamos.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_navegar_historial",
+        "description": "Navega al historial mayorista (romaneos y tickets). Llamala DESPUÉS de decir que por último tenemos el historial.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_historial_ver_detalle",
+        "description": "Abre el detalle de una venta del historial (lupa). Llamala DESPUÉS de decir que haciendo click vamos a ver los detalles de la venta.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_historial_cerrar_detalle",
+        "description": "Cierra el modal de detalle del historial. Llamala DESPUÉS de decir que desde la lupa también podemos ver el detalle.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
 ]

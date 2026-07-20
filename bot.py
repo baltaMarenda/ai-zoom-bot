@@ -67,6 +67,23 @@ from mgw_playwright import (
     rrhh_navegar, rrhh_personal_nuevo, rrhh_personal_editar,
     rrhh_personal_ficha, rrhh_personal_cliente_asociado, rrhh_fichaje_navegar,
     rrhh_fichaje_nuevo,
+    # Módulo 3: Mayorista
+    mayorista_prep_caja,
+    mayorista_navegar_productos, mayorista_navegar_pedidos, mayorista_pedidos_nuevo,
+    mayorista_pedido_confirmar_cliente, mayorista_pedido_agregar_item,
+    mayorista_pedido_editar, mayorista_pedido_cerrar_editar,
+    mayorista_navegar_romaneo, mayorista_romaneo_seleccionar_pedido,
+    mayorista_romaneo_abrir_cliente, mayorista_romaneo_abrir_pedido,
+    mayorista_romaneo_agregar_producto_pedido, mayorista_romaneo_ingresar_peso,
+    mayorista_romaneo_finalizar, mayorista_romaneo_nuevo,
+    mayorista_romaneo_nuevo_cargar_finalizar,
+    mayorista_navegar_tickets, mayorista_tickets_nuevo,
+    mayorista_tickets_seleccionar_cliente, mayorista_tickets_cargar_finalizar,
+    mayorista_tickets_ver_dia,
+    mayorista_ir_a_caja, mayorista_caja_abrir_pendientes,
+    mayorista_caja_ingresar_venta, mayorista_caja_finalizar_venta,
+    mayorista_navegar_historial, mayorista_historial_ver_detalle,
+    mayorista_historial_cerrar_detalle,
 )
 import recall
 
@@ -199,6 +216,36 @@ _BIND0_TABLE = {
     "rrhh_personal_cliente_asociado":         rrhh_personal_cliente_asociado,
     "rrhh_fichaje_navegar":                   rrhh_fichaje_navegar,
     "rrhh_fichaje_nuevo":                     rrhh_fichaje_nuevo,
+    # Módulo 3: Mayorista
+    "mayorista_prep_caja":                    mayorista_prep_caja,
+    "mayorista_navegar_productos":            mayorista_navegar_productos,
+    "mayorista_navegar_pedidos":              mayorista_navegar_pedidos,
+    "mayorista_pedidos_nuevo":                mayorista_pedidos_nuevo,
+    "mayorista_pedido_confirmar_cliente":     mayorista_pedido_confirmar_cliente,
+    "mayorista_pedido_agregar_item":          mayorista_pedido_agregar_item,
+    "mayorista_pedido_editar":                mayorista_pedido_editar,
+    "mayorista_pedido_cerrar_editar":         mayorista_pedido_cerrar_editar,
+    "mayorista_navegar_romaneo":              mayorista_navegar_romaneo,
+    "mayorista_romaneo_seleccionar_pedido":   mayorista_romaneo_seleccionar_pedido,
+    "mayorista_romaneo_abrir_cliente":        mayorista_romaneo_abrir_cliente,
+    "mayorista_romaneo_abrir_pedido":         mayorista_romaneo_abrir_pedido,
+    "mayorista_romaneo_agregar_producto_pedido": mayorista_romaneo_agregar_producto_pedido,
+    "mayorista_romaneo_ingresar_peso":        mayorista_romaneo_ingresar_peso,
+    "mayorista_romaneo_finalizar":            mayorista_romaneo_finalizar,
+    "mayorista_romaneo_nuevo":                mayorista_romaneo_nuevo,
+    "mayorista_romaneo_nuevo_cargar_finalizar": mayorista_romaneo_nuevo_cargar_finalizar,
+    "mayorista_navegar_tickets":              mayorista_navegar_tickets,
+    "mayorista_tickets_nuevo":                mayorista_tickets_nuevo,
+    "mayorista_tickets_seleccionar_cliente":  mayorista_tickets_seleccionar_cliente,
+    "mayorista_tickets_cargar_finalizar":     mayorista_tickets_cargar_finalizar,
+    "mayorista_tickets_ver_dia":              mayorista_tickets_ver_dia,
+    "mayorista_ir_a_caja":                    mayorista_ir_a_caja,
+    "mayorista_caja_abrir_pendientes":        mayorista_caja_abrir_pendientes,
+    "mayorista_caja_ingresar_venta":          mayorista_caja_ingresar_venta,
+    "mayorista_caja_finalizar_venta":         mayorista_caja_finalizar_venta,
+    "mayorista_navegar_historial":            mayorista_navegar_historial,
+    "mayorista_historial_ver_detalle":        mayorista_historial_ver_detalle,
+    "mayorista_historial_cerrar_detalle":     mayorista_historial_cerrar_detalle,
 }
 
 
@@ -342,6 +389,11 @@ def _build_bridge_kwargs(session) -> dict:
         # config_navegar toma 1 arg (sección)
         "config_navegar":    _bind1(config_navegar, oscb),
         "finalizar_capacitacion": _make_finalizar(session),
+        # Módulo 3: si el campus pidió módulo 3 (mayorista), prendé el prep de caja en
+        # background durante el intro, para que el reset de caja (~20s) no genere silencio
+        # en el primer paso. Para entrada por sección directa (field) queda en False y el
+        # reset corre inline dentro de mayorista_navegar_productos (como antes).
+        "prep_mayorista_caja": (session.focus.get("module") or "").strip().lower() == "modulo_3",
     }
     # Todos los wrappers sin argumentos
     for kwarg_name, fn in _BIND0_TABLE.items():

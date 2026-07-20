@@ -5856,3 +5856,615 @@ async def rrhh_fichaje_navegar(on_screenshot=None) -> str:
         await _snap(on_screenshot, 0.0)
     print("[PW] [RRHH] rrhh_fichaje_navegar ✓")
     return "Sección de fichaje visible: todos los fichajes del negocio, con opción de fichaje manual (fecha y hora) además del fichaje en tiempo real con ubicación, foto y hora."
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MÓDULO 3 — MAYORISTA (Productos, Pedidos, Romaneo, Tickets, Caja, Historial)
+# ══════════════════════════════════════════════════════════════════════════════
+# Flujo pensado para carnicerías/mayoristas: define qué productos van a cada
+# circuito (pedidos / romaneo en tablets / tickets POS), carga un pedido, lo
+# prepara con romaneo, hace un ticket POS directo, lo cobra en caja y revisa el
+# historial. Requiere la caja ABIERTA (se cobra al final) — por eso el primer
+# paso resetea la caja en silencio (cierra si estaba abierta y la vuelve a abrir,
+# o la abre si estaba cerrada) reutilizando caja_ir_a_apertura + caja_abrir_turno.
+
+MAYORISTA_PRODUCTOS_PATH = "/mayorista_productos.php"
+MAYORISTA_PEDIDOS_PATH   = "/mayorista_pedidos.php"
+MAYORISTA_ROMANEO_PATH   = "/mayorista_romaneo.php"
+MAYORISTA_TICKETS_PATH   = "/mayorista_tickets.php"
+MAYORISTA_HISTORIAL_PATH = "/mayorista_romaneos.php"
+
+
+def _mayorista_dialog_autoaccept():
+    """Devuelve un handler que acepta cualquier confirm()/alert() nativo.
+
+    Sin un handler registrado Playwright DESCARTA (cancel) los diálogos, lo que
+    haría que un confirm() de 'Finalizar' devuelva false y no finalice. Se
+    registra alrededor de las acciones de finalizar/cobrar y se remueve al salir.
+    """
+    async def _acc(dialog):
+        print(f"[PW] [MAYORISTA] dialog '{(dialog.message or '')[:50]}' — aceptando")
+        try:
+            await dialog.accept()
+        except Exception:
+            pass
+    return _acc
+
+
+async def _mayorista_click(onclick_substr: str, label: str = "") -> bool:
+    """Clickea el primer elemento cuyo atributo onclick contiene `onclick_substr`.
+
+    Prioriza elementos visibles (offsetParent != null) y cae a cualquiera que
+    matchee si ninguno está visible. Es el camino más robusto acá porque el spec
+    da los onclick exactos de cada botón (mayorista_pedidos_nuevo(), etc.).
+    """
+    if _current_page() is None:
+        return False
+    ok = await _page.evaluate("""(sub) => {
+        const els = [...document.querySelectorAll('[onclick]')];
+        const vis = els.find(e => (e.getAttribute('onclick') || '').includes(sub) && e.offsetParent !== null);
+        if (vis) { vis.click(); return true; }
+        const any = els.find(e => (e.getAttribute('onclick') || '').includes(sub));
+        if (any) { any.click(); return true; }
+        return false;
+    }""", onclick_substr)
+    print(f"[PW] [MAYORISTA] click onclick~'{onclick_substr}' {label}: {'✓' if ok else '✗'}")
+    return ok
+
+
+async def _mayorista_click_sel(css: str, label: str = "") -> bool:
+    """Clickea el primer elemento que matchea el selector CSS (para botones sin onclick)."""
+    if _current_page() is None:
+        return False
+    try:
+        el = _page.locator(css).first
+        if await el.count() > 0:
+            await el.click(timeout=6000)
+            print(f"[PW] [MAYORISTA] click sel '{css}' {label} ✓")
+            return True
+    except Exception as e:
+        print(f"[PW] [MAYORISTA] click sel '{css}' {label} ✗ ({e})")
+    # Fallback JS por si el elemento está fuera de viewport
+    ok = await _page.evaluate("""(css) => {
+        const el = document.querySelector(css);
+        if (el) { el.click(); return true; }
+        return false;
+    }""", css)
+    print(f"[PW] [MAYORISTA] click sel '{css}' {label} (JS fallback): {'✓' if ok else '✗'}")
+    return ok
+
+
+async def _mayorista_cerrar_modal() -> bool:
+    """Cierra el modal visible más arriba (botón × con data-dismiss='modal')."""
+    if _current_page() is None:
+        return False
+    ok = await _page.evaluate("""() => {
+        const btns = [...document.querySelectorAll(
+            'button.close[data-dismiss="modal"], .modal .close, [data-dismiss="modal"]'
+        )].filter(e => e.offsetParent !== null);
+        if (btns.length) { btns[btns.length - 1].click(); return true; }
+        return false;
+    }""")
+    await asyncio.sleep(1.0)
+    print(f"[PW] [MAYORISTA] cerrar modal: {'✓' if ok else '✗'}")
+    return ok
+
+
+async def _mayorista_autocomplete_select(input_sel: str, text: str) -> bool:
+    """Escribe `text` en un input de jQuery UI Autocomplete y selecciona la
+    sugerencia con ArrowDown + Enter (con fallback a click del primer item)."""
+    if _current_page() is None:
+        return False
+    campo = None
+    for sel in [s.strip() for s in input_sel.split(",")]:
+        try:
+            el = _page.locator(sel).first
+            if await el.count() > 0 and await el.is_visible():
+                campo = el
+                break
+        except Exception:
+            continue
+    if campo is None:
+        print(f"[PW] [MAYORISTA] autocomplete: input '{input_sel}' no encontrado")
+        return False
+    await campo.click()
+    await campo.fill("")
+    await campo.type(text, delay=110)
+    print(f"[PW] [MAYORISTA] autocomplete: tipeado '{text}'")
+    try:
+        await _page.wait_for_selector('.ui-autocomplete .ui-menu-item', state="visible", timeout=6000)
+    except Exception:
+        print("[PW] [MAYORISTA] autocomplete: menú no apareció (AJAX lento) — igual pruebo ArrowDown/Enter")
+    await asyncio.sleep(0.3)
+    try:
+        await campo.press("ArrowDown")
+        await asyncio.sleep(0.25)
+        await campo.press("Enter")
+        await asyncio.sleep(0.4)
+        return True
+    except Exception as e:
+        print(f"[PW] [MAYORISTA] autocomplete ArrowDown/Enter falló ({e}) — click primer item")
+        try:
+            await _page.locator('.ui-autocomplete:visible .ui-menu-item, .ui-autocomplete .ui-menu-item').first.click()
+            await asyncio.sleep(0.4)
+            return True
+        except Exception:
+            return False
+
+
+async def _mayorista_reset_caja() -> None:
+    """Deja la caja abierta y limpia EN SILENCIO: si estaba abierta la cierra y la
+    reabre; si estaba cerrada la abre. Reutiliza la lógica probada de Módulo 2
+    (caja_ir_a_apertura cierra el estado previo y muestra el form de apertura;
+    caja_abrir_turno confirma la apertura con el fondo inicial).
+
+    Marca `mayorista_caja_ready` en el holder de la sesión al terminar, para que
+    `mayorista_navegar_productos` no repita el reset si ya se hizo en background."""
+    if _st().get("mayorista_caja_ready"):
+        print("[PW] [MAYORISTA] Caja ya reseteada — salteando reset")
+        return
+    print("[PW] [MAYORISTA] Reseteando caja en silencio (cerrar+reabrir / abrir)...")
+    try:
+        await caja_ir_a_apertura()   # login + cierra si estaba abierta, deja form de apertura
+        await caja_abrir_turno()     # confirma apertura con fondo inicial
+        _st()["mayorista_caja_ready"] = True
+        print("[PW] [MAYORISTA] Caja lista (abierta limpia) ✓")
+    except Exception as e:
+        print(f"[PW] [MAYORISTA] Error reseteando caja: {e}")
+
+
+async def mayorista_prep_caja(on_screenshot=None) -> str:
+    """Prep en background: hace SOLO el reset de caja (sin navegar a productos), para
+    que corra durante el intro y no genere silencio en el primer paso del módulo."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    await _mayorista_reset_caja()
+    return "Caja lista (prep)."
+
+
+# ── PRODUCTOS ────────────────────────────────────────────────────────────────
+
+async def mayorista_navegar_productos(on_screenshot=None) -> str:
+    """Primer paso del módulo: resetea la caja en silencio y navega a
+    mayorista_productos.php (configuración de productos por circuito)."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    base = MGW_URL.rstrip("/")
+    await _mayorista_reset_caja()
+    print("[PW] [MAYORISTA] Navegando a mayorista_productos.php...")
+    await _page.goto(f"{base}{MAYORISTA_PRODUCTOS_PATH}", wait_until="domcontentloaded", timeout=25000)
+    await asyncio.sleep(2.0)
+    await _snap(on_screenshot, 0.0)
+    print("[PW] [MAYORISTA] mayorista_navegar_productos ✓")
+    return ("Sección Mayorista → Productos visible. Se ven todos los productos del sistema, "
+            "cada uno con las opciones para habilitarlo en Pedidos, en Romaneos (tablets) o en "
+            "Favoritos de la terminal POS.")
+
+
+# ── PEDIDOS ──────────────────────────────────────────────────────────────────
+
+async def mayorista_navegar_pedidos(on_screenshot=None) -> str:
+    """Navega a mayorista_pedidos.php."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    base = MGW_URL.rstrip("/")
+    print("[PW] [MAYORISTA] Navegando a mayorista_pedidos.php...")
+    await _page.goto(f"{base}{MAYORISTA_PEDIDOS_PATH}", wait_until="domcontentloaded", timeout=25000)
+    await asyncio.sleep(2.0)
+    await _snap(on_screenshot, 0.0)
+    print("[PW] [MAYORISTA] mayorista_navegar_pedidos ✓")
+    return "Sección Pedidos visible, con el listado de pedidos y el botón 'Nuevo' para cargar uno."
+
+
+async def mayorista_pedidos_nuevo(on_screenshot=None) -> str:
+    """Click en 'Nuevo' pedido (mayorista_pedidos_nuevo())."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    await _mayorista_click("mayorista_pedidos_nuevo(", "Nuevo pedido")
+    await asyncio.sleep(2.0)
+    await _snap(on_screenshot, 0.0)
+    return ("Formulario de nuevo pedido abierto: fecha de entrega, cliente (podés poner el "
+            "nombre o Consumidor final) y un comentario opcional.")
+
+
+async def mayorista_pedido_confirmar_cliente(on_screenshot=None) -> str:
+    """Selecciona 'Consumidor final' en el buscador de cliente y aprieta Agregar."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    await _mayorista_autocomplete_select("#mayorista_pedido_cliente_buscar", "Consumidor final")
+    await asyncio.sleep(0.5)
+    await _snap(on_screenshot, 0.0)
+    # Botón "Agregar" del form (submit)
+    clicked = await _mayorista_click_sel('button[type="submit"]:has-text("Agregar")', "Agregar cliente")
+    if not clicked:
+        await _mayorista_click_sel('button:has-text("Agregar")', "Agregar cliente (fallback)")
+    await asyncio.sleep(2.0)
+    await _snap(on_screenshot, 0.0)
+    return ("Cliente Consumidor final seleccionado y confirmado. Ahora aparece la pantalla para "
+            "cargar los productos del pedido, producto por producto con sus kilos o unidades.")
+
+
+async def mayorista_pedido_agregar_item(on_screenshot=None) -> str:
+    """Carga 'Media res' 100 kg al pedido y cierra el modal."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    await _mayorista_autocomplete_select("#mayorista_pedido_producto_buscar", "Media res")
+    await asyncio.sleep(0.4)
+    # Peso 100
+    try:
+        peso = _page.locator("#mayorista_pedido_peso").first
+        if await peso.count() > 0:
+            await peso.click()
+            await peso.fill("100")
+    except Exception as e:
+        print(f"[PW] [MAYORISTA] no se pudo cargar peso: {e}")
+    await asyncio.sleep(0.4)
+    await _snap(on_screenshot, 0.0)
+    # Agregar detalle
+    clicked = await _mayorista_click_sel("#mayorista_pedido_boton_agregar", "Agregar detalle pedido")
+    if not clicked:
+        await _mayorista_click("mayorista_pedidos_detalle_agregar(", "Agregar detalle pedido (onclick)")
+    await asyncio.sleep(1.5)
+    await _snap(on_screenshot, 0.0)
+    # Cerrar el modal
+    await _mayorista_cerrar_modal()
+    await asyncio.sleep(1.5)
+    await _snap(on_screenshot, 0.0)
+    return ("Media res (100 kg) agregada al pedido y modal cerrado. El pedido queda en el listado.")
+
+
+async def mayorista_pedido_editar(on_screenshot=None) -> str:
+    """Abre el detalle/edición del pedido con el botón azul (mayorista_pedidos_editar)."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    await _mayorista_click("mayorista_pedidos_editar(", "Editar pedido")
+    await asyncio.sleep(2.0)
+    await _snap(on_screenshot, 0.0)
+    return "Detalle del pedido abierto: se puede ver y editar la información del pedido."
+
+
+async def mayorista_pedido_cerrar_editar(on_screenshot=None) -> str:
+    """Cierra el modal de edición del pedido."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    await _mayorista_cerrar_modal()
+    await asyncio.sleep(1.5)
+    await _snap(on_screenshot, 0.0)
+    return ("Modal de edición cerrado. Desde el botón naranja se puede imprimir el pedido y desde "
+            "el de la cruz eliminarlo.")
+
+
+# ── ROMANEO ──────────────────────────────────────────────────────────────────
+
+async def mayorista_navegar_romaneo(on_screenshot=None) -> str:
+    """Navega a mayorista_romaneo.php."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    base = MGW_URL.rstrip("/")
+    print("[PW] [MAYORISTA] Navegando a mayorista_romaneo.php...")
+    await _page.goto(f"{base}{MAYORISTA_ROMANEO_PATH}", wait_until="domcontentloaded", timeout=25000)
+    await asyncio.sleep(2.0)
+    await _snap(on_screenshot, 0.0)
+    print("[PW] [MAYORISTA] mayorista_navegar_romaneo ✓")
+    return ("Sección Romaneo visible (pensada para las tablets del depósito), donde se prepara y "
+            "controla la mercadería que se entrega al cliente.")
+
+
+async def mayorista_romaneo_seleccionar_pedido(on_screenshot=None) -> str:
+    """Navega a romaneo (si hace falta), abre el modal de pedidos pendientes (botón
+    naranja), elige el cliente y cierra el modal.
+
+    Auto-navega a mayorista_romaneo.php si la página actual no es romaneo: el modelo
+    a veces saltea el anuncio previo y llama esta tool estando todavía en la pantalla
+    de pedidos, donde el botón naranja no existe y todos los clicks fallaban.
+    """
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    base = MGW_URL.rstrip("/")
+    if "mayorista_romaneo.php" not in (_page.url or ""):
+        print("[PW] [MAYORISTA] Auto-navegando a mayorista_romaneo.php (no estábamos en romaneo)...")
+        await _page.goto(f"{base}{MAYORISTA_ROMANEO_PATH}", wait_until="domcontentloaded", timeout=25000)
+        await asyncio.sleep(2.0)
+        await _snap(on_screenshot, 0.0)
+    # Botón naranja de pedidos pendientes
+    clicked = await _mayorista_click("mayorista_romaneo_modal_pedidos(", "Pedidos pendientes")
+    if not clicked:
+        clicked = await _mayorista_click_sel("#mayorista_romaneo_pedidos_btn", "Pedidos pendientes (id)")
+    if not clicked:
+        await _mayorista_click_sel(".romaneo-pedidos-btn", "Pedidos pendientes (clase)")
+    await asyncio.sleep(1.0)
+    # Esperar a que el modal muestre el pedido disponible antes de clickearlo
+    try:
+        await _page.wait_for_selector(".romaneo-pedido-disponible-btn", state="visible", timeout=6000)
+    except Exception:
+        print("[PW] [MAYORISTA] pedido disponible no apareció a tiempo — pruebo igual")
+    await _snap(on_screenshot, 0.0)
+    # Seleccionar el pedido disponible (Consumidor final)
+    await _mayorista_click_sel(".romaneo-pedido-disponible-btn", "Pedido disponible CF")
+    await asyncio.sleep(1.5)
+    await _snap(on_screenshot, 0.0)
+    # Cerrar modal
+    await _mayorista_cerrar_modal()
+    await asyncio.sleep(1.5)
+    await _snap(on_screenshot, 0.0)
+    return "Pedido del cliente seleccionado. Ahora aparece en rojo el pedido a preparar."
+
+
+async def mayorista_romaneo_abrir_cliente(on_screenshot=None) -> str:
+    """Click en el pedido a preparar (botón rojo del cliente, .romaneo-cliente-btn)."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    await _mayorista_click_sel(".romaneo-cliente-btn", "Cliente a preparar")
+    await asyncio.sleep(2.0)
+    await _snap(on_screenshot, 0.0)
+    return "Entramos al romaneo del cliente. Arriba a la derecha está el botón 'Pedido'."
+
+
+async def mayorista_romaneo_abrir_pedido(on_screenshot=None) -> str:
+    """Click en el botón 'Pedido' (mayorista_romaneo_modal_pedido())."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    clicked = await _mayorista_click("mayorista_romaneo_modal_pedido(", "Botón Pedido")
+    if not clicked:
+        await _mayorista_click_sel("#mayorista_romaneo_pedido_btn", "Botón Pedido (id)")
+    await asyncio.sleep(2.0)
+    await _snap(on_screenshot, 0.0)
+    return "Modal del pedido abierto, con el producto pedido y su botón 'Agregar'."
+
+
+async def mayorista_romaneo_agregar_producto_pedido(on_screenshot=None) -> str:
+    """Click en 'Agregar' del producto del pedido (.romaneo-pedido-agregar-btn)."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    await _mayorista_click_sel(".romaneo-pedido-agregar-btn", "Agregar producto del pedido")
+    await asyncio.sleep(2.0)
+    await _snap(on_screenshot, 0.0)
+    return "Producto del pedido agregado. Ahora se ingresan los kilos o unidades con el teclado."
+
+
+async def mayorista_romaneo_ingresar_peso(on_screenshot=None) -> str:
+    """Ingresa 100 con el teclado del romaneo, aprieta Agregar y cierra el modal."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    for tecla in ["1", "0", "0"]:
+        await _mayorista_click(f"mayorista_romaneo_peso_tecla({tecla})", f"tecla {tecla}")
+        await asyncio.sleep(0.35)
+    await _snap(on_screenshot, 0.0)
+    # Agregar detalle
+    await _mayorista_click("mayorista_romaneo_agregar_detalle(", "Agregar detalle romaneo")
+    await asyncio.sleep(1.5)
+    await _snap(on_screenshot, 0.0)
+    # Cerrar modal
+    await _mayorista_cerrar_modal()
+    await asyncio.sleep(1.5)
+    await _snap(on_screenshot, 0.0)
+    return "100 kg cargados en el romaneo y modal cerrado. Listo para finalizar."
+
+
+async def mayorista_romaneo_finalizar(on_screenshot=None) -> str:
+    """Finaliza el romaneo (mayorista_romaneo_finalizar())."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    handler = _mayorista_dialog_autoaccept()
+    _page.on("dialog", handler)
+    try:
+        await _mayorista_click("mayorista_romaneo_finalizar(", "Finalizar romaneo")
+        await asyncio.sleep(2.5)
+    finally:
+        _page.remove_listener("dialog", handler)
+    await _snap(on_screenshot, 0.0)
+    return ("Romaneo finalizado. Se puede finalizar imprimiendo (botón azul) o sin imprimir "
+            "(botón verde). Desde el botón de romaneos se ven todos y desde 'Nuevo' se carga uno "
+            "directo desde la tablet.")
+
+
+async def mayorista_romaneo_nuevo(on_screenshot=None) -> str:
+    """Abre el formulario de nuevo romaneo (mayorista_romaneo_nuevo())."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    await _mayorista_click("mayorista_romaneo_nuevo(", "Nuevo romaneo")
+    await asyncio.sleep(2.0)
+    await _snap(on_screenshot, 0.0)
+    return "Nuevo romaneo abierto: se elige el cliente, se cargan los productos y se finaliza."
+
+
+async def mayorista_romaneo_nuevo_cargar_finalizar(on_screenshot=None) -> str:
+    """Nuevo romaneo directo: elige Consumidor Final, carga Asado 1, agrega y finaliza."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    # Cliente Consumidor Final
+    await _mayorista_click("mayorista_romaneo_abrir_cliente(", "Cliente CF (nuevo romaneo)")
+    await asyncio.sleep(1.5)
+    await _snap(on_screenshot, 0.0)
+    # Producto favorito Asado (data-producto="1")
+    clicked = await _mayorista_click_sel('.romaneo-producto-favorito[data-producto="1"]', "Favorito Asado")
+    if not clicked:
+        await _mayorista_click_sel('.romaneo-producto-favorito[title="Asado"]', "Favorito Asado (title)")
+    await asyncio.sleep(1.5)
+    await _snap(on_screenshot, 0.0)
+    # Tecla 1
+    await _mayorista_click("mayorista_romaneo_peso_tecla(1)", "tecla 1")
+    await asyncio.sleep(0.5)
+    # Agregar detalle
+    await _mayorista_click("mayorista_romaneo_agregar_detalle(", "Agregar detalle")
+    await asyncio.sleep(1.5)
+    await _snap(on_screenshot, 0.0)
+    # Finalizar
+    handler = _mayorista_dialog_autoaccept()
+    _page.on("dialog", handler)
+    try:
+        await _mayorista_click("mayorista_romaneo_finalizar(", "Finalizar romaneo nuevo")
+        await asyncio.sleep(2.5)
+    finally:
+        _page.remove_listener("dialog", handler)
+    await _snap(on_screenshot, 0.0)
+    return "Nuevo romaneo cargado (Asado, 1) y finalizado."
+
+
+# ── TICKETS (POS) ────────────────────────────────────────────────────────────
+
+async def mayorista_navegar_tickets(on_screenshot=None) -> str:
+    """Navega a mayorista_tickets.php."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    base = MGW_URL.rstrip("/")
+    print("[PW] [MAYORISTA] Navegando a mayorista_tickets.php...")
+    await _page.goto(f"{base}{MAYORISTA_TICKETS_PATH}", wait_until="domcontentloaded", timeout=25000)
+    await asyncio.sleep(2.0)
+    await _snap(on_screenshot, 0.0)
+    print("[PW] [MAYORISTA] mayorista_navegar_tickets ✓")
+    return ("Sección Tickets visible, pensada para la terminal POS: permite registrar una venta "
+            "mayorista directa sin haber creado un pedido antes.")
+
+
+async def mayorista_tickets_nuevo(on_screenshot=None) -> str:
+    """Abre un nuevo ticket (mayorista_tickets_nuevo())."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    await _mayorista_click("mayorista_tickets_nuevo(", "Nuevo ticket")
+    await asyncio.sleep(2.0)
+    await _snap(on_screenshot, 0.0)
+    return "Nuevo ticket abierto: primero se selecciona el cliente."
+
+
+async def mayorista_tickets_seleccionar_cliente(on_screenshot=None) -> str:
+    """Selecciona Consumidor Final en el nuevo ticket (mayorista_tickets_abrir_cliente(1))."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    await _mayorista_click("mayorista_tickets_abrir_cliente(", "Cliente CF ticket")
+    await asyncio.sleep(2.0)
+    await _snap(on_screenshot, 0.0)
+    return "Cliente Consumidor Final seleccionado. Ahora se cargan los productos."
+
+
+async def mayorista_tickets_cargar_finalizar(on_screenshot=None) -> str:
+    """Carga Vacío 1 en el ticket, agrega y finaliza."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    # Producto favorito Vacío (data-producto="3")
+    clicked = await _mayorista_click_sel('.romaneo-producto-favorito[data-producto="3"]', "Favorito Vacío")
+    if not clicked:
+        await _mayorista_click_sel('.romaneo-producto-favorito[title="Vacío"]', "Favorito Vacío (title)")
+    await asyncio.sleep(1.5)
+    await _snap(on_screenshot, 0.0)
+    # Tecla 1
+    await _mayorista_click("mayorista_tickets_peso_tecla(1)", "tecla 1 ticket")
+    await asyncio.sleep(0.5)
+    # Agregar detalle
+    await _mayorista_click("mayorista_tickets_agregar_detalle(", "Agregar detalle ticket")
+    await asyncio.sleep(1.5)
+    await _snap(on_screenshot, 0.0)
+    # Finalizar
+    handler = _mayorista_dialog_autoaccept()
+    _page.on("dialog", handler)
+    try:
+        await _mayorista_click("mayorista_tickets_finalizar(", "Finalizar ticket")
+        await asyncio.sleep(2.5)
+    finally:
+        _page.remove_listener("dialog", handler)
+    await _snap(on_screenshot, 0.0)
+    return "Ticket cargado (Vacío, 1) y registrado de forma rápida."
+
+
+async def mayorista_tickets_ver_dia(on_screenshot=None) -> str:
+    """Muestra los tickets emitidos en el día (mayorista_tickets_modal_dia())."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    await _mayorista_click("mayorista_tickets_modal_dia(", "Tickets del día")
+    await asyncio.sleep(2.0)
+    await _snap(on_screenshot, 0.0)
+    return "Tickets emitidos en el día visibles."
+
+
+# ── CAJA (cobro del romaneo/ticket mayorista) ────────────────────────────────
+
+async def mayorista_ir_a_caja(on_screenshot=None) -> str:
+    """Navega a caja.php para cobrar la venta mayorista."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    base = MGW_URL.rstrip("/")
+    print("[PW] [MAYORISTA] Navegando a caja.php para cobrar...")
+    await _page.goto(f"{base}/caja.php", wait_until="domcontentloaded", timeout=25000)
+    await asyncio.sleep(2.5)
+    await _snap(on_screenshot, 0.0)
+    print("[PW] [MAYORISTA] mayorista_ir_a_caja ✓")
+    return ("En Caja. Desde acá se escanea el ticket o se ingresa manualmente desde el botón de "
+            "tickets/romaneos mayorista pendientes.")
+
+
+async def mayorista_caja_abrir_pendientes(on_screenshot=None) -> str:
+    """Abre los romaneos/tickets mayorista CF pendientes en la caja."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    clicked = await _mayorista_click("mostrar_tickets_mayorista_pendientes", "Mayorista pendientes CF")
+    if not clicked:
+        await _mayorista_click_sel(".mgw-pendiente-click", "Mayorista pendientes (clase)")
+    await asyncio.sleep(2.0)
+    await _snap(on_screenshot, 0.0)
+    return "Listado de romaneos/tickets mayorista pendientes visible, con el botón verde para cobrar."
+
+
+async def mayorista_caja_ingresar_venta(on_screenshot=None) -> str:
+    """Ingresa el romaneo/ticket a la venta (botón verde, ingresar_ticket_mayorista)."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    await _mayorista_click("ingresar_ticket_mayorista(", "Ingresar ticket mayorista a la venta")
+    await asyncio.sleep(2.5)
+    await _snap(on_screenshot, 0.0)
+    return ("La venta cargó el producto con precio y cantidad final. A la derecha está el panel de "
+            "caja con descuentos y medios de pago; se puede facturar o presupuestar.")
+
+
+async def mayorista_caja_finalizar_venta(on_screenshot=None) -> str:
+    """Cierra la venta mayorista con Presupuestar F8 (#boton_caja_finalizar_venta)."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    handler = _mayorista_dialog_autoaccept()
+    _page.on("dialog", handler)
+    try:
+        clicked = await _mayorista_click_sel("#boton_caja_finalizar_venta", "Presupuestar F8")
+        if not clicked:
+            await _mayorista_click("finalizar_factura(", "Presupuestar F8 (onclick)")
+        await asyncio.sleep(3.0)
+    finally:
+        _page.remove_listener("dialog", handler)
+    await _snap(on_screenshot, 0.0)
+    await _snap(on_screenshot, 2.0)
+    return "Venta mayorista cerrada con Presupuestar F8. El comprobante quedó registrado."
+
+
+# ── HISTORIAL ────────────────────────────────────────────────────────────────
+
+async def mayorista_navegar_historial(on_screenshot=None) -> str:
+    """Navega a mayorista_romaneos.php (historial de romaneos y tickets)."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    base = MGW_URL.rstrip("/")
+    print("[PW] [MAYORISTA] Navegando a mayorista_romaneos.php (historial)...")
+    await _page.goto(f"{base}{MAYORISTA_HISTORIAL_PATH}", wait_until="domcontentloaded", timeout=25000)
+    await asyncio.sleep(2.0)
+    await _snap(on_screenshot, 0.0)
+    print("[PW] [MAYORISTA] mayorista_navegar_historial ✓")
+    return ("Historial mayorista visible: romaneos y tickets con su estado (si la venta se realizó). "
+            "Se puede filtrar por rango de fechas y ver el detalle de cada uno.")
+
+
+async def mayorista_historial_ver_detalle(on_screenshot=None) -> str:
+    """Abre el detalle de una venta del historial (lupa, mayorista_historial_detalle)."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    await _mayorista_click("mayorista_historial_detalle(", "Ver detalle historial")
+    await asyncio.sleep(2.0)
+    await _snap(on_screenshot, 0.0)
+    return "Detalle de la venta abierto desde la lupa, con toda la información del romaneo/ticket."
+
+
+async def mayorista_historial_cerrar_detalle(on_screenshot=None) -> str:
+    """Cierra el modal de detalle del historial."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    await _mayorista_cerrar_modal()
+    await asyncio.sleep(1.5)
+    await _snap(on_screenshot, 0.0)
+    return ("Detalle cerrado. En el historial también se ven los romaneos cancelados y se puede "
+            "filtrar por un rango de fechas determinado.")
