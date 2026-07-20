@@ -72,7 +72,8 @@ from mgw_playwright import (
     mayorista_navegar_productos, mayorista_navegar_pedidos, mayorista_pedidos_nuevo,
     mayorista_pedido_confirmar_cliente, mayorista_pedido_agregar_item,
     mayorista_pedido_editar, mayorista_pedido_cerrar_editar,
-    mayorista_navegar_romaneo, mayorista_romaneo_seleccionar_pedido,
+    mayorista_navegar_romaneo, mayorista_romaneo_preparar_pedido,
+    mayorista_romaneo_seleccionar_pedido,
     mayorista_romaneo_abrir_cliente, mayorista_romaneo_abrir_pedido,
     mayorista_romaneo_agregar_producto_pedido, mayorista_romaneo_ingresar_peso,
     mayorista_romaneo_finalizar, mayorista_romaneo_nuevo,
@@ -226,6 +227,7 @@ _BIND0_TABLE = {
     "mayorista_pedido_editar":                mayorista_pedido_editar,
     "mayorista_pedido_cerrar_editar":         mayorista_pedido_cerrar_editar,
     "mayorista_navegar_romaneo":              mayorista_navegar_romaneo,
+    "mayorista_romaneo_preparar_pedido":      mayorista_romaneo_preparar_pedido,
     "mayorista_romaneo_seleccionar_pedido":   mayorista_romaneo_seleccionar_pedido,
     "mayorista_romaneo_abrir_cliente":        mayorista_romaneo_abrir_cliente,
     "mayorista_romaneo_abrir_pedido":         mayorista_romaneo_abrir_pedido,
@@ -394,6 +396,13 @@ def _build_bridge_kwargs(session) -> dict:
         # en el primer paso. Para entrada por sección directa (field) queda en False y el
         # reset corre inline dentro de mayorista_navegar_productos (como antes).
         "prep_mayorista_caja": (session.focus.get("module") or "").strip().lower() == "modulo_3",
+        # Arranque directo (el campus fijó module o field): después del saludo, Malena tiene
+        # que arrancar SOLA el guion sin esperar a que el usuario hable. Sin esto, tras el
+        # intro se quedaba muda hasta que el usuario decía algo (el auto-continue no corría
+        # porque _demo_started todavía era False). Con module/field seteado NO hay pregunta
+        # de "¿qué módulo querés?" que justifique esperar al usuario.
+        "autostart_after_intro": bool((session.focus.get("module") or "").strip()
+                                      or (session.focus.get("field") or "").strip()),
     }
     # Todos los wrappers sin argumentos
     for kwarg_name, fn in _BIND0_TABLE.items():

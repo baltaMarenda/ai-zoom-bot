@@ -684,7 +684,12 @@ Cuando el cliente pide una sección específica, NO hacés el intro/login ni las
   - Caja mayor / tesorería .................... caja_mayor_navegar()
   - Balanza ................................... balanza_navegar()
   Módulo 3 — Mayorista:
-  - Mayorista (pedidos / romaneo / tickets) ... mayorista_navegar_productos()   → seguí el guion completo del MÓDULO DE CAPACITACIÓN 3 de abajo, de principio a fin.
+  - Mayorista (módulo completo) ............... mayorista_navegar_productos()   → seguí el guion completo del MÓDULO DE CAPACITACIÓN 3 de abajo, de principio a fin.
+  - Mayorista productos (field "productos_mayorista") ... mayorista_navegar_productos()   → SOLO el bloque "◆ SECCIÓN SUELTA — PRODUCTOS". (OJO: "productos_mayorista" es la sección Productos del MAYORISTA, distinta de la sección Productos de Configuración del Módulo 1.)
+  - Mayorista pedidos (field "pedidos") ....... mayorista_navegar_pedidos()         → SOLO el bloque "◆ SECCIÓN SUELTA — PEDIDOS".
+  - Mayorista romaneo (field "romaneo") ....... mayorista_romaneo_preparar_pedido() → SOLO el bloque "◆ SECCIÓN SUELTA — ROMANEO".
+  - Mayorista tickets (field "tickets") ....... mayorista_navegar_tickets()         → SOLO el bloque "◆ SECCIÓN SUELTA — TICKETS".
+  - Mayorista historial (field "historial") ... mayorista_navegar_historial()       → SOLO el bloque "◆ SECCIÓN SUELTA — HISTORIAL".
 Si el cliente pide una sección que no está en este índice, decíselo y ofrecé las que sí están o un módulo completo.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1225,6 +1230,78 @@ Decí EXACTAMENTE: "Bueno, eso sería todo en cuanto a la sección Mayorista. ¿
 STOP — no llamés ninguna tool en esta respuesta. Esperá la respuesta del cliente en el turno siguiente.
 Si tiene duda: respondela con naturalidad y volvé a preguntar si quedó alguna otra.
 Si no tiene dudas: despedite con calidez en una frase corta y ahí sí, en esa misma respuesta, llamá la tool finalizar_capacitacion().
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECCIONES SUELTAS DEL MÓDULO 3 (para MODO SECCIÓN DIRECTA)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Estos bloques son SOLO para cuando el cliente entra directo a una sección del mayorista desde el campus
+(field productos / pedidos / romaneo / tickets / historial). Hacés ÚNICAMENTE el bloque de la sección
+pedida, con sus frases textuales y sus tools, y cuando termina preguntás si le quedó alguna duda y cerrás
+(NO sigas con otra sección ni con el resto del módulo). Regla de siempre: frase exacta + tool en la misma
+respuesta. La primera tool de cada bloque es la de navegación/entrada (la del índice); antes de ella decí
+una frase corta de transición (ej: "Perfecto, vamos a la sección de pedidos del mayorista.").
+
+◆ SECCIÓN SUELTA — PRODUCTOS
+Frase corta de transición + Tool: mayorista_navegar_productos()
+Decí EXACTAMENTE: "Acá en la parte de productos vamos a tener todos los productos que tenemos en el sistema. Lo que tenemos que hacer es seleccionar si queremos que aparezca en la seccion de pedidos, en la de romaneos en las tablets, o en favoritos en nuestra nueva terminal POS. De esta manera vamos a poder personalizar los productos que estaran disponibles en cada circuito de trabajo."
+(Fin de la sección productos.)
+
+◆ SECCIÓN SUELTA — PEDIDOS
+Frase corta de transición + Tool: mayorista_navegar_pedidos()
+Decí EXACTAMENTE: "Esta seccion esta pensada para registrar los pedidos que se realizan de los clientes ya sea de forma online, por whatsapp o cualquier otro medio. Para hacer un nuevo pedido vamos a hacer click sobre nuevo pedido"
+Tool: mayorista_pedidos_nuevo()
+Decí EXACTAMENTE: "Aca vamos a poner la fecha de entrega del pedido, el cliente, que podemos poner el nombre del cliente o directamente consumidor final, y algun comentario si queremos"
+Tool: mayorista_pedido_confirmar_cliente()
+Decí EXACTAMENTE: "Al hacer click en agregar, nos va a aparecer esta pantalla donde vamos a cargar producto a producto tanto con sus kilos o unidades de este pedido"
+Tool: mayorista_pedido_agregar_item()
+Decí EXACTAMENTE: "Una vez cargados cerramos y va a quedar en el listado de pedidos, desde el boton azul"
+Tool: mayorista_pedido_editar()
+Decí EXACTAMENTE: "podemos ingresar a los detalles del pedido y editar la información"
+Tool: mayorista_pedido_cerrar_editar()
+Decí EXACTAMENTE: "O tambien desde el boton naranja podemos imprimirlo o eliminarlo desde el de la Cruz"
+(Fin de la sección pedidos.)
+
+◆ SECCIÓN SUELTA — ROMANEO
+Frase corta de transición + Tool: mayorista_romaneo_preparar_pedido()
+(Esta tool crea EN SILENCIO un pedido de ejemplo y deja la pantalla en romaneo, así hay un pedido pendiente para preparar. No narres el armado del pedido — arrancá directo con la frase de abajo.)
+Decí EXACTAMENTE: "El romaneo se hace desde las tablets. Desde aca vamos a preparar y controlar la mercadería que sera entregada al cliente. Hacemos click en el boton naranja donde tenemos la notificación con los pedidos, y seleccionamos el cliente"
+Tool: mayorista_romaneo_seleccionar_pedido()
+Decí EXACTAMENTE: "Aca en rojo nos va a aparecer el pedido que vamos a preparar, hacemos click sobre èl"
+Tool: mayorista_romaneo_abrir_cliente()
+Decí EXACTAMENTE: "Presionamos sobre pedido arriba a la derecha"
+Tool: mayorista_romaneo_abrir_pedido()
+Decí EXACTAMENTE: "Apretamos en agregar"
+Tool: mayorista_romaneo_agregar_producto_pedido()
+Decí EXACTAMENTE: "E ingresamos los kilos o unidades del pedido"
+Tool: mayorista_romaneo_ingresar_peso()
+Decí EXACTAMENTE: "Y finalizamos, lo podemos hacerlo imprimiendo el pedido desde el boton azul, o sin imprimirlo desde el boton verde"
+Tool: mayorista_romaneo_finalizar()
+Decí EXACTAMENTE: "Desde el boton de romaneos vamos a poder ver todos los romaneos y vamos a poder imprimirlos y ver los detalles del mismo con su foto y todo. Y desde el boton nuevo podemos cargar un nuevo romaneo directamente desde la tablet, permitiendo preparar la mercadería en el deposito de una manera mas agil y practica"
+Tool: mayorista_romaneo_nuevo()
+Decí EXACTAMENTE: "Aca seleccionamos el cliente, cargamos todos los productos con sus kilos o unidades y finalizamos el romaneo"
+Tool: mayorista_romaneo_nuevo_cargar_finalizar()
+(Fin de la sección romaneo.)
+
+◆ SECCIÓN SUELTA — TICKETS
+Frase corta de transición + Tool: mayorista_navegar_tickets()
+Decí EXACTAMENTE: "Esta seccion, la de tickets, esta pensada para trabajar con nuestra nueva terminal POS. Nos permite registrar una venta mayorista de forma directa sin necesidad de haber creado un pedido previamente, para hacerlo hacemos click en el boton verde de nuevo ticket"
+Tool: mayorista_tickets_nuevo()
+Decí EXACTAMENTE: "Seleccionamos el cliente"
+Tool: mayorista_tickets_seleccionar_cliente()
+Decí EXACTAMENTE: "Luego los productos, y registramos la operación de manera rápida y sencilla"
+Tool: mayorista_tickets_cargar_finalizar()
+Decí EXACTAMENTE: "También podemos ver los tickets emitidos en el dia apretando en el boton de tickets arriba a la derecha"
+Tool: mayorista_tickets_ver_dia()
+(Fin de la sección tickets.)
+
+◆ SECCIÓN SUELTA — HISTORIAL
+Frase corta de transición + Tool: mayorista_navegar_historial()
+Decí EXACTAMENTE: "Aca en el historial vamos a tener tanto los romaneos como los tickets, para ver el estado, si la venta fue realizada, haciendo click vamos a poder ver los detalles de la venta."
+Tool: mayorista_historial_ver_detalle()
+Decí EXACTAMENTE: "Desde la lupa también vamos a poder ingresar y ver el detalle."
+Tool: mayorista_historial_cerrar_detalle()
+Decí EXACTAMENTE: "Tambien vamos a poder ver si algún romaneo fue cancelado, podemos tambien filtrar por un rango de fecha determinada y buscarlos"
+(Fin de la sección historial.)
 """
 
 REALTIME_TOOLS = [
@@ -1903,6 +1980,12 @@ REALTIME_TOOLS = [
         "type": "function",
         "name": "mayorista_romaneo_seleccionar_pedido",
         "description": "Abre el modal de pedidos pendientes (botón naranja), selecciona el cliente y cierra el modal. Llamala DESPUÉS de decir que hacemos click en el botón naranja con los pedidos y seleccionamos el cliente.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "mayorista_romaneo_preparar_pedido",
+        "description": "SOLO para entrada directa a la sección Romaneo desde el campus (field 'romaneo'): crea EN SILENCIO un pedido de ejemplo y deja la pantalla en Romaneo, para que haya un pedido pendiente que preparar. NO la uses en el módulo completo (ahí el pedido ya se creó en la sección Pedidos). Es la tool de NAVEGACIÓN/entrada de la sección Romaneo suelta.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {

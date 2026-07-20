@@ -205,6 +205,7 @@ class RealtimeBridge:
         # Módulo 3: Mayorista
         mayorista_prep_caja                   = None,   # async fn() → str (reset de caja para background)
         prep_mayorista_caja                   = False,  # bool: arrancar prep de caja en el intro
+        autostart_after_intro                 = False,  # bool: tras el saludo, arrancar el guion solo
         mayorista_navegar_productos           = None,   # async fn() → str
         mayorista_navegar_pedidos             = None,   # async fn() → str
         mayorista_pedidos_nuevo               = None,   # async fn() → str
@@ -213,6 +214,7 @@ class RealtimeBridge:
         mayorista_pedido_editar               = None,   # async fn() → str
         mayorista_pedido_cerrar_editar        = None,   # async fn() → str
         mayorista_navegar_romaneo             = None,   # async fn() → str
+        mayorista_romaneo_preparar_pedido     = None,   # async fn() → str
         mayorista_romaneo_seleccionar_pedido  = None,   # async fn() → str
         mayorista_romaneo_abrir_cliente       = None,   # async fn() → str
         mayorista_romaneo_abrir_pedido        = None,   # async fn() → str
@@ -347,6 +349,7 @@ class RealtimeBridge:
         # Módulo 3: Mayorista
         self._mayorista_prep_caja                   = mayorista_prep_caja
         self._prep_mayorista_caja                   = prep_mayorista_caja
+        self._autostart_after_intro                 = autostart_after_intro
         self._mayorista_prep_done                   = asyncio.Event()
         self._mayorista_prep_task: asyncio.Task | None = None
         self._mayorista_navegar_productos           = mayorista_navegar_productos
@@ -357,6 +360,7 @@ class RealtimeBridge:
         self._mayorista_pedido_editar               = mayorista_pedido_editar
         self._mayorista_pedido_cerrar_editar        = mayorista_pedido_cerrar_editar
         self._mayorista_navegar_romaneo             = mayorista_navegar_romaneo
+        self._mayorista_romaneo_preparar_pedido     = mayorista_romaneo_preparar_pedido
         self._mayorista_romaneo_seleccionar_pedido  = mayorista_romaneo_seleccionar_pedido
         self._mayorista_romaneo_abrir_cliente       = mayorista_romaneo_abrir_cliente
         self._mayorista_romaneo_abrir_pedido        = mayorista_romaneo_abrir_pedido
@@ -1044,6 +1048,13 @@ class RealtimeBridge:
         await self._request_response(ws, "saludo inicial")
         print("[RT] Sesión configurada, intro disparada ✓")
 
+        # Arranque directo (campus fijó module/field): prendé _demo_started ahora para que,
+        # cuando termine el saludo (response.done), el auto-continue empuje a Malena a arrancar
+        # el guion sola, sin quedarse muda esperando que el usuario hable.
+        if self._autostart_after_intro:
+            self._demo_started = True
+            print("[RT] Autostart tras intro activado (module/field directo) ✓")
+
         # Módulo 3 (mayorista): el primer paso necesita la caja reseteada (cerrada y
         # reabierta), lo que toma ~20s de navegaciones. Si eso corre DENTRO del primer
         # tool, Malena queda muda ~20s justo después del intro. Lo arrancamos ACÁ, en
@@ -1657,6 +1668,12 @@ class RealtimeBridge:
                 print("[MAYORISTA] Navegando a romaneo...")
                 await self._wait_for_audio_done(timeout=20.0)
                 result = await self._mayorista_navegar_romaneo() if self._mayorista_navegar_romaneo else "Sección Romaneo visible."
+
+            elif name == "mayorista_romaneo_preparar_pedido":
+                print("[MAYORISTA] Creando pedido en silencio y entrando a romaneo (sección directa)...")
+                await self._wait_for_audio_done(timeout=20.0)
+                self._demo_started = True
+                result = await self._mayorista_romaneo_preparar_pedido() if self._mayorista_romaneo_preparar_pedido else "Romaneo listo con un pedido de ejemplo."
 
             elif name == "mayorista_romaneo_seleccionar_pedido":
                 print("[MAYORISTA] Seleccionando pedido pendiente en romaneo...")

@@ -5912,8 +5912,18 @@ async def _mayorista_click(onclick_substr: str, label: str = "") -> bool:
     return ok
 
 
+# Pseudo-selectores propios de Playwright que NO son CSS válido para document.querySelector.
+# Si un selector los usa, el fallback JS tiraría SyntaxError y crashearía el tool.
+_PLAYWRIGHT_ONLY_TOKENS = (":has-text", ":has(", ":visible", ":text(", ":nth-match(", ">>")
+
+
 async def _mayorista_click_sel(css: str, label: str = "") -> bool:
-    """Clickea el primer elemento que matchea el selector CSS (para botones sin onclick)."""
+    """Clickea el primer elemento que matchea el selector (para botones sin onclick).
+
+    El selector puede ser un pseudo de Playwright (ej: ':has-text(...)'); el locator de
+    Playwright lo soporta. El fallback JS con document.querySelector SOLO se usa para CSS
+    plano — nunca para pseudos de Playwright, porque querySelector tiraría SyntaxError y
+    crashearía el tool (bug real en prod). Además el evaluate va envuelto en try/except."""
     if _current_page() is None:
         return False
     try:
@@ -5924,14 +5934,58 @@ async def _mayorista_click_sel(css: str, label: str = "") -> bool:
             return True
     except Exception as e:
         print(f"[PW] [MAYORISTA] click sel '{css}' {label} ✗ ({e})")
-    # Fallback JS por si el elemento está fuera de viewport
-    ok = await _page.evaluate("""(css) => {
-        const el = document.querySelector(css);
-        if (el) { el.click(); return true; }
-        return false;
-    }""", css)
+    # Fallback JS SOLO para CSS plano (querySelector no entiende los pseudos de Playwright)
+    if any(tok in css for tok in _PLAYWRIGHT_ONLY_TOKENS):
+        print(f"[PW] [MAYORISTA] click sel '{css}' {label}: sin fallback JS (selector Playwright)")
+        return False
+    try:
+        ok = await _page.evaluate("""(css) => {
+            try {
+                const el = document.querySelector(css);
+                if (el) { el.click(); return true; }
+            } catch (e) { return false; }
+            return false;
+        }""", css)
+    except Exception as e:
+        print(f"[PW] [MAYORISTA] click sel JS fallback error '{css}': {e}")
+        ok = False
     print(f"[PW] [MAYORISTA] click sel '{css}' {label} (JS fallback): {'✓' if ok else '✗'}")
     return ok
+
+
+async def _mayorista_click_boton_texto(texto: str, label: str = "") -> bool:
+    """Clickea el primer botón/enlace VISIBLE cuyo texto contiene `texto` (ej: 'Agregar').
+    Camino robusto para botones sin onclick ni id, sin depender de :has-text."""
+    if _current_page() is None:
+        return False
+    try:
+        ok = await _page.evaluate("""(txt) => {
+            const t = (txt || '').trim().toLowerCase();
+            const els = [...document.querySelectorAll('button, input[type="submit"], a.btn, .btn')];
+            const el = els.find(e => ((e.textContent || e.value || '').trim().toLowerCase().includes(t))
+                                     && e.offsetParent !== null);
+            if (el) { el.click(); return true; }
+            return false;
+        }""", texto)
+    except Exception as e:
+        print(f"[PW] [MAYORISTA] click boton texto '{texto}' error: {e}")
+        ok = False
+    print(f"[PW] [MAYORISTA] click boton texto '{texto}' {label}: {'✓' if ok else '✗'}")
+    return ok
+
+
+async def _mayorista_ensure_page(path: str, label: str = "") -> bool:
+    """Navega a `path` si la página actual no lo contiene. Red de seguridad para cuando el
+    modelo saltea el paso de navegación y llama directo una acción de esa sección."""
+    if _current_page() is None:
+        return False
+    if path not in (_page.url or ""):
+        base = MGW_URL.rstrip("/")
+        print(f"[PW] [MAYORISTA] Auto-navegando a {path} ({label}) — no estábamos ahí...")
+        await _page.goto(f"{base}{path}", wait_until="domcontentloaded", timeout=25000)
+        await asyncio.sleep(2.0)
+        return True
+    return False
 
 
 async def _mayorista_cerrar_modal() -> bool:
@@ -6025,12 +6079,15 @@ async def mayorista_prep_caja(on_screenshot=None) -> str:
 # ── PRODUCTOS ────────────────────────────────────────────────────────────────
 
 async def mayorista_navegar_productos(on_screenshot=None) -> str:
-    """Primer paso del módulo: resetea la caja en silencio y navega a
-    mayorista_productos.php (configuración de productos por circuito)."""
+    """Navega a mayorista_productos.php (configuración de productos por circuito).
+
+    NO resetea la caja: en el módulo COMPLETO el reset lo hace el prep en background
+    (ver RealtimeBridge._run_mayorista_prep); en entrada por sección directa (field
+    productos) no hace falta porque productos no cobra nada. La red de seguridad para
+    que la caja esté abierta al cobrar está en mayorista_ir_a_caja."""
     if _current_page() is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
-    await _mayorista_reset_caja()
     print("[PW] [MAYORISTA] Navegando a mayorista_productos.php...")
     await _page.goto(f"{base}{MAYORISTA_PRODUCTOS_PATH}", wait_until="domcontentloaded", timeout=25000)
     await asyncio.sleep(2.0)
@@ -6057,9 +6114,11 @@ async def mayorista_navegar_pedidos(on_screenshot=None) -> str:
 
 
 async def mayorista_pedidos_nuevo(on_screenshot=None) -> str:
-    """Click en 'Nuevo' pedido (mayorista_pedidos_nuevo())."""
+    """Click en 'Nuevo' pedido (mayorista_pedidos_nuevo()). Auto-navega a pedidos si el
+    modelo salteó la navegación (si no, el botón no existe y el click falla)."""
     if _current_page() is None:
         return "Error: browser no iniciado"
+    await _mayorista_ensure_page(MAYORISTA_PEDIDOS_PATH, "nuevo pedido")
     await _mayorista_click("mayorista_pedidos_nuevo(", "Nuevo pedido")
     await asyncio.sleep(2.0)
     await _snap(on_screenshot, 0.0)
@@ -6068,16 +6127,24 @@ async def mayorista_pedidos_nuevo(on_screenshot=None) -> str:
 
 
 async def mayorista_pedido_confirmar_cliente(on_screenshot=None) -> str:
-    """Selecciona 'Consumidor final' en el buscador de cliente y aprieta Agregar."""
+    """Selecciona 'Consumidor final' en el buscador de cliente y aprieta Agregar.
+
+    Si el modal no está abierto (el modelo salteó nuevo pedido), lo abre solo:
+    auto-navega a pedidos + click en Nuevo, y recién ahí busca el cliente."""
     if _current_page() is None:
         return "Error: browser no iniciado"
+    # ¿El input del cliente está en el DOM? Si no, abrir el modal de nuevo pedido.
+    inp = _page.locator("#mayorista_pedido_cliente_buscar").first
+    if not (await inp.count() > 0 and await inp.is_visible()):
+        print("[PW] [MAYORISTA] Modal de nuevo pedido no abierto — abriéndolo antes de elegir cliente...")
+        await _mayorista_ensure_page(MAYORISTA_PEDIDOS_PATH, "confirmar cliente")
+        await _mayorista_click("mayorista_pedidos_nuevo(", "Nuevo pedido (auto)")
+        await asyncio.sleep(2.0)
     await _mayorista_autocomplete_select("#mayorista_pedido_cliente_buscar", "Consumidor final")
     await asyncio.sleep(0.5)
     await _snap(on_screenshot, 0.0)
-    # Botón "Agregar" del form (submit)
-    clicked = await _mayorista_click_sel('button[type="submit"]:has-text("Agregar")', "Agregar cliente")
-    if not clicked:
-        await _mayorista_click_sel('button:has-text("Agregar")', "Agregar cliente (fallback)")
+    # Botón "Agregar" del form (submit) — por texto, sin :has-text para no depender del fallback JS
+    await _mayorista_click_boton_texto("Agregar", "Agregar cliente")
     await asyncio.sleep(2.0)
     await _snap(on_screenshot, 0.0)
     return ("Cliente Consumidor final seleccionado y confirmado. Ahora aparece la pantalla para "
@@ -6148,6 +6215,55 @@ async def mayorista_navegar_romaneo(on_screenshot=None) -> str:
     print("[PW] [MAYORISTA] mayorista_navegar_romaneo ✓")
     return ("Sección Romaneo visible (pensada para las tablets del depósito), donde se prepara y "
             "controla la mercadería que se entrega al cliente.")
+
+
+async def mayorista_romaneo_preparar_pedido(on_screenshot=None) -> str:
+    """Entrada por field:'romaneo' (opción A): crea EN SILENCIO un pedido de ejemplo
+    (Consumidor final, Media res 100 kg) para que haya un pedido pendiente que preparar,
+    y después deja la pantalla en romaneo. El armado del pedido NO se narra ni se
+    muestra (sin on_screenshot); solo se hace la captura final de romaneo.
+
+    Se usa SOLO cuando el cliente entra directo a la sección romaneo desde el campus:
+    en el módulo completo el pedido ya se creó en la sección Pedidos, así que no se llama."""
+    if _current_page() is None:
+        return "Error: browser no iniciado"
+    base = MGW_URL.rstrip("/")
+    print("[PW] [MAYORISTA] Creando pedido de ejemplo EN SILENCIO para el romaneo directo...")
+    try:
+        await _page.goto(f"{base}{MAYORISTA_PEDIDOS_PATH}", wait_until="domcontentloaded", timeout=25000)
+        await asyncio.sleep(2.0)
+        await _mayorista_click("mayorista_pedidos_nuevo(", "Nuevo pedido (silencio)")
+        await asyncio.sleep(1.5)
+        await _mayorista_autocomplete_select("#mayorista_pedido_cliente_buscar", "Consumidor final")
+        await asyncio.sleep(0.5)
+        await _mayorista_click_boton_texto("Agregar", "Agregar cliente (silencio)")
+        await asyncio.sleep(2.0)
+        await _mayorista_autocomplete_select("#mayorista_pedido_producto_buscar", "Media res")
+        await asyncio.sleep(0.4)
+        try:
+            peso = _page.locator("#mayorista_pedido_peso").first
+            if await peso.count() > 0:
+                await peso.click()
+                await peso.fill("100")
+        except Exception as e:
+            print(f"[PW] [MAYORISTA] no se pudo cargar peso (silencio): {e}")
+        await asyncio.sleep(0.4)
+        clicked = await _mayorista_click_sel("#mayorista_pedido_boton_agregar", "Agregar detalle (silencio)")
+        if not clicked:
+            await _mayorista_click("mayorista_pedidos_detalle_agregar(", "Agregar detalle onclick (silencio)")
+        await asyncio.sleep(1.5)
+        await _mayorista_cerrar_modal()
+        await asyncio.sleep(1.0)
+        print("[PW] [MAYORISTA] Pedido de ejemplo creado ✓")
+    except Exception as e:
+        print(f"[PW] [MAYORISTA] Error creando pedido de ejemplo: {e}")
+    # Navegar a romaneo y recién ahí mostrar la pantalla
+    print("[PW] [MAYORISTA] Navegando a mayorista_romaneo.php (tras crear pedido)...")
+    await _page.goto(f"{base}{MAYORISTA_ROMANEO_PATH}", wait_until="domcontentloaded", timeout=25000)
+    await asyncio.sleep(2.0)
+    await _snap(on_screenshot, 0.0)
+    return ("Pedido de ejemplo creado en silencio y pantalla de Romaneo lista. Ahora seguí el guion de "
+            "la sección romaneo (botón naranja de pedidos pendientes → seleccionar el cliente).")
 
 
 async def mayorista_romaneo_seleccionar_pedido(on_screenshot=None) -> str:
@@ -6318,9 +6434,11 @@ async def mayorista_navegar_tickets(on_screenshot=None) -> str:
 
 
 async def mayorista_tickets_nuevo(on_screenshot=None) -> str:
-    """Abre un nuevo ticket (mayorista_tickets_nuevo())."""
+    """Abre un nuevo ticket (mayorista_tickets_nuevo()). Auto-navega a tickets si el
+    modelo salteó la navegación."""
     if _current_page() is None:
         return "Error: browser no iniciado"
+    await _mayorista_ensure_page(MAYORISTA_TICKETS_PATH, "nuevo ticket")
     await _mayorista_click("mayorista_tickets_nuevo(", "Nuevo ticket")
     await asyncio.sleep(2.0)
     await _snap(on_screenshot, 0.0)
@@ -6379,10 +6497,16 @@ async def mayorista_tickets_ver_dia(on_screenshot=None) -> str:
 # ── CAJA (cobro del romaneo/ticket mayorista) ────────────────────────────────
 
 async def mayorista_ir_a_caja(on_screenshot=None) -> str:
-    """Navega a caja.php para cobrar la venta mayorista."""
+    """Navega a caja.php para cobrar la venta mayorista.
+
+    Red de seguridad: si la caja no quedó lista por el prep (ej: falló, o entrada rara),
+    la abrimos en silencio antes de cobrar para que el cobro no falle."""
     if _current_page() is None:
         return "Error: browser no iniciado"
     base = MGW_URL.rstrip("/")
+    if not _st().get("mayorista_caja_ready"):
+        print("[PW] [MAYORISTA] Caja no marcada lista — asegurando apertura antes de cobrar...")
+        await _ensure_caja_abierta()
     print("[PW] [MAYORISTA] Navegando a caja.php para cobrar...")
     await _page.goto(f"{base}/caja.php", wait_until="domcontentloaded", timeout=25000)
     await asyncio.sleep(2.5)
@@ -6393,9 +6517,11 @@ async def mayorista_ir_a_caja(on_screenshot=None) -> str:
 
 
 async def mayorista_caja_abrir_pendientes(on_screenshot=None) -> str:
-    """Abre los romaneos/tickets mayorista CF pendientes en la caja."""
+    """Abre los romaneos/tickets mayorista CF pendientes en la caja. Auto-navega a caja
+    si el modelo salteó la navegación."""
     if _current_page() is None:
         return "Error: browser no iniciado"
+    await _mayorista_ensure_page("/caja.php", "abrir pendientes")
     clicked = await _mayorista_click("mostrar_tickets_mayorista_pendientes", "Mayorista pendientes CF")
     if not clicked:
         await _mayorista_click_sel(".mgw-pendiente-click", "Mayorista pendientes (clase)")
@@ -6450,9 +6576,11 @@ async def mayorista_navegar_historial(on_screenshot=None) -> str:
 
 
 async def mayorista_historial_ver_detalle(on_screenshot=None) -> str:
-    """Abre el detalle de una venta del historial (lupa, mayorista_historial_detalle)."""
+    """Abre el detalle de una venta del historial (lupa, mayorista_historial_detalle).
+    Auto-navega al historial si el modelo salteó la navegación."""
     if _current_page() is None:
         return "Error: browser no iniciado"
+    await _mayorista_ensure_page(MAYORISTA_HISTORIAL_PATH, "ver detalle historial")
     await _mayorista_click("mayorista_historial_detalle(", "Ver detalle historial")
     await asyncio.sleep(2.0)
     await _snap(on_screenshot, 0.0)
